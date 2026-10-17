@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.importing.ImportedCar;
@@ -106,26 +107,23 @@ public class GenericPageExtractor {
                 .limit(hints.maxImages())
                 .toList();
 
-        Map<String, String> specs = specsFromHtml(doc);
+        CarSpecs specs = CarSpecs.builder()
+                .title(title)
+                .make(make)
+                .model(model)
+                .year(year)
+                .mileageKm(mileage)
+                .fuelType(fuel)
+                .transmission(gearbox)
+                .bodyType(firstNonBlank(jsonLd.body, next.body))
+                .engine(firstNonBlank(jsonLd.engine, next.engine))
+                .color(firstNonBlank(jsonLd.color, next.color))
+                // The source's marketing text is not imported: the site writes its own description.
+                .extraSpecs(specsFromHtml(doc))
+                .build();
 
-        return new ImportedCar(
-                null,
-                title,
-                make,
-                model,
-                null,
-                year,
-                mileage,
-                price,
-                currency == null ? null : currency.toUpperCase(Locale.ROOT),
-                fuel,
-                gearbox,
-                firstNonBlank(jsonLd.body, next.body),
-                firstNonBlank(jsonLd.engine, next.engine),
-                firstNonBlank(jsonLd.color, next.color),
-                firstNonBlank(jsonLd.description, next.description, og.description),
-                specs,
-                photos);
+        return new ImportedCar(null, null, specs, price,
+                currency == null ? null : currency.toUpperCase(Locale.ROOT), photos, List.of());
     }
 
     // ------------------------------------------------------------------ JSON-LD

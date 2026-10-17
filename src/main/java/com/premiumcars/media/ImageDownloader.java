@@ -14,12 +14,16 @@ import org.springframework.stereotype.Component;
 
 import com.premiumcars.config.AppProperties;
 
-/** Downloads a photo from the source site. Returns empty instead of failing the whole import. */
+/**
+ * Downloads one photo and checks it is a complete image (format by magic bytes, not by URL; truncated JPEGs
+ * rejected). Returns empty instead of failing the whole import.
+ */
 @Component
 public class ImageDownloader {
 
     private static final Logger log = LoggerFactory.getLogger(ImageDownloader.class);
     private static final int MAX_BYTES = 15 * 1024 * 1024;
+    private static final int MIN_BYTES = 1024;
 
     public record DownloadedImage(byte[] bytes, String extension) {
     }
@@ -36,43 +40,87 @@ public class ImageDownloader {
     }
 
     public Optional<DownloadedImage> download(String imageUrl, String referer) {
-        try {
-            var request = HttpRequest.newBuilder(URI.create(imageUrl))
-                    .timeout(Duration.ofSeconds(props.importer().timeoutSeconds()))
-                    .header("User-Agent", props.importer().userAgent())
-                    .header("Referer", referer)
-                    .header("Accept", "image/avif,image/webp,image/png,image/jpeg,*/*")
-                    .GET()
-                    .build();
-            HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            String contentType = response.headers().firstValue("Content-Type").orElse("").toLowerCase(Locale.ROOT);
-            byte[] body = response.body();
-            if (response.statusCode() != 200 || !contentType.startsWith("image/")
-                    || body.length == 0 || body.length > MAX_BYTES) {
-                log.warn("Skipping image {} (status {}, type {}, {} bytes)",
-                        imageUrl, response.statusCode(), contentType, body.length);
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                var request = HttpRequest.newBuilder(URI.create(imageUrl))
+                        .timeout(Duration.ofSeconds(props.importer().timeoutSeconds()))
+                        .header("User-Agent", props.importer().userAgent())
+                        .header("Referer", referer)
+                        // Ask for JPEG first: CDNs then avoid AVIF, which some tools cannot open.
+                        .header("Accept", "image/jpeg,image/png,image/*;q=0.8")
+                        .GET()
+                        .build();
+                HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                int status = response.statusCode();
+                if (status == 429 || status == 503) {
+                    Thread.sleep(2000L * attempt);
+                    continue;
+                }
+                String type = response.headers().firstValue("Content-Type").orElse("").toLowerCase(Locale.ROOT);
+                byte[] body = response.body();
+                if (status != 200 || !(type.startsWith("image/") || type.contains("octet-stream"))) {
+                    log.debug("Skipping image {} (status {}, type {})", imageUrl, status, type);
+                    return Optional.empty();
+                }
+                String ext = sniff(body);
+                String problem = problem(body, ext);
+                if (problem == null) {
+                    return Optional.of(new DownloadedImage(body, ext));
+                }
+                log.debug("Image {} attempt {}: {}", imageUrl, attempt, problem);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 return Optional.empty();
+            } catch (Exception e) {
+                log.debug("Could not download image {}: {}", imageUrl, e.getMessage());
             }
-            return Optional.of(new DownloadedImage(body, extensionFor(contentType)));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return Optional.empty();
-        } catch (Exception e) {
-            log.warn("Could not download image {}: {}", imageUrl, e.getMessage());
-            return Optional.empty();
         }
+        log.warn("Giving up on image {}", imageUrl);
+        return Optional.empty();
     }
 
-    private static String extensionFor(String contentType) {
-        if (contentType.contains("png")) {
+    /** Real format by magic bytes, or null. */
+    static String sniff(byte[] d) {
+        if (d.length >= 3 && (d[0] & 0xff) == 0xff && (d[1] & 0xff) == 0xd8 && (d[2] & 0xff) == 0xff) {
+            return "jpg";
+        }
+        if (d.length >= 8 && (d[0] & 0xff) == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G') {
             return "png";
         }
-        if (contentType.contains("webp")) {
+        if (d.length >= 12 && d[0] == 'R' && d[1] == 'I' && d[2] == 'F' && d[3] == 'F'
+                && d[8] == 'W' && d[9] == 'E' && d[10] == 'B' && d[11] == 'P') {
             return "webp";
         }
-        if (contentType.contains("avif")) {
+        if (d.length >= 12 && d[4] == 'f' && d[5] == 't' && d[6] == 'y' && d[7] == 'p'
+                && d[8] == 'a' && d[9] == 'v' && d[10] == 'i') {
             return "avif";
         }
-        return "jpg";
+        if (d.length >= 6 && d[0] == 'G' && d[1] == 'I' && d[2] == 'F') {
+            return "gif";
+        }
+        return null;
+    }
+
+    /** Why the bytes are not a usable image, or null when they are. */
+    static String problem(byte[] body, String ext) {
+        if (body.length < MIN_BYTES) {
+            return "too small (" + body.length + " B)";
+        }
+        if (body.length > MAX_BYTES) {
+            return "too large (" + body.length + " B)";
+        }
+        if (ext == null) {
+            return "not an image";
+        }
+        if (ext.equals("jpg")) {
+            int end = body.length;
+            while (end > 2 && (body[end - 1] == 0 || body[end - 1] == '\r' || body[end - 1] == '\n')) {
+                end--;
+            }
+            if (!((body[end - 2] & 0xff) == 0xff && (body[end - 1] & 0xff) == 0xd9)) {
+                return "truncated JPEG";
+            }
+        }
+        return null;
     }
 }

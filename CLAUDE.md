@@ -24,20 +24,29 @@ Always run `mvn test` before finishing a change.
   `JdbcClient` with named parameters. All SQL for a table lives in its `*Repository` class.
 - Never concatenate user input into SQL. Dynamic WHERE clauses are built from fixed fragments plus named
   parameters (see `CarSearchSql`); sort orders come from the `CarSort` enum.
-- Domain types are Java records (`Car`, `CarDetails`, `CarImage`, `Inquiry`). Enums are stored as their `name()`.
+- Domain types are Java records (`Car`, `CarSpecs`, `PricingInputs`, `CarImage`, `Inquiry`). Enums are stored as
+  their `name()`. Build `CarSpecs` with `CarSpecs.builder()` / `toBuilder()`: `build()` trims, maps blank to null
+  and truncates to the column sizes. EV fields (battery, range, motor) are nullable; combustion cars leave them null.
+- The car API is nested: `{specs, pricing}` in requests and admin responses, `specs` in public responses.
 - jsonb columns: write with `CAST(:param AS jsonb)`, read/write through `JsonColumns`.
 - Schema changes: add a **new** Liquibase SQL file under `src/main/resources/db/changelog/changes/`
-  (`003-...sql`) and include it in `db.changelog-master.yaml`. Never edit an applied changeset.
+  (next free number, e.g. `004-...sql`) and include it in `db.changelog-master.yaml`. Never edit an applied changeset.
 - Network calls (page/photo download) happen outside DB transactions (`ImportService` is not `@Transactional`).
 - The source site URL, source id and dealer are admin-only; never return them from `/api/public/**`.
-- Code, comments and identifiers in English; user-facing texts live in the frontend (Bulgarian).
+- Secrets (autowini login) come only from environment variables or the git-ignored `.env` next to `pom.xml`
+  (`AUTOWINI_USER`, `AUTOWINI_PASS`). Never store them in the database, `application.yml`, tests or git.
+- Code, comments, identifiers and docs (README, CLAUDE.md) in English; user-facing texts live in the frontend (Bulgarian).
 
 ## Layout (`com.premiumcars`)
 
 | Package | What |
 |---|---|
 | `catalog` | cars and photos: domain records, `CarRepository`, `CarImageRepository`, `CarService`, public + admin controllers |
-| `importing` | import by link: one `SourceAdapter` per site, `GenericPageExtractor` (JSON-LD, `__NEXT_DATA__`, Open Graph, text) |
+| `importing` | import by link: `ImportService`, one `SourceAdapter` per site, `PageFetcher` |
+| `importing.extract` | `GenericPageExtractor` (JSON-LD, `__NEXT_DATA__`, Open Graph, text), `EvSpecsExtractor`, `TitleParser`, `LabelValues` |
+| `importing.browser` | `PageRenderer` / `PlaywrightPageRenderer`: headless Chromium for JS-rendered pages (`app.importer.browser.enabled`) |
+| `importing.source.autohome` | global.autohome.com.cn: `AutohomePageParser`, `AutohomeSourceAdapter` (renders when photos/EV data are missing) |
+| `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser`, `AutowiniSourceAdapter` |
 | `pricing` | `PriceCalculator` (landed cost in Bulgaria), `ExchangeRateProvider` |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
 | `inquiry` | customer inquiries |
@@ -53,7 +62,10 @@ DTOs are in `catalog/web/dto/CarDtos.java` and `inquiry/InquiryDtos.java`. The f
 
 ## Tests
 
-- `CarSearchSqlTest`, `PriceCalculatorTest`, `GenericPageExtractorTest`: fast, no DB.
+- `CarSearchSqlTest`, `PriceCalculatorTest`, `GenericPageExtractorTest`, `EvSpecsExtractorTest`,
+  `AutohomePageParserTest`, `AutowiniPageParserTest`: fast, no DB, no network.
 - `JdbcRepositoriesTest`: full Spring context on PostgreSQL 17 in Docker (Testcontainers, `@ServiceConnection`).
 - When an import misreads a real page: save it under `src/test/resources/pages/` and add a case to
-  `GenericPageExtractorTest`.
+  the matching parser test. Tests never log in or hit the real sites.
+- `EvSpecsExtractor`, `TitleParser` and the frontend's `description.ts` are ports of `autowini_poster_parallel.py`;
+  keep their output identical to the script.

@@ -3,24 +3,26 @@ package com.premiumcars.catalog.web.dto;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
 import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.Origin;
+import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.pricing.PriceBreakdown;
 
-import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-/** All request/response shapes of the catalog API in one place. */
+/**
+ * All request/response shapes of the catalog API in one place.
+ * Car data is nested as {@code specs} (public description) and {@code pricing} (admin-only inputs).
+ */
 public final class CarDtos {
 
     private CarDtos() {
@@ -38,6 +40,9 @@ public final class CarDtos {
             Integer mileageKm,
             FuelType fuelType,
             Transmission transmission,
+            Integer powerHp,
+            BigDecimal batteryKwh,
+            Integer electricRangeKm,
             Origin origin,
             CarStatus status,
             BigDecimal totalPriceEur,
@@ -66,22 +71,9 @@ public final class CarDtos {
     public record CarDetail(
             Long id,
             String slug,
-            String title,
-            String make,
-            String model,
-            String trim,
-            Integer year,
-            Integer mileageKm,
-            FuelType fuelType,
-            Transmission transmission,
-            String bodyType,
-            String engine,
-            Integer powerHp,
-            String color,
-            String description,
-            Map<String, String> specs,
-            Origin origin,
             CarStatus status,
+            Origin origin,
+            CarSpecs specs,
             List<String> imageUrls,
             PublicPrice price
     ) {
@@ -103,25 +95,9 @@ public final class CarDtos {
             CarSource source,
             String sourceUrl,
             String sourceRef,
-            String title,
-            String make,
-            String model,
-            String trim,
-            Integer year,
-            Integer mileageKm,
-            FuelType fuelType,
-            Transmission transmission,
-            String bodyType,
-            String engine,
-            Integer powerHp,
-            String color,
-            String description,
-            Map<String, String> specs,
-            BigDecimal sourcePrice,
-            String sourceCurrency,
-            BigDecimal shippingEur,
-            BigDecimal marginEur,
-            BigDecimal extraDutyRate,
+            String sourceLocation,
+            CarSpecs specs,
+            PricingInputs pricing,
             PriceBreakdown price,
             List<AdminImage> images,
             Instant createdAt,
@@ -130,33 +106,22 @@ public final class CarDtos {
     ) {
     }
 
-    public record CarUpdateRequest(
-            @NotBlank @Size(max = 255) String title,
-            @Size(max = 100) String make,
-            @Size(max = 100) String model,
-            @Size(max = 255) String trim,
-            @Min(1950) @Max(2100) Integer year,
-            @Min(0) @Max(2_000_000) Integer mileageKm,
-            FuelType fuelType,
-            Transmission transmission,
-            @Size(max = 100) String bodyType,
-            @Size(max = 100) String engine,
-            @Min(0) @Max(3000) Integer powerHp,
-            @Size(max = 50) String color,
-            @Size(max = 20_000) String description,
-            Map<String, String> specs,
-            @DecimalMin("0") BigDecimal sourcePrice,
-            @Size(min = 3, max = 3) String sourceCurrency,
-            @DecimalMin("0") BigDecimal shippingEur,
-            @DecimalMin("0") BigDecimal marginEur,
-            @DecimalMin("0") @DecimalMax("2") BigDecimal extraDutyRate
-    ) {
+    public record CarUpdateRequest(@NotNull @Valid CarSpecs specs, @NotNull @Valid PricingInputs pricing) {
     }
 
     public record StatusChangeRequest(@NotNull CarStatus status) {
     }
 
-    public record ImportRequest(@NotBlank @Size(max = 2000) String url) {
+    /**
+     * @param price    optional: the price to use instead of the one on the page (autowini shows prices
+     *                 only to some members, so it is usually entered here)
+     * @param currency currency of {@code price}; defaults to EUR
+     */
+    public record ImportRequest(
+            @NotBlank @Size(max = 2000) String url,
+            @DecimalMin("0") BigDecimal price,
+            @Size(min = 3, max = 3) String currency
+    ) {
     }
 
     public record ImportResult(AdminCar car, boolean alreadyImported, int importedImages, List<String> warnings) {

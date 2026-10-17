@@ -6,8 +6,10 @@ import java.time.Instant;
 /**
  * One row of the {@code car} table.
  *
- * @param sourceUrl     original listing (admin only, never exposed publicly)
- * @param totalPriceEur final customer price, recalculated on every save and stored so the catalog can filter/sort by it
+ * @param sourceUrl      original listing (admin only, never exposed publicly)
+ * @param sourceRef      listing id on the source site (admin only)
+ * @param sourceLocation city/region at the source, e.g. "xian" (admin only)
+ * @param totalPriceEur  final customer price, recalculated on every save and stored so the catalog can filter/sort by it
  */
 public record Car(
         long id,
@@ -16,7 +18,9 @@ public record Car(
         CarSource source,
         String sourceUrl,
         String sourceRef,
-        CarDetails details,
+        String sourceLocation,
+        CarSpecs specs,
+        PricingInputs pricing,
         BigDecimal totalPriceEur,
         Instant createdAt,
         Instant updatedAt,

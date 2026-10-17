@@ -16,6 +16,8 @@ public enum Transmission {
             return MANUAL;
         }
         if (t.contains("auto") || t.contains("cvt") || t.contains("dct") || t.contains("dsg")
+                || t.contains("dual-clutch") || t.contains("dual clutch") || t.contains("single-speed")
+                || t.contains("single speed") || t.contains("fixed gear") || t.contains("e-cvt")
                 || t.contains("自动") || t.contains("오토") || t.contains("자동") || t.matches(".*\\bat\\b.*")) {
             return AUTOMATIC;
         }

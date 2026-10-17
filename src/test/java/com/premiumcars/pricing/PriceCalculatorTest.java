@@ -20,7 +20,8 @@ class PriceCalculatorTest {
                     new BigDecimal("2500"), new BigDecimal("1500"), new BigDecimal("600"),
                     new BigDecimal("0.10"), new BigDecimal("0.20"),
                     Map.of("USD", new BigDecimal("0.86"))),
-            new AppProperties.Importer("test", 5, 10));
+            new AppProperties.Importer("test", 5, 10, new AppProperties.Browser(false, 10),
+                    new AppProperties.Autowini(null, null)));
 
     private final PriceCalculator calculator = new PriceCalculator(props, new ConfigExchangeRateProvider(props));
 
