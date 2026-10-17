@@ -41,6 +41,13 @@ class ImageDownloaderTest {
             exchange.getResponseBody().write(body);
             exchange.close();
         });
+        // autowini answers photos with "Content-Type: image" (no subtype)
+        server.createContext("/bare_1024.jpg", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "image");
+            exchange.sendResponseHeaders(200, jpeg.length);
+            exchange.getResponseBody().write(jpeg);
+            exchange.close();
+        });
         server.start();
         url = "http://127.0.0.1:" + server.getAddress().getPort() + "/photo_1024.jpg";
     }
@@ -67,6 +74,14 @@ class ImageDownloaderTest {
 
         var image = downloader.download(url, "https://www.autowini.com/", loggedIn);
 
+        assertThat(image).isPresent();
+        assertThat(image.get().extension()).isEqualTo("jpg");
+    }
+
+    @Test
+    void acceptsTheBareImageContentType() {
+        String bare = url.replace("photo_1024.jpg", "bare_1024.jpg");
+        var image = downloader.download(bare, "https://www.autowini.com/");
         assertThat(image).isPresent();
         assertThat(image.get().extension()).isEqualTo("jpg");
     }
