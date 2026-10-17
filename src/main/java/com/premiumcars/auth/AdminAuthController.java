@@ -82,8 +82,7 @@ public class AdminAuthController {
         holder.setContext(context);
         contextRepository.saveContext(context, httpRequest, httpResponse);
 
-        // New CSRF token for the logged-in session
-        csrfTokens.saveToken(null, httpRequest, httpResponse);
+        // New CSRF token for the logged-in session (overwrites the cookie: one Set-Cookie, no delete first)
         csrfTokens.saveToken(csrfTokens.generateToken(httpRequest), httpRequest, httpResponse);
         return new Me(user.username());
     }
