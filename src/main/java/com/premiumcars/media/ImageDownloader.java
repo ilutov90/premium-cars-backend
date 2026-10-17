@@ -70,7 +70,10 @@ public class ImageDownloader {
                 }
                 String type = response.headers().firstValue("Content-Type").orElse("").toLowerCase(Locale.ROOT);
                 byte[] body = response.body();
-                if (status != 200 || !(type.startsWith("image/") || type.contains("octet-stream"))) {
+                // Like the posting script: any type that mentions "image" (autowini sends just "image"), binary
+                // data, or bytes that are an image anyway. The bytes are checked below in every case.
+                boolean imageType = type.contains("image") || type.contains("octet-stream") || sniff(body) != null;
+                if (status != 200 || !imageType) {
                     log.debug("Skipping image {} (status {}, type {}): {}", imageUrl, status, type, snippet(body));
                     lastRefusal = "HTTP " + status + " " + type + ": " + snippet(body);
                     return Optional.empty();

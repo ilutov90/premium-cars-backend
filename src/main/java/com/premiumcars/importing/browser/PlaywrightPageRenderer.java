@@ -182,7 +182,7 @@ public class PlaywrightPageRenderer implements PageRenderer {
         Set<String> seen = new HashSet<>();
         for (Response r : responses) {
             String type = r.headers().getOrDefault("content-type", "");
-            if (r.status() != 200 || !type.startsWith("image/") || !filter.matcher(r.url()).find()
+            if (r.status() != 200 || !type.contains("image") || !filter.matcher(r.url()).find()
                     || !seen.add(r.url())) {
                 continue;
             }
@@ -204,7 +204,7 @@ public class PlaywrightPageRenderer implements PageRenderer {
         List<String> sample = new ArrayList<>();
         for (Response r : responses) {
             String type = r.headers().getOrDefault("content-type", "");
-            boolean imageLike = type.startsWith("image/") || r.request().resourceType().equals("image");
+            boolean imageLike = type.contains("image") || r.request().resourceType().equals("image");
             if (!imageLike || (filter != null && !filter.matcher(r.url()).find())) {
                 continue;
             }
