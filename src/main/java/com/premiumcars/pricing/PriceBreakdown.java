@@ -5,7 +5,7 @@ import java.math.BigDecimal;
 /**
  * How a car's final price was built (admin only; customers see only {@code totalEur}). Amounts in EUR.
  *
- * @param steps      number of steps above the threshold (may be fractional in PROPORTIONAL mode)
+ * @param steps      steps above the threshold, proportional (1.5 = 15 000 above)
  * @param stepCosts  steps * step cost
  */
 public record PriceBreakdown(

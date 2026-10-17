@@ -13,7 +13,7 @@ import org.springframework.stereotype.Repository;
 public class PricingProfileRepository {
 
     private static final String COLUMNS =
-            "id, base_costs_eur, threshold_eur, step_eur, step_cost_eur, step_mode, profit_eur, updated_at";
+            "id, base_costs_eur, threshold_eur, step_eur, step_cost_eur, profit_eur, updated_at";
 
     private static final RowMapper<PricingProfile> MAPPER = (rs, i) -> new PricingProfile(
             PriceProfile.valueOf(rs.getString("id")),
@@ -21,7 +21,6 @@ public class PricingProfileRepository {
             rs.getBigDecimal("threshold_eur"),
             rs.getBigDecimal("step_eur"),
             rs.getBigDecimal("step_cost_eur"),
-            StepMode.valueOf(rs.getString("step_mode")),
             rs.getBigDecimal("profit_eur"),
             rs.getObject("updated_at", OffsetDateTime.class).toInstant());
 
@@ -47,14 +46,13 @@ public class PricingProfileRepository {
         int rows = jdbc.sql("""
                         UPDATE pricing_profile SET
                             base_costs_eur = :baseCosts, threshold_eur = :threshold, step_eur = :step,
-                            step_cost_eur = :stepCost, step_mode = :stepMode, profit_eur = :profit,
+                            step_cost_eur = :stepCost, profit_eur = :profit,
                             updated_at = now()
                         WHERE id = :id""")
                 .param("baseCosts", p.baseCosts())
                 .param("threshold", p.threshold())
                 .param("step", p.step())
                 .param("stepCost", p.stepCost())
-                .param("stepMode", p.stepMode().name())
                 .param("profit", p.profit())
                 .param("id", id.name())
                 .update();

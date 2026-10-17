@@ -85,8 +85,8 @@ final price = car price in € + base costs + step cost × steps above the thres
 | step cost, for every 10 000 € above 10 000 € | 2880 € | 600 € |
 | profit | 2000 € | 2000 € |
 
-Step mode: `STARTED` (every started 10 000 counts, the default), `FULL` (only full ones) or `PROPORTIONAL`.
-The result is rounded to whole euros. Saving a profile reprices every car. Imported cars use their site's profile;
+Above the threshold the step costs are proportional: autohome, car for 25 000 € = 5860 + 2880 (up to 20 000)
++ 1440 (the 5000 above 20 000) + 2000. The result is rounded to whole euros. Saving a profile reprices every car. Imported cars use their site's profile;
 cars from other sites get one chosen in the editor.
 
 ## Data model
