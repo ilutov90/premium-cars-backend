@@ -1,6 +1,7 @@
 package com.premiumcars.importing.source.autowini;
 
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -49,6 +50,11 @@ public class AutowiniSourceAdapter implements SourceAdapter {
     @Override
     public String referer(URI listingUrl) {
         return "https://www.autowini.com/";
+    }
+
+    @Override
+    public HttpClient imageClient() {
+        return client.sessionClient();
     }
 
     @Override
