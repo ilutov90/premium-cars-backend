@@ -4,9 +4,13 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +23,8 @@ import com.premiumcars.common.BadRequestException;
 import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.importing.SourceAdapter;
 import com.premiumcars.importing.browser.PageRenderer;
+import com.premiumcars.importing.browser.PageRenderer.BrowserImages;
+import com.premiumcars.importing.browser.PageRenderer.CapturedImage;
 import com.premiumcars.importing.source.autowini.AutowiniPageParser.ParsedPage;
 import com.premiumcars.media.ImageDownloader;
 import com.premiumcars.media.ImageDownloader.DownloadedImage;
@@ -73,10 +79,14 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         return AutowiniPageParser.imageCandidates(imageUrl);
     }
 
+    /** Photo files of a listing, wherever autowini serves them from; logos and icons are filtered out by size. */
+    private static final Pattern PAGE_PHOTOS = Pattern.compile("(?i)(imagebox\\.autowini|/upload/)");
+    private static final int MIN_PHOTO_BYTES = 15 * 1024;
+
     /**
      * imagebox.autowini.com answers 403 (an autowini error page) to plain HTTP clients, even with the session
-     * cookies, while a visitor's browser gets the photos. So the missing photos are loaded in headless Chromium,
-     * on the listing page, with the session cookies.
+     * cookies. So the missing photos are loaded in headless Chromium on the listing page, with the session
+     * cookies: first the photos the page's own gallery loads, then the parsed URLs as {@code <img>} elements.
      */
     @Override
     public Map<Integer, DownloadedImage> imagesFromBrowser(URI listingUrl, List<String> imageUrls) {
@@ -85,10 +95,44 @@ public class AutowiniSourceAdapter implements SourceAdapter {
             return Map.of();
         }
         List<List<String>> candidates = imageUrls.stream().map(AutowiniPageParser::imageCandidates).toList();
+        BrowserImages loaded = renderer.loadImages(listingUrl.toString(), candidates, client.browserCookies(),
+                PAGE_PHOTOS);
+
         Map<Integer, DownloadedImage> out = new HashMap<>();
-        renderer.loadImages(listingUrl.toString(), candidates, client.browserCookies())
-                .forEach((i, bytes) -> ImageDownloader.accept(bytes).ifPresent(img -> out.put(i, img)));
+        loaded.requested().forEach((i, bytes) -> ImageDownloader.accept(bytes).ifPresent(img -> out.put(i, img)));
+        if (out.size() < imageUrls.size()) {
+            fillFromPage(out, imageUrls.size(), loaded.pageImages());
+        }
         return out;
+    }
+
+    /** Puts the gallery photos the page loaded into the still empty slots, in page order, one per photo. */
+    static void fillFromPage(Map<Integer, DownloadedImage> out, int slots, List<CapturedImage> pageImages) {
+        Map<String, DownloadedImage> byPhoto = new LinkedHashMap<>();
+        for (CapturedImage c : pageImages) {
+            if (c.bytes().length < MIN_PHOTO_BYTES) {
+                continue;
+            }
+            ImageDownloader.accept(c.bytes()).ifPresent(img -> byPhoto.merge(photoKey(c.url()), img,
+                    (a, b) -> a.bytes().length >= b.bytes().length ? a : b)); // keep the larger size
+        }
+        Set<String> used = new HashSet<>();
+        var photos = byPhoto.entrySet().iterator();
+        for (int i = 0; i < slots && photos.hasNext(); i++) {
+            if (!out.containsKey(i)) {
+                var next = photos.next();
+                if (used.add(next.getKey())) {
+                    out.put(i, next.getValue());
+                }
+            }
+        }
+    }
+
+    /** ".../5d6db85f-..._1024.jpg" and ".../5d6db85f-..._320.jpg" are the same photo. */
+    static String photoKey(String url) {
+        String path = url.replaceAll("[?#].*$", "");
+        String file = path.substring(path.lastIndexOf('/') + 1);
+        return file.replaceAll("(?i)(_(320|640|1024|1280|org|orig))?\\.(jpe?g|png|webp|avif)$", "");
     }
 
     @Override

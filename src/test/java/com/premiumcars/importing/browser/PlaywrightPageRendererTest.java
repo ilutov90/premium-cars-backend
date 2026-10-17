@@ -11,6 +11,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
 
@@ -23,6 +24,8 @@ import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Playwright;
 import com.premiumcars.config.AppProperties;
 import com.premiumcars.importing.browser.PageRenderer.BrowserCookie;
+import com.premiumcars.importing.browser.PageRenderer.BrowserImages;
+import com.premiumcars.importing.browser.PageRenderer.CapturedImage;
 import com.premiumcars.media.ImageDownloader;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -58,7 +61,9 @@ class PlaywrightPageRendererTest {
     void start() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/Cars/IC1/cars-detail", ex -> send(ex, 200, "text/html",
-                "<html><body><h1>Listing</h1></body></html>".getBytes(StandardCharsets.UTF_8)));
+                ("<html><body><h1>Listing</h1><img src='/upload/g1_1024.jpg'>"
+                        + "<div style='height:3000px'></div><img loading='lazy' src='/upload/g2_1024.jpg'>"
+                        + "<img src='/static/logo.png'></body></html>").getBytes(StandardCharsets.UTF_8)));
         server.createContext("/upload/", ex -> {
             boolean fromImg = "image".equals(ex.getRequestHeaders().getFirst("Sec-Fetch-Dest"));
             String cookie = ex.getRequestHeaders().getFirst("Cookie");
@@ -87,7 +92,7 @@ class PlaywrightPageRendererTest {
                 List.of(List.of(base + "/upload/a_1024.jpg", base + "/upload/a_320.jpg"),
                         List.of(base + "/upload/b_1024.jpg", base + "/upload/b_320.jpg"),
                         List.of(base + "/upload/c_1024.jpg")),
-                List.of(new BrowserCookie("SESSION", "abc", "127.0.0.1", "/")));
+                List.of(new BrowserCookie("SESSION", "abc", "127.0.0.1", "/")), null).requested();
 
         assertThat(photos).containsOnlyKeys(0, 1, 2);
         assertThat(photos.values()).allSatisfy(bytes -> assertThat(ImageDownloader.accept(bytes)).isPresent());
@@ -97,10 +102,24 @@ class PlaywrightPageRendererTest {
     void withoutTheSessionNothingLoads() {
         assumeTrue(browserAvailable, "Chromium is not available");
 
-        Map<Integer, byte[]> photos = renderer.loadImages(base + "/Cars/IC1/cars-detail",
-                List.of(List.of(base + "/upload/a_1024.jpg")), List.of());
+        BrowserImages photos = renderer.loadImages(base + "/Cars/IC1/cars-detail",
+                List.of(List.of(base + "/upload/a_1024.jpg")), List.of(), Pattern.compile("/upload/"));
 
-        assertThat(photos).isEmpty();
+        assertThat(photos.requested()).isEmpty();
+        assertThat(photos.pageImages()).isEmpty();
+    }
+
+    @Test
+    void keepsThePhotosTheGalleryLoadsEvenWhenTheParsedUrlsAreWrong() {
+        assumeTrue(browserAvailable, "Chromium is not available");
+
+        BrowserImages photos = renderer.loadImages(base + "/Cars/IC1/cars-detail",
+                List.of(List.of(base + "/upload/b_1024.jpg")), // does not exist
+                List.of(new BrowserCookie("SESSION", "abc", "127.0.0.1", "/")), Pattern.compile("/upload/"));
+
+        assertThat(photos.requested()).isEmpty();
+        assertThat(photos.pageImages()).extracting(CapturedImage::url)
+                .containsExactly(base + "/upload/g1_1024.jpg", base + "/upload/g2_1024.jpg"); // lazy one too, no logo
     }
 
     private static void send(HttpExchange ex, int status, String type, byte[] body) throws IOException {
