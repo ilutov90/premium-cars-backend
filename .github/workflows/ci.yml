@@ -23,14 +23,21 @@ jobs:
         shell: python3 {0}
         run: |
           import glob, sys, xml.etree.ElementTree as ET
+          # One notice for all classes: GitHub shows at most 10 notices per step.
           skipped_db = False
+          total = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          lines = []
           for f in sorted(glob.glob("target/surefire-reports/TEST-*.xml")):
               s = ET.parse(f).getroot()
               name = s.get("name").rsplit(".", 1)[-1]
-              counts = {k: int(s.get(k, 0)) for k in ("tests", "failures", "errors", "skipped")}
-              print(f"::notice title={name}::" + " ".join(f"{k}={v}" for k, v in counts.items()))
+              counts = {k: int(s.get(k, 0)) for k in total}
+              for k in total:
+                  total[k] += counts[k]
+              lines.append(f"{name} {counts['tests']}" + (f" (skipped {counts['skipped']})" if counts["skipped"] else ""))
               if name == "JdbcRepositoriesTest" and counts["skipped"]:
                   skipped_db = True
+          summary = " ".join(f"{k}={v}" for k, v in total.items())
+          print(f"::notice title=Tests {summary}::" + ", ".join(lines))
           if skipped_db:
               print("::error title=JdbcRepositoriesTest::database tests were skipped (Docker not available)")
               sys.exit(1)
