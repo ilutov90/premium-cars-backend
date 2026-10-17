@@ -60,6 +60,15 @@ app:
       # Same variable names as autowini_poster.py's .env, so one file can serve both.
       username: ${AUTOWINI_USER:}
       password: ${AUTOWINI_PASS:}
+  social:
+    # Publishing to Facebook/Instagram from the admin panel. Same names as the posting script's .env;
+    # leave empty to hide that network. See README "Facebook and Instagram".
+    graph-version: v23.0
+    facebook-page-id: ${FB_PAGE_ID:}
+    access-token: ${FB_ACCESS_TOKEN:}
+    instagram-user-id: ${IG_USER_ID:}
+    imgbb-api-key: ${IMGBB_API_KEY:}
+    max-photos: 10
   pricing:
     # Costs and profit per site are in the database (admin panel -> "Цени"), see PriceCalculator.
     exchange-rates:              # EUR per 1 unit — update regularly (later: fetch daily from the ECB)

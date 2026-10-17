@@ -9,3 +9,5 @@ databaseChangeLog:
       file: db/changelog/changes/004-pricing-profiles.sql
   - include:
       file: db/changelog/changes/005-proportional-steps.sql
+  - include:
+      file: db/changelog/changes/006-social-posts.sql

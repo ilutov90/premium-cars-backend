@@ -49,6 +49,15 @@ public class LocalImageStorage implements ImageStorage {
     }
 
     @Override
+    public byte[] read(String storagePath) {
+        try {
+            return Files.readAllBytes(resolve(storagePath));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Could not read image " + storagePath, e);
+        }
+    }
+
+    @Override
     public String publicUrl(String storagePath) {
         return baseUrl + storagePath;
     }

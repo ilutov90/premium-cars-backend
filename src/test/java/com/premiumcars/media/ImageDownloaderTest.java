@@ -26,7 +26,7 @@ class ImageDownloaderTest {
 
     private final ImageDownloader downloader = new ImageDownloader(new AppProperties(null, null, null, null,
             new AppProperties.Importer("test-agent", 5, 10, new AppProperties.Browser(false, 5),
-                    new AppProperties.Autowini(null, null))));
+                    new AppProperties.Autowini(null, null)), null));
 
     @BeforeEach
     void start() throws Exception {

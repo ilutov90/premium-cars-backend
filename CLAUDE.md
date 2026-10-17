@@ -34,8 +34,8 @@ Always run `mvn test` before finishing a change.
 - Network calls (page/photo download) happen outside DB transactions (`ImportService` is not `@Transactional`).
 - The source site URL, source id and dealer are admin-only; never return them from `/api/public/**`.
 - Customers see only the final price (`priceEur` / `totalPriceEur`); purchase price, costs and profit are admin-only.
-- Secrets (autowini login) come only from environment variables or the git-ignored `.env` next to `pom.xml`
-  (`AUTOWINI_USER`, `AUTOWINI_PASS`). Never store them in the database, `application.yml`, tests or git.
+- Secrets (autowini login, Meta token, imgbb key) come only from environment variables or the git-ignored `.env`
+  next to `pom.xml` (`AUTOWINI_USER`, `AUTOWINI_PASS`, `FB_ACCESS_TOKEN`, `IMGBB_API_KEY` …). Tokens go in headers, never URLs. Never store them in the database, `application.yml`, tests or git.
 - Code, comments, identifiers and docs (README, CLAUDE.md) in English; user-facing texts live in the frontend (Bulgarian).
 
 ## Layout (`com.premiumcars`)
@@ -50,6 +50,7 @@ Always run `mvn test` before finishing a change.
 | `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser`, `AutowiniSourceAdapter` |
 | `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
+| `social` | publishing to Facebook / Instagram: `MetaGraphClient` (Graph API), `ImgbbUploader`, `SocialPublisher`, `social_post` |
 | `inquiry` | customer inquiries |
 | `config`, `common` | security, CORS, properties, errors, paging |
 

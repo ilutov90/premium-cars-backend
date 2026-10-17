@@ -16,7 +16,8 @@ public record AppProperties(
         Cors cors,
         Media media,
         Pricing pricing,
-        Importer importer
+        Importer importer,
+        Social social
 ) {
 
     public record Admin(String username, String password) {
@@ -56,5 +57,30 @@ public record AppProperties(
     }
 
     public record Autowini(String username, String password) {
+    }
+
+    /**
+     * Facebook page / Instagram account to publish cars to, through the Meta Graph API. Same variable names as the
+     * posting script's .env (FB_PAGE_ID, FB_ACCESS_TOKEN, IG_USER_ID, IMGBB_API_KEY); empty = that network is off.
+     *
+     * @param graphVersion     Graph API version, e.g. v23.0
+     * @param accessToken      a long-lived Page access token (also used for the Instagram account linked to the page)
+     * @param imgbbApiKey      Instagram needs public photo URLs; photos are uploaded to imgbb for that
+     * @param maxPhotos        photos per post (Instagram carousels take at most 10)
+     */
+    public record Social(String graphVersion, String facebookPageId, String accessToken, String instagramUserId,
+                         String imgbbApiKey, int maxPhotos) {
+
+        public boolean facebookConfigured() {
+            return notBlank(facebookPageId) && notBlank(accessToken);
+        }
+
+        public boolean instagramConfigured() {
+            return notBlank(instagramUserId) && notBlank(accessToken) && notBlank(imgbbApiKey);
+        }
+
+        private static boolean notBlank(String s) {
+            return s != null && !s.isBlank();
+        }
     }
 }

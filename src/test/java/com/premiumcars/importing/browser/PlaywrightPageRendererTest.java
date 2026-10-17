@@ -45,7 +45,7 @@ class PlaywrightPageRendererTest {
 
     private final PlaywrightPageRenderer renderer = new PlaywrightPageRenderer(new AppProperties(null, null, null, null,
             new AppProperties.Importer("Mozilla/5.0 test", 10, 30, new AppProperties.Browser(true, 30),
-                    new AppProperties.Autowini(null, null))));
+                    new AppProperties.Autowini(null, null)), null));
 
     @BeforeAll
     static void checkBrowser() {

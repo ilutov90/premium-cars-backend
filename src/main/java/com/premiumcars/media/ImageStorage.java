@@ -16,6 +16,9 @@ public interface ImageStorage {
 
     void delete(String storagePath);
 
+    /** The stored bytes (e.g. to upload a photo to Facebook). */
+    byte[] read(String storagePath);
+
     /** Public URL the browser loads the image from. */
     String publicUrl(String storagePath);
 }
