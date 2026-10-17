@@ -47,3 +47,14 @@ jobs:
           if skipped_db:
               print("::error title=JdbcRepositoriesTest::database tests were skipped (Docker not available)")
               sys.exit(1)
+
+  # Blocks commits that contain passwords, tokens or keys (scans the whole history of the branch)
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
