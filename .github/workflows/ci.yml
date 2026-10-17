@@ -18,3 +18,19 @@ jobs:
           java-version: "21"
           cache: maven
       - run: mvn -B verify
+      - name: Test summary
+        if: always()
+        shell: python3 {0}
+        run: |
+          import glob, sys, xml.etree.ElementTree as ET
+          skipped_db = False
+          for f in sorted(glob.glob("target/surefire-reports/TEST-*.xml")):
+              s = ET.parse(f).getroot()
+              name = s.get("name").rsplit(".", 1)[-1]
+              counts = {k: int(s.get(k, 0)) for k in ("tests", "failures", "errors", "skipped")}
+              print(f"::notice title={name}::" + " ".join(f"{k}={v}" for k, v in counts.items()))
+              if name == "JdbcRepositoriesTest" and counts["skipped"]:
+                  skipped_db = True
+          if skipped_db:
+              print("::error title=JdbcRepositoriesTest::database tests were skipped (Docker not available)")
+              sys.exit(1)
