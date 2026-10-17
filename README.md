@@ -54,6 +54,26 @@ On a server, set them as real environment variables or secrets.
 The first import that needs rendering downloads Chromium (~150 MB) into the Playwright cache; later imports
 reuse it. To turn rendering off (pages are then read from HTML only): `APP_IMPORTER_BROWSER_ENABLED=false`.
 
+## Facebook and Instagram
+
+The car editor in the admin panel shows the post text (the posting script's format, editable) with
+**Publish to Facebook** / **Publish to Instagram** buttons, the list of earlier posts, and "share with photos"
+(the phone's or Windows share sheet, e.g. to the Instagram app) / "download photos".
+
+Publishing uses the Meta Graph API like the posting script: Facebook gets an album post with up to 10 photos;
+Instagram gets a carousel (photos are uploaded to imgbb first, because Instagram needs public photo URLs).
+Settings, in `.env` like the autowini login (the same names as the script's `.env`):
+
+| Variable | What | Where to get it |
+|---|---|---|
+| `FB_PAGE_ID` | the Facebook page id | Page → About / Meta Business Suite → Settings |
+| `FB_ACCESS_TOKEN` | a long-lived **Page** access token with `pages_manage_posts`, `pages_read_engagement`, `instagram_basic`, `instagram_content_publish` | developers.facebook.com → your app → Graph API Explorer → select the page → generate token; exchange it for a long-lived one (Access Token Debugger → "Extend") and take the page token from `/me/accounts` |
+| `IG_USER_ID` | the Instagram **business/creator** account linked to the page | Graph API Explorer: `/{FB_PAGE_ID}?fields=instagram_business_account` |
+| `IMGBB_API_KEY` | imgbb API key | api.imgbb.com |
+
+A network whose settings are missing has its button disabled. Restart the backend after changing `.env`.
+Posts are recorded in `social_post` (link, date, number of photos); the editor asks before posting a car twice.
+
 ## Configuration
 
 Everything is in `src/main/resources/application.yml` and can be overridden with an environment variable:
@@ -65,6 +85,7 @@ Everything is in `src/main/resources/application.yml` and can be overridden with
 | Exchange rates | `app.pricing.exchange-rates` | approximate, **update them** |
 | Max photos per import | `app.importer.max-images` | 30 |
 | Headless browser | `APP_IMPORTER_BROWSER_ENABLED` | `true` |
+| Facebook / Instagram | `FB_PAGE_ID`, `FB_ACCESS_TOKEN`, `IG_USER_ID`, `IMGBB_API_KEY` | empty (off) |
 | Demo cars on an empty DB | `LIQUIBASE_CONTEXTS` | `demo` (`none` = no demo data) |
 
 Prices are recalculated on every start; after changing exchange rates without a restart:
@@ -104,6 +125,7 @@ No ORM. Each repository holds the SQL for its table:
 | `CarRepository` | `car` | search with a dynamic WHERE (`CarSearchSql`), sorting with `NULLS LAST` |
 | `CarImageRepository` | `car_image` | position 0 = cover; positions are reordered with one SQL statement |
 | `PricingProfileRepository` | `pricing_profile` | one row per source site |
+| `SocialPostRepository` | `social_post` | posts published to Facebook / Instagram |
 | `InquiryRepository` | `inquiry` | `LEFT JOIN car` for the car title |
 
 Schema change: a new file `src/main/resources/db/changelog/changes/00N-....sql` and a line in `db.changelog-master.yaml`.
