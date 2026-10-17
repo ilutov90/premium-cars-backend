@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * All application settings live under the "app" prefix in application.yml.
- * Every value can be overridden with an environment variable, e.g. APP_ADMIN_PASSWORD.
+ * Every value can be overridden with an environment variable, e.g. APP_SECURE_COOKIES; secrets come from Vault.
  */
 @ConfigurationProperties(prefix = "app")
 public record AppProperties(
@@ -20,7 +20,13 @@ public record AppProperties(
         Social social
 ) {
 
-    public record Admin(String username, String password) {
+    /**
+     * @param initialPassword creates the "admin" user when the admin_user table is empty (from Vault:
+     *                        ADMIN_INITIAL_PASSWORD); ignored afterwards
+     * @param secureCookies   mark the CSRF cookie Secure (HTTPS only); the session cookie follows
+     *                        server.servlet.session.cookie.secure
+     */
+    public record Admin(String initialPassword, boolean secureCookies) {
     }
 
     public record Cors(List<String> allowedOrigins) {

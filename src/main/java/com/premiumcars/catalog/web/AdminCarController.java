@@ -40,12 +40,6 @@ public class AdminCarController {
         this.importService = importService;
     }
 
-    /** Used by the admin UI to check the login. */
-    @GetMapping("/me")
-    public Map<String, String> me(java.security.Principal principal) {
-        return Map.of("username", principal.getName());
-    }
-
     @PostMapping("/imports")
     public ImportResult importCar(@Valid @RequestBody ImportRequest request) {
         return importService.importFromUrl(request.url(), request.price(), request.currency());
