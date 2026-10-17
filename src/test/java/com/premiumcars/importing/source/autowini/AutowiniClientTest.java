@@ -34,7 +34,7 @@ class AutowiniClientTest {
 
     private final AutowiniClient client = new AutowiniClient(new AppProperties(null, null, null, null,
             new AppProperties.Importer(SCRIPT_UA, 5, 10, new AppProperties.Browser(false, 5),
-                    new AppProperties.Autowini("user", "pass"))));
+                    new AppProperties.Autowini("user", "pass")), null));
 
     @BeforeEach
     void start() throws IOException {

@@ -34,6 +34,10 @@ import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.inquiry.Inquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 import com.premiumcars.inquiry.InquiryService;
+import com.premiumcars.social.SocialNetwork;
+import com.premiumcars.social.SocialPost;
+import com.premiumcars.social.SocialPostRepository;
+import com.premiumcars.social.SocialPublisher;
 import com.premiumcars.pricing.PriceProfile;
 import com.premiumcars.pricing.PricingProfile;
 
@@ -54,6 +58,12 @@ class JdbcRepositoriesTest {
 
     @Autowired
     InquiryService inquiryService;
+
+    @Autowired
+    SocialPostRepository socialPosts;
+
+    @Autowired
+    SocialPublisher socialPublisher;
 
     @Test
     void publicCatalogSortsWithNullsLast() {
@@ -188,6 +198,26 @@ class JdbcRepositoriesTest {
             carService.updatePricingProfile(PriceProfile.AUTOWINI, original);
             carService.delete(car.id());
         }
+    }
+
+    @Test
+    void socialPostsAreRecordedPerCarAndGoWithTheCar() {
+        String url = "https://www.autowini.com/test/" + UUID.randomUUID();
+        var imported = new ImportedCar("IC2", null, CarSpecs.builder().title("Kia Sportage 2024").build(),
+                new BigDecimal("20000"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
+
+        socialPosts.insert(car.id(), SocialNetwork.FACEBOOK, "PAGE_1", "https://www.facebook.com/PAGE_1", 10);
+        socialPosts.insert(car.id(), SocialNetwork.INSTAGRAM, "media1", null, 8);
+        assertThat(socialPublisher.posts(car.id())).extracting(SocialPost::network)
+                .containsExactlyInAnyOrder(SocialNetwork.FACEBOOK, SocialNetwork.INSTAGRAM);
+
+        // a car without photos cannot be published (checked before any network call)
+        assertThatThrownBy(() -> socialPublisher.publish(car.id(), SocialNetwork.FACEBOOK, "text"))
+                .hasMessageContaining("no photos");
+
+        carService.delete(car.id());
+        assertThat(socialPosts.findByCarId(car.id())).isEmpty();
     }
 
     @Test
