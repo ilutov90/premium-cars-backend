@@ -36,8 +36,25 @@ jobs:
               lines.append(f"{name} {counts['tests']}" + (f" (skipped {counts['skipped']})" if counts["skipped"] else ""))
               if name == "JdbcRepositoriesTest" and counts["skipped"]:
                   skipped_db = True
+          # one error per failed test, with the start of its message (the logs are not always at hand)
+          for f in sorted(glob.glob("target/surefire-reports/TEST-*.xml")):
+              for case in ET.parse(f).getroot().iter("testcase"):
+                  for bad in list(case.findall("failure")) + list(case.findall("error")):
+                      text = (bad.get("message") or bad.text or "").replace("\n", " ").replace("%", "%25")[:900]
+                      print(f"::error title={case.get('classname', '').rsplit('.', 1)[-1]}.{case.get('name')}::{text}")
           summary = " ".join(f"{k}={v}" for k, v in total.items())
           print(f"::notice title=Tests {summary}::" + ", ".join(lines))
           if skipped_db:
               print("::error title=JdbcRepositoriesTest::database tests were skipped (Docker not available)")
               sys.exit(1)
+
+  # Blocks commits that contain passwords, tokens or keys (scans the whole history of the branch)
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
