@@ -1,0 +1,58 @@
+# Local defaults. Every value can be overridden with an environment variable,
+# e.g. SPRING_DATASOURCE_URL, APP_ADMIN_PASSWORD, APP_PRICING_DEFAULT_MARGIN_EUR.
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: premium-cars-backend
+  datasource:
+    # PostgreSQL from premium-cars-infra/docker-compose.yml (host port 5433 so it does not clash with a local 5432)
+    url: jdbc:postgresql://localhost:5433/premiumcars
+    username: premiumcars
+    password: premiumcars
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    # "demo" inserts three sample cars so the site is not empty on first start. Set to "none" to skip.
+    contexts: ${LIQUIBASE_CONTEXTS:demo}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    com.premiumcars: DEBUG
+
+app:
+  admin:
+    username: admin
+    password: ${APP_ADMIN_PASSWORD:admin123} # change it; never commit a real password
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+  media:
+    dir: ./data/media
+    base-url: http://localhost:8080/media/
+  importer:
+    user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
+    timeout-seconds: 20
+    max-images: 25
+  pricing:
+    # Simplified landed-cost model, see PriceCalculator. Check every rate with your customs broker / accountant.
+    default-shipping-eur: 2500   # sea freight + port handling up to Varna/Burgas
+    default-margin-eur: 1500     # your fee per car
+    fixed-fees-eur: 600          # customs broker, registration, etc.
+    customs-duty-rate: 0.10      # standard EU duty for passenger cars
+    vat-rate: 0.20               # Bulgarian VAT
+    exchange-rates:              # EUR per 1 unit — update regularly (later: fetch daily from the ECB)
+      USD: 0.86
+      CNY: 0.12
+      KRW: 0.00061

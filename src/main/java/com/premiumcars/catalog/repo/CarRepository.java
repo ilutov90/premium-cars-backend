@@ -1,0 +1,204 @@
+package com.premiumcars.catalog.repo;
+
+import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+import com.premiumcars.catalog.domain.Car;
+import com.premiumcars.catalog.domain.CarDetails;
+import com.premiumcars.catalog.domain.CarSort;
+import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.web.dto.CarFilter;
+
+/** All SQL for the {@code car} table. */
+@Repository
+public class CarRepository {
+
+    /** A car in a list, with the storage path of its cover photo (null when it has none). */
+    public record CarListRow(Car car, String coverPath) {
+    }
+
+    public record CarPage(List<CarListRow> rows, long total) {
+    }
+
+    private static final String SELECT_CAR = "SELECT " + CarSearchSql.CAR_COLUMNS + " FROM car c ";
+
+    private final JdbcClient jdbc;
+    private final JsonColumns json;
+    private final CarRowMapper carMapper;
+    private final RowMapper<CarListRow> listRowMapper;
+
+    public CarRepository(JdbcClient jdbc, JsonColumns json) {
+        this.jdbc = jdbc;
+        this.json = json;
+        this.carMapper = new CarRowMapper(json);
+        this.listRowMapper = (rs, n) -> new CarListRow(carMapper.mapRow(rs, n), rs.getString("cover_path"));
+    }
+
+    // ---------------------------------------------------------------- queries
+
+    public Optional<Car> findById(long id) {
+        return jdbc.sql(SELECT_CAR + "WHERE c.id = :id")
+                .param("id", id)
+                .query(carMapper)
+                .optional();
+    }
+
+    public Optional<Car> findBySlug(String slug) {
+        return jdbc.sql(SELECT_CAR + "WHERE c.slug = :slug")
+                .param("slug", slug)
+                .query(carMapper)
+                .optional();
+    }
+
+    public Optional<Car> findBySourceUrl(String sourceUrl) {
+        return jdbc.sql(SELECT_CAR + "WHERE c.source_url = :sourceUrl")
+                .param("sourceUrl", sourceUrl)
+                .query(carMapper)
+                .optional();
+    }
+
+    public List<Car> findAll() {
+        return jdbc.sql(SELECT_CAR + "ORDER BY c.id").query(carMapper).list();
+    }
+
+    public CarPage search(CarFilter filter, Collection<CarStatus> statuses, CarSort sort, int page, int size) {
+        CarSearchSql sql = CarSearchSql.of(filter, statuses);
+        CarSearchSql.Sql count = sql.count();
+        long total = jdbc.sql(count.text()).params(count.params()).query(Long.class).single();
+        if (total == 0) {
+            return new CarPage(List.of(), 0);
+        }
+        CarSearchSql.Sql pageSql = sql.page(sort, page, size);
+        List<CarListRow> rows = jdbc.sql(pageSql.text()).params(pageSql.params()).query(listRowMapper).list();
+        return new CarPage(rows, total);
+    }
+
+    public List<String> findMakes(Collection<CarStatus> statuses) {
+        return jdbc.sql("""
+                        SELECT DISTINCT make FROM car
+                        WHERE status IN (:statuses) AND make IS NOT NULL
+                        ORDER BY make""")
+                .param("statuses", CarSearchSql.names(statuses))
+                .query(String.class)
+                .list();
+    }
+
+    // ---------------------------------------------------------------- writes
+
+    /** Inserts a car and returns its generated id. */
+    public long insert(String slug, CarStatus status, CarSource source, String sourceUrl, String sourceRef,
+                       CarDetails details, BigDecimal totalPriceEur) {
+        Map<String, Object> p = detailParams(details);
+        p.put("slug", slug);
+        p.put("status", status.name());
+        p.put("source", source.name());
+        p.put("sourceUrl", sourceUrl);
+        p.put("sourceRef", sourceRef);
+        p.put("totalPriceEur", totalPriceEur);
+        return jdbc.sql("""
+                        INSERT INTO car (slug, status, source, source_url, source_ref,
+                                         title, make, model, trim_level, model_year, mileage_km, fuel_type,
+                                         transmission, body_type, engine, power_hp, color, description, specs,
+                                         source_price, source_currency, shipping_eur, margin_eur, extra_duty_rate,
+                                         total_price_eur, created_at, updated_at)
+                        VALUES (:slug, :status, :source, :sourceUrl, :sourceRef,
+                                :title, :make, :model, :trim, :year, :mileageKm, :fuelType,
+                                :transmission, :bodyType, :engine, :powerHp, :color, :description, CAST(:specs AS jsonb),
+                                :sourcePrice, :sourceCurrency, :shippingEur, :marginEur, :extraDutyRate,
+                                :totalPriceEur, now(), now())
+                        RETURNING id""")
+                .params(p)
+                .query(Long.class)
+                .single();
+    }
+
+    /** Replaces all editable fields of a car. Returns false when the car does not exist. */
+    public boolean update(long id, CarDetails details, BigDecimal totalPriceEur) {
+        Map<String, Object> p = detailParams(details);
+        p.put("id", id);
+        p.put("totalPriceEur", totalPriceEur);
+        int rows = jdbc.sql("""
+                        UPDATE car SET
+                            title = :title, make = :make, model = :model, trim_level = :trim,
+                            model_year = :year, mileage_km = :mileageKm, fuel_type = :fuelType,
+                            transmission = :transmission, body_type = :bodyType, engine = :engine,
+                            power_hp = :powerHp, color = :color, description = :description,
+                            specs = CAST(:specs AS jsonb), source_price = :sourcePrice,
+                            source_currency = :sourceCurrency, shipping_eur = :shippingEur,
+                            margin_eur = :marginEur, extra_duty_rate = :extraDutyRate,
+                            total_price_eur = :totalPriceEur, updated_at = now()
+                        WHERE id = :id""")
+                .params(p)
+                .update();
+        return rows == 1;
+    }
+
+    public void updateSlug(long id, String slug) {
+        jdbc.sql("UPDATE car SET slug = :slug WHERE id = :id")
+                .param("slug", slug)
+                .param("id", id)
+                .update();
+    }
+
+    /** Sets the status; the first publish also stamps published_at. */
+    public void updateStatus(long id, CarStatus status) {
+        jdbc.sql("""
+                        UPDATE car SET
+                            status = :status,
+                            published_at = CASE WHEN :publish THEN COALESCE(published_at, now()) ELSE published_at END,
+                            updated_at = now()
+                        WHERE id = :id""")
+                .param("status", status.name())
+                .param("publish", status == CarStatus.PUBLISHED)
+                .param("id", id)
+                .update();
+    }
+
+    public void updateTotalPrice(long id, BigDecimal totalPriceEur) {
+        jdbc.sql("UPDATE car SET total_price_eur = :total WHERE id = :id")
+                .param("total", totalPriceEur)
+                .param("id", id)
+                .update();
+    }
+
+    /** Deletes the car; its images go with it (ON DELETE CASCADE), its inquiries keep a null car_id. */
+    public void delete(long id) {
+        jdbc.sql("DELETE FROM car WHERE id = :id").param("id", id).update();
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    /** Named parameters shared by INSERT and UPDATE. A HashMap because values may be null. */
+    private Map<String, Object> detailParams(CarDetails d) {
+        Map<String, Object> p = new HashMap<>();
+        p.put("title", d.title());
+        p.put("make", d.make());
+        p.put("model", d.model());
+        p.put("trim", d.trim());
+        p.put("year", d.year());
+        p.put("mileageKm", d.mileageKm());
+        p.put("fuelType", d.fuelType() == null ? null : d.fuelType().name());
+        p.put("transmission", d.transmission() == null ? null : d.transmission().name());
+        p.put("bodyType", d.bodyType());
+        p.put("engine", d.engine());
+        p.put("powerHp", d.powerHp());
+        p.put("color", d.color());
+        p.put("description", d.description());
+        p.put("specs", json.write(d.specs()));
+        p.put("sourcePrice", d.sourcePrice());
+        p.put("sourceCurrency", d.sourceCurrency());
+        p.put("shippingEur", d.shippingEur());
+        p.put("marginEur", d.marginEur());
+        p.put("extraDutyRate", d.extraDutyRate());
+        return p;
+    }
+}
