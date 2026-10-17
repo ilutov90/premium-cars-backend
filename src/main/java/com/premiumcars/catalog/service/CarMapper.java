@@ -14,10 +14,11 @@ import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminImage;
 import com.premiumcars.catalog.web.dto.CarDtos.CarDetail;
 import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
-import com.premiumcars.catalog.web.dto.CarDtos.PublicPrice;
 import com.premiumcars.media.ImageStorage;
 import com.premiumcars.pricing.PriceBreakdown;
 import com.premiumcars.pricing.PriceCalculator;
+import com.premiumcars.pricing.PricingProfile;
+import com.premiumcars.pricing.PricingProfileRepository;
 
 /** Domain records -> API DTOs. */
 @Component
@@ -25,10 +26,12 @@ public class CarMapper {
 
     private final ImageStorage storage;
     private final PriceCalculator priceCalculator;
+    private final PricingProfileRepository profiles;
 
-    public CarMapper(ImageStorage storage, PriceCalculator priceCalculator) {
+    public CarMapper(ImageStorage storage, PriceCalculator priceCalculator, PricingProfileRepository profiles) {
         this.storage = storage;
         this.priceCalculator = priceCalculator;
+        this.profiles = profiles;
     }
 
     public CarSummary toSummary(CarListRow row) {
@@ -43,7 +46,7 @@ public class CarMapper {
     public CarDetail toDetail(Car c, List<CarImage> images) {
         return new CarDetail(c.id(), c.slug(), c.status(), Origin.of(c.source()), c.specs(),
                 images.stream().map(i -> storage.publicUrl(i.storagePath())).toList(),
-                PublicPrice.of(breakdown(c.pricing())));
+                c.totalPriceEur());
     }
 
     public AdminCar toAdmin(Car c, List<CarImage> images) {
@@ -56,9 +59,13 @@ public class CarMapper {
                 c.createdAt(), c.updatedAt(), c.publishedAt());
     }
 
-    /** Price breakdown from the current settings; null when the source price is unknown. */
+    /** Price breakdown from the current profile; null when the source price or the profile is unknown. */
     public PriceBreakdown breakdown(PricingInputs p) {
-        return priceCalculator.calculate(p.sourcePrice(), p.sourceCurrency(), p.shippingEur(), p.marginEur(),
-                p.extraDutyRate());
+        PricingProfile profile = p.profile() == null ? null : profiles.find(p.profile()).orElse(null);
+        return breakdown(p, profile);
+    }
+
+    public PriceBreakdown breakdown(PricingInputs p, PricingProfile profile) {
+        return priceCalculator.calculate(p.sourcePrice(), p.sourceCurrency(), profile);
     }
 }

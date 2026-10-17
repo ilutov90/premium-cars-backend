@@ -50,24 +50,10 @@ public final class CarDtos {
     ) {
     }
 
-    /** Public price breakdown: our margin is folded into "service" so the purchase price is not exposed. */
-    public record PublicPrice(
-            BigDecimal carPriceEur,
-            BigDecimal shippingEur,
-            BigDecimal customsDutyEur,
-            BigDecimal vatEur,
-            BigDecimal serviceEur,
-            BigDecimal totalEur
-    ) {
-        public static PublicPrice of(PriceBreakdown b) {
-            if (b == null) {
-                return null;
-            }
-            return new PublicPrice(b.carPriceEur(), b.shippingEur(), b.customsDutyEur(), b.vatEur(),
-                    b.feesEur().add(b.marginEur()), b.totalEur());
-        }
-    }
-
+    /**
+     * @param priceEur final price with everything included; customers see only this number, never the
+     *                 purchase price, costs or profit
+     */
     public record CarDetail(
             Long id,
             String slug,
@@ -75,7 +61,7 @@ public final class CarDtos {
             Origin origin,
             CarSpecs specs,
             List<String> imageUrls,
-            PublicPrice price
+            BigDecimal priceEur
     ) {
     }
 

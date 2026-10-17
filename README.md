@@ -62,25 +62,38 @@ Everything is in `src/main/resources/application.yml` and can be overridden with
 |---|---|---|
 | Admin password | `APP_ADMIN_PASSWORD` | `admin123`, **change it** |
 | Database connection | `SPRING_DATASOURCE_URL`, `..._USERNAME`, `..._PASSWORD` | `localhost:5433/premiumcars` |
-| Default shipping | `APP_PRICING_DEFAULT_SHIPPING_EUR` | 2500 |
-| Default margin | `APP_PRICING_DEFAULT_MARGIN_EUR` | 1500 |
-| Fixed fees | `APP_PRICING_FIXED_FEES_EUR` | 600 |
-| Customs duty / VAT | `app.pricing.customs-duty-rate` / `vat-rate` | 0.10 / 0.20 |
 | Exchange rates | `app.pricing.exchange-rates` | approximate, **update them** |
 | Max photos per import | `app.importer.max-images` | 30 |
 | Headless browser | `APP_IMPORTER_BROWSER_ENABLED` | `true` |
 | Demo cars on an empty DB | `LIQUIBASE_CONTEXTS` | `demo` (`none` = no demo data) |
 
-After changing rates or prices: `POST /api/admin/cars/recalculate-prices` (from Swagger).
+Prices are recalculated on every start; after changing exchange rates without a restart:
+`POST /api/admin/cars/recalculate-prices` (from Swagger).
 
-Landed price: `(car in € + shipping) × (1 + duty) × (1 + VAT) + fees + margin`. The rates are configuration, not law;
-check them with a customs broker. For EVs from China enter the extra duty on the car.
+## Pricing
+
+Customers see one final price that includes everything; the same number goes into the Facebook/Instagram post.
+Each source site has its own formula in the `pricing_profile` table, edited in the admin panel ("Цени"):
+
+```
+final price = car price in € + base costs + step cost × steps above the threshold + profit
+```
+
+| | autohome (China) | autowini (South Korea) |
+|---|---|---|
+| base costs (all import costs up to the threshold) | 5860 € | 5000 € |
+| step cost, for every 10 000 € above 10 000 € | 2880 € | 600 € |
+| profit | 2000 € | 2000 € |
+
+Step mode: `STARTED` (every started 10 000 counts, the default), `FULL` (only full ones) or `PROPORTIONAL`.
+The result is rounded to whole euros. Saving a profile reprices every car. Imported cars use their site's profile;
+cars from other sites get one chosen in the editor.
 
 ## Data model
 
 A car is `specs` (title, make/model/trim, year, mileage, fuel, transmission, drivetrain, engine, power,
 battery kWh, electric range + cycle, motor kW, seats, doors, weight, dimensions, colour, notes, extra specs)
-plus `pricing` (source price and currency, shipping, margin, extra duty). The API uses the same nesting.
+plus `pricing` (source price, currency, price profile). The public API returns only the final `priceEur`. The API uses the same nesting.
 
 ## Database access
 
@@ -90,6 +103,7 @@ No ORM. Each repository holds the SQL for its table:
 |---|---|---|
 | `CarRepository` | `car` | search with a dynamic WHERE (`CarSearchSql`), sorting with `NULLS LAST` |
 | `CarImageRepository` | `car_image` | position 0 = cover; positions are reordered with one SQL statement |
+| `PricingProfileRepository` | `pricing_profile` | one row per source site |
 | `InquiryRepository` | `inquiry` | `LEFT JOIN car` for the car title |
 
 Schema change: a new file `src/main/resources/db/changelog/changes/00N-....sql` and a line in `db.changelog-master.yaml`.

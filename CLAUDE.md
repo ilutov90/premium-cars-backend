@@ -33,6 +33,7 @@ Always run `mvn test` before finishing a change.
   (next free number, e.g. `004-...sql`) and include it in `db.changelog-master.yaml`. Never edit an applied changeset.
 - Network calls (page/photo download) happen outside DB transactions (`ImportService` is not `@Transactional`).
 - The source site URL, source id and dealer are admin-only; never return them from `/api/public/**`.
+- Customers see only the final price (`priceEur` / `totalPriceEur`); purchase price, costs and profit are admin-only.
 - Secrets (autowini login) come only from environment variables or the git-ignored `.env` next to `pom.xml`
   (`AUTOWINI_USER`, `AUTOWINI_PASS`). Never store them in the database, `application.yml`, tests or git.
 - Code, comments, identifiers and docs (README, CLAUDE.md) in English; user-facing texts live in the frontend (Bulgarian).
@@ -47,7 +48,7 @@ Always run `mvn test` before finishing a change.
 | `importing.browser` | `PageRenderer` / `PlaywrightPageRenderer`: headless Chromium for JS-rendered pages (`app.importer.browser.enabled`) |
 | `importing.source.autohome` | global.autohome.com.cn: `AutohomePageParser`, `AutohomeSourceAdapter` (renders when photos/EV data are missing) |
 | `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser`, `AutowiniSourceAdapter` |
-| `pricing` | `PriceCalculator` (landed cost in Bulgaria), `ExchangeRateProvider` |
+| `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
 | `inquiry` | customer inquiries |
 | `config`, `common` | security, CORS, properties, errors, paging |

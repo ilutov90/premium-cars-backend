@@ -34,6 +34,9 @@ import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.inquiry.Inquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 import com.premiumcars.inquiry.InquiryService;
+import com.premiumcars.pricing.PriceProfile;
+import com.premiumcars.pricing.PricingProfile;
+import com.premiumcars.pricing.StepMode;
 
 /**
  * Runs the real SQL through Spring's JdbcClient and the PostgreSQL driver, against PostgreSQL 17 in Docker.
@@ -92,7 +95,9 @@ class JdbcRepositoriesTest {
         assertThat(draft.slug()).isEqualTo("bmw-x3-2022-" + draft.id());
         assertThat(draft.specs().extraSpecs()).containsEntry("Drive", "AWD");
         assertThat(draft.sourceLocation()).isEqualTo("xian");
-        assertThat(draft.price()).isNotNull();
+        // 20000 USD * 0.86 = 17200 EUR; autohome: + 5860 + 2880 (one started 10 000 above 10 000) + 2000
+        assertThat(draft.pricing().profile()).isEqualTo(PriceProfile.AUTOHOME);
+        assertThat(draft.price().totalEur()).isEqualByComparingTo("27940");
         assertThat(carService.findBySourceUrl(url)).isPresent();
 
         // drafts are not public
@@ -120,10 +125,11 @@ class JdbcRepositoriesTest {
                 .extraSpecs(Map.of("Drive", "AWD", "Seats", "5"))
                 .build();
         var update = new CarUpdateRequest(edited,
-                new PricingInputs(new BigDecimal("21000"), "usd", null, new BigDecimal("2000"), new BigDecimal("0.05")));
+                new PricingInputs(new BigDecimal("21000"), "usd", null));
         AdminCar updated = carService.update(draft.id(), update);
         assertThat(updated.pricing().sourceCurrency()).isEqualTo("USD");
-        assertThat(updated.pricing().extraDutyRate()).isEqualByComparingTo("0.05");
+        assertThat(updated.pricing().profile()).isEqualTo(PriceProfile.AUTOHOME); // null = keep the site's formula
+        assertThat(updated.price().totalEur()).isEqualByComparingTo("28800"); // 18060 + 5860 + 2880 + 2000
         assertThat(updated.slug()).isEqualTo("bmw-x3-2022-" + draft.id());
         CarSpecs saved = updated.specs();
         assertThat(saved.trim()).isEqualTo("M Sport");
@@ -144,6 +150,7 @@ class JdbcRepositoriesTest {
         assertThat(published.publishedAt()).isNotNull();
         var publicCar = carService.getPublic(published.slug());
         assertThat(publicCar.imageUrls()).hasSize(2);
+        assertThat(publicCar.priceEur()).isEqualByComparingTo("28800");
         assertThat(publicCar.specs().batteryKwh()).isEqualByComparingTo("19.7");
         assertThat(carService.searchPublic(null, null, 0, 48).items())
                 .anySatisfy(c -> assertThat(c.electricRangeKm()).isEqualTo(88));
@@ -159,6 +166,29 @@ class JdbcRepositoriesTest {
 
         carService.delete(draft.id());
         assertThatThrownBy(() -> carService.getAdmin(draft.id())).isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void editingAPriceProfileRepricesItsCars() {
+        String url = "https://www.autowini.com/test/" + UUID.randomUUID();
+        var imported = new ImportedCar("IC1", null, CarSpecs.builder().title("Kia K5 2021").build(),
+                new BigDecimal("25000"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
+        // 25000 + 5000 + 2 * 600 (15000 above 10000 = 2 started steps) + 2000
+        assertThat(car.price().totalEur()).isEqualByComparingTo("33200");
+
+        PricingProfile original = carService.pricingProfiles().stream()
+                .filter(p -> p.id() == PriceProfile.AUTOWINI).findFirst().orElseThrow();
+        try {
+            carService.updatePricingProfile(PriceProfile.AUTOWINI, new PricingProfile(null,
+                    new BigDecimal("5100"), new BigDecimal("10000"), new BigDecimal("10000"), new BigDecimal("600"),
+                    StepMode.PROPORTIONAL, new BigDecimal("2500"), null));
+            // 25000 + 5100 + 1.5 * 600 + 2500
+            assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("33500");
+        } finally {
+            carService.updatePricingProfile(PriceProfile.AUTOWINI, original);
+            carService.delete(car.id());
+        }
     }
 
     @Test

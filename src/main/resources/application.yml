@@ -1,5 +1,5 @@
 # Local defaults. Every value can be overridden with an environment variable,
-# e.g. SPRING_DATASOURCE_URL, APP_ADMIN_PASSWORD, APP_PRICING_DEFAULT_MARGIN_EUR.
+# e.g. SPRING_DATASOURCE_URL, APP_ADMIN_PASSWORD, APP_IMPORTER_BROWSER_ENABLED.
 
 server:
   port: 8080
@@ -59,12 +59,7 @@ app:
       username: ${AUTOWINI_USER:}
       password: ${AUTOWINI_PASS:}
   pricing:
-    # Simplified landed-cost model, see PriceCalculator. Check every rate with your customs broker / accountant.
-    default-shipping-eur: 2500   # sea freight + port handling up to Varna/Burgas
-    default-margin-eur: 1500     # your fee per car
-    fixed-fees-eur: 600          # customs broker, registration, etc.
-    customs-duty-rate: 0.10      # standard EU duty for passenger cars
-    vat-rate: 0.20               # Bulgarian VAT
+    # Costs and profit per site are in the database (admin panel -> "Цени"), see PriceCalculator.
     exchange-rates:              # EUR per 1 unit — update regularly (later: fetch daily from the ECB)
       USD: 0.86
       CNY: 0.12
