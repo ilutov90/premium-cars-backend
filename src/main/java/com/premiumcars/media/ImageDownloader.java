@@ -53,11 +53,13 @@ public class ImageDownloader {
             try {
                 var request = HttpRequest.newBuilder(URI.create(imageUrl))
                         .timeout(Duration.ofSeconds(props.importer().timeoutSeconds()))
+                        // The same headers as the posting script's photo download, which autowini accepts.
                         .header("User-Agent", props.importer().userAgent())
                         .header("Referer", referer)
                         // Ask for JPEG first: CDNs then avoid AVIF, which some tools cannot open.
                         .header("Accept", "image/jpeg,image/png,image/*;q=0.8")
-                        .header("Accept-Language", "en-US,en;q=0.9")
+                        // Uncompressed, so the bytes are the image (and Content-Length is exact).
+                        .header("Accept-Encoding", "identity")
                         .GET()
                         .build();
                 HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
