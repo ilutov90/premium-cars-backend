@@ -10,7 +10,8 @@ import org.springframework.stereotype.Component;
  *
  * <pre>
  *   car price in EUR = source price * exchange rate
- *   final price      = car price + base costs + step cost * steps above the threshold + profit
+ *   steps            = max(0, car price - threshold) / step     (proportional: 5000 above = 0.5 steps)
+ *   final price      = car price + base costs + step cost * steps + profit
  * </pre>
  *
  * rounded to whole euros. The same number is shown on the site and in the Facebook/Instagram post.
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Component;
 public class PriceCalculator {
 
     private static final int SCALE = 2;
+    private static final int STEP_SCALE = 6;
 
     private final ExchangeRateProvider rates;
 
@@ -34,7 +36,8 @@ public class PriceCalculator {
         String currency = sourceCurrency == null ? "EUR" : sourceCurrency;
         BigDecimal carPriceEur = round(sourcePrice.multiply(rates.eurPerUnit(currency)));
 
-        BigDecimal steps = profile.stepMode().steps(carPriceEur.subtract(profile.threshold()), profile.step());
+        BigDecimal above = carPriceEur.subtract(profile.threshold()).max(BigDecimal.ZERO);
+        BigDecimal steps = above.divide(profile.step(), STEP_SCALE, RoundingMode.HALF_UP);
         BigDecimal stepCosts = round(profile.stepCost().multiply(steps));
         BigDecimal total = carPriceEur.add(profile.baseCosts()).add(stepCosts).add(profile.profit())
                 .setScale(0, RoundingMode.HALF_UP)
