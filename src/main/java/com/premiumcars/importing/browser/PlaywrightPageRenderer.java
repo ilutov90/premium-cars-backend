@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
@@ -46,6 +47,31 @@ public class PlaywrightPageRenderer implements PageRenderer {
               (document.body || document.documentElement).appendChild(img);
             })""";
 
+    /** Scrolls to the bottom in steps, so lazy galleries load their photos. */
+    private static final String SCROLL_JS = """
+            async () => {
+              for (let y = 0; y < document.body.scrollHeight; y += 700) {
+                window.scrollTo(0, y);
+                await new Promise(r => setTimeout(r, 150));
+              }
+              window.scrollTo(0, 0);
+            }""";
+
+    /** All image URLs in the DOM: img src, srcset, data-src and CSS backgrounds. */
+    private static final String DOM_IMAGES_JS = """
+            () => {
+              const out = [];
+              document.querySelectorAll('img').forEach(i => {
+                if (i.currentSrc || i.src) out.push(i.currentSrc || i.src);
+                if (i.dataset && i.dataset.src) out.push(new URL(i.dataset.src, location.href).href);
+              });
+              document.querySelectorAll('[style*="background"]').forEach(e => {
+                const m = /url\\(["']?([^"')]+)/.exec(e.getAttribute('style'));
+                if (m) out.push(new URL(m[1], location.href).href);
+              });
+              return out;
+            }""";
+
     private final AppProperties props;
 
     public PlaywrightPageRenderer(AppProperties props) {
@@ -58,14 +84,15 @@ public class PlaywrightPageRenderer implements PageRenderer {
     }
 
     @Override
-    public synchronized Map<Integer, byte[]> loadImages(String pageUrl, List<List<String>> candidates,
-                                                        List<BrowserCookie> cookies) {
-        if (!enabled() || candidates.isEmpty()) {
-            return Map.of();
+    public synchronized BrowserImages loadImages(String pageUrl, List<List<String>> candidates,
+                                                 List<BrowserCookie> cookies, Pattern pageImageFilter) {
+        if (!enabled()) {
+            return BrowserImages.NONE;
         }
         double timeoutMs = props.importer().browser().timeoutSeconds() * 1000.0;
         long started = System.currentTimeMillis();
         Map<Integer, byte[]> got = new HashMap<>();
+        List<CapturedImage> pageImages = new ArrayList<>();
         try (Playwright playwright = Playwright.create()) {
             Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
             BrowserContext context = browser.newContext(new Browser.NewContextOptions()
@@ -81,14 +108,31 @@ public class PlaywrightPageRenderer implements PageRenderer {
             List<Response> responses = new ArrayList<>();
             page.onResponse(responses::add);
 
+            // 1. The page and its own gallery.
             try {
-                page.navigate(pageUrl, new Page.NavigateOptions()
+                Response main = page.navigate(pageUrl, new Page.NavigateOptions()
                         .setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(timeoutMs));
-                page.waitForTimeout(1000);
+                log.info("Browser opened {}: HTTP {}, title '{}'", pageUrl, main == null ? "?" : main.status(),
+                        page.title());
+                page.evaluate(SCROLL_JS);
+                page.waitForTimeout(2000);
+                @SuppressWarnings("unchecked")
+                List<String> domImages = (List<String>) page.evaluate(DOM_IMAGES_JS);
+                List<String> shown = domImages.stream()
+                        .filter(u -> pageImageFilter == null || pageImageFilter.matcher(u).find())
+                        .distinct().toList();
+                log.info("Page shows {} images ({} match the filter), e.g. {}", domImages.size(), shown.size(),
+                        shown.stream().limit(5).toList());
             } catch (PlaywrightException e) {
-                log.debug("Could not open {} before loading photos: {}", pageUrl, e.getMessage());
+                log.info("Could not open {} before loading photos: {}", pageUrl, e.getMessage());
             }
+            if (pageImageFilter != null) {
+                pageImages.addAll(capture(List.copyOf(responses), pageImageFilter));
+            }
+            logAnswers("Page image answers", List.copyOf(responses), pageImageFilter);
 
+            // 2. The requested photos, as <img> elements on the page.
+            int before = responses.size();
             int rounds = candidates.stream().mapToInt(List::size).max().orElse(0);
             for (int round = 0; round < rounds; round++) {
                 Map<String, Integer> wanted = new LinkedHashMap<>();
@@ -101,7 +145,7 @@ public class PlaywrightPageRenderer implements PageRenderer {
                     break;
                 }
                 page.evaluate(ADD_IMAGES_JS, new ArrayList<>(wanted.keySet()));
-                long deadline = System.currentTimeMillis() + (long) Math.min(timeoutMs, 30_000);
+                long deadline = System.currentTimeMillis() + (long) Math.min(timeoutMs, 15_000);
                 while (System.currentTimeMillis() < deadline && !allAnswered(responses, wanted.keySet())) {
                     page.waitForTimeout(250);
                 }
@@ -121,13 +165,55 @@ public class PlaywrightPageRenderer implements PageRenderer {
                     }
                 }
             }
+            List<Response> requestedAnswers = List.copyOf(responses).subList(before, responses.size());
+            logAnswers("Requested photo answers", requestedAnswers, null);
             browser.close();
         } catch (PlaywrightException e) {
             log.warn("Browser photo download failed for {}: {}", pageUrl, e.getMessage());
         }
-        log.info("Loaded {} of {} photos in the browser from {} in {} ms", got.size(), candidates.size(), pageUrl,
-                System.currentTimeMillis() - started);
-        return got;
+        log.info("Browser photos for {}: {} of {} requested, {} loaded by the page, {} ms", pageUrl, got.size(),
+                candidates.size(), pageImages.size(), System.currentTimeMillis() - started);
+        return new BrowserImages(got, pageImages);
+    }
+
+    /** Images the page loaded (status 200, image type) whose URL matches the filter, without duplicates. */
+    private static List<CapturedImage> capture(List<Response> responses, Pattern filter) {
+        List<CapturedImage> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Response r : responses) {
+            String type = r.headers().getOrDefault("content-type", "");
+            if (r.status() != 200 || !type.startsWith("image/") || !filter.matcher(r.url()).find()
+                    || !seen.add(r.url())) {
+                continue;
+            }
+            try {
+                byte[] body = r.body();
+                if (body != null && body.length > 0) {
+                    out.add(new CapturedImage(r.url(), body));
+                }
+            } catch (PlaywrightException e) {
+                log.debug("No body for page image {}: {}", r.url(), e.getMessage());
+            }
+        }
+        return out;
+    }
+
+    /** One line: how the server answered image requests, e.g. {200 image/jpeg=12, 403 text/html=30} + a sample. */
+    private static void logAnswers(String label, List<Response> responses, Pattern filter) {
+        Map<String, Integer> counts = new TreeMap<>();
+        List<String> sample = new ArrayList<>();
+        for (Response r : responses) {
+            String type = r.headers().getOrDefault("content-type", "");
+            boolean imageLike = type.startsWith("image/") || r.request().resourceType().equals("image");
+            if (!imageLike || (filter != null && !filter.matcher(r.url()).find())) {
+                continue;
+            }
+            counts.merge(r.status() + " " + type.split(";")[0], 1, Integer::sum);
+            if (sample.size() < 3) {
+                sample.add(r.status() + " " + r.url());
+            }
+        }
+        log.info("{}: {} e.g. {}", label, counts, sample);
     }
 
     private static boolean allAnswered(List<Response> responses, Set<String> urls) {

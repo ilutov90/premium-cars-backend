@@ -32,16 +32,31 @@ public interface PageRenderer {
     record BrowserCookie(String name, String value, String domain, String path) {
     }
 
+    /** An image the page itself loaded, in load order. */
+    record CapturedImage(String url, byte[] bytes) {
+    }
+
+    /**
+     * @param requested  photo index -> bytes, for the requested photos that loaded
+     * @param pageImages images the page loaded by itself (gallery), whose URL matched the filter
+     */
+    record BrowserImages(Map<Integer, byte[]> requested, List<CapturedImage> pageImages) {
+        public static final BrowserImages NONE = new BrowserImages(Map.of(), List.of());
+    }
+
     /**
      * Downloads photos the way a visitor's browser does, for photo servers that refuse plain HTTP clients
-     * (autowini answers 403 even with the session cookies): opens {@code pageUrl}, then loads the photos as
-     * {@code <img>} elements on that page and keeps the response bytes.
+     * (autowini answers 403 even with the session cookies): opens {@code pageUrl}, scrolls it so its gallery
+     * loads, keeps the images it loaded, then loads the requested photos as {@code <img>} elements on that page.
+     * Logs what the browser saw (page status, image URLs, answers), to diagnose sites that change.
      *
-     * @param candidates per photo, the URLs to try in order (e.g. 1024 px, then 320 px)
-     * @param cookies    put into the browser first
-     * @return photo index -> image bytes, for the photos that loaded; empty when rendering is disabled or failed
+     * @param candidates       per photo, the URLs to try in order (e.g. 1024 px, then 320 px)
+     * @param cookies          put into the browser first
+     * @param pageImageFilter  which images loaded by the page to keep; null keeps none
+     * @return {@link BrowserImages#NONE} when rendering is disabled or failed
      */
-    Map<Integer, byte[]> loadImages(String pageUrl, List<List<String>> candidates, List<BrowserCookie> cookies);
+    BrowserImages loadImages(String pageUrl, List<List<String>> candidates, List<BrowserCookie> cookies,
+                             Pattern pageImageFilter);
 
     boolean enabled();
 }
