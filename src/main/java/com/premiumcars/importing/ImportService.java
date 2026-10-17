@@ -77,12 +77,13 @@ public class ImportService {
         AdminCar draft = carService.createDraft(data, adapter.source(), key);
 
         String referer = adapter.referer(canonical);
+        var imageClient = adapter.imageClient();
         List<NewCarImage> images = new ArrayList<>();
         List<String> urls = data.imageUrls().stream().limit(props.importer().maxImages()).toList();
         for (String imageUrl : urls) {
             Optional<DownloadedImage> img = Optional.empty();
             for (String candidate : adapter.imageCandidates(imageUrl)) {
-                img = downloader.download(candidate, referer);
+                img = downloader.download(candidate, referer, imageClient);
                 if (img.isPresent()) {
                     break;
                 }
@@ -92,6 +93,8 @@ public class ImportService {
         }
         if (images.size() < urls.size()) {
             warnings.add("Downloaded " + images.size() + " of " + urls.size() + " photos.");
+            log.warn("Downloaded {} of {} photos for {}; last refusal: {}", images.size(), urls.size(), key,
+                    downloader.lastRefusal());
         }
         AdminCar result = images.isEmpty() ? draft : carService.attachImages(draft.id(), images);
         return new ImportResult(result, false, images.size(), warnings);

@@ -55,6 +55,8 @@ public class AutowiniClient {
         this.props = props;
         this.http = HttpClient.newBuilder()
                 .cookieHandler(cookies)
+                // HTTP/1.1 like Python requests, which the site accepts; some CDN rules treat HTTP/2 clients differently
+                .version(HttpClient.Version.HTTP_1_1)
                 .followRedirects(HttpClient.Redirect.ALWAYS)
                 .connectTimeout(Duration.ofSeconds(props.importer().timeoutSeconds()))
                 .build();
@@ -77,6 +79,14 @@ public class AutowiniClient {
             throw new BadRequestException("autowini returned HTTP " + page.status() + " for " + desktopUrl);
         }
         return page.body();
+    }
+
+    /**
+     * The logged-in client, for downloading photos: imagebox.autowini.com wants the session cookies, like the
+     * Python script, which downloads photos with the same requests.Session it logged in with.
+     */
+    public HttpClient sessionClient() {
+        return http;
     }
 
     // ---------------------------------------------------------------- login

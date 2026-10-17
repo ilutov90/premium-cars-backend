@@ -40,6 +40,15 @@ public class ImageDownloader {
     }
 
     public Optional<DownloadedImage> download(String imageUrl, String referer) {
+        return download(imageUrl, referer, null);
+    }
+
+    /**
+     * @param httpClient client to send the request with (e.g. one holding a site's login cookies);
+     *                   null = the shared client without cookies
+     */
+    public Optional<DownloadedImage> download(String imageUrl, String referer, HttpClient httpClient) {
+        HttpClient http = httpClient != null ? httpClient : client;
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
                 var request = HttpRequest.newBuilder(URI.create(imageUrl))
@@ -48,9 +57,10 @@ public class ImageDownloader {
                         .header("Referer", referer)
                         // Ask for JPEG first: CDNs then avoid AVIF, which some tools cannot open.
                         .header("Accept", "image/jpeg,image/png,image/*;q=0.8")
+                        .header("Accept-Language", "en-US,en;q=0.9")
                         .GET()
                         .build();
-                HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
                 int status = response.statusCode();
                 if (status == 429 || status == 503) {
                     Thread.sleep(2000L * attempt);
@@ -59,7 +69,8 @@ public class ImageDownloader {
                 String type = response.headers().firstValue("Content-Type").orElse("").toLowerCase(Locale.ROOT);
                 byte[] body = response.body();
                 if (status != 200 || !(type.startsWith("image/") || type.contains("octet-stream"))) {
-                    log.debug("Skipping image {} (status {}, type {})", imageUrl, status, type);
+                    log.debug("Skipping image {} (status {}, type {}): {}", imageUrl, status, type, snippet(body));
+                    lastRefusal = "HTTP " + status + " " + type + ": " + snippet(body);
                     return Optional.empty();
                 }
                 String ext = sniff(body);
@@ -77,6 +88,18 @@ public class ImageDownloader {
         }
         log.warn("Giving up on image {}", imageUrl);
         return Optional.empty();
+    }
+
+    /** Why the last photo was refused (status, type and the start of the answer), for one summary log line. */
+    private volatile String lastRefusal;
+
+    public String lastRefusal() {
+        return lastRefusal;
+    }
+
+    private static String snippet(byte[] body) {
+        String text = new String(body, 0, Math.min(body.length, 300), java.nio.charset.StandardCharsets.UTF_8);
+        return text.replaceAll("\\s+", " ").trim();
     }
 
     /** Real format by magic bytes, or null. */
