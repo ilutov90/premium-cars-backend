@@ -5,13 +5,12 @@ import java.net.URI;
 
 import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Component;
 
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.config.AppProperties;
 
-/** Downloads and parses a source page the way a normal browser would request it. */
+/** Downloads a public page the way a normal browser would request it (no login, no JavaScript). */
 @Component
 public class PageFetcher {
 
@@ -21,7 +20,8 @@ public class PageFetcher {
         this.props = props;
     }
 
-    public Document fetch(URI url) {
+    /** Raw HTML of the page, including scripts (Next.js data lives there). */
+    public String fetchHtml(URI url) {
         try {
             return Jsoup.connect(url.toString())
                     .userAgent(props.importer().userAgent())
@@ -30,7 +30,8 @@ public class PageFetcher {
                     .timeout(props.importer().timeoutSeconds() * 1000)
                     .maxBodySize(0)
                     .followRedirects(true)
-                    .get();
+                    .execute()
+                    .body();
         } catch (HttpStatusException e) {
             throw new BadRequestException("Source page returned HTTP " + e.getStatusCode() + " for " + url, e);
         } catch (IOException e) {

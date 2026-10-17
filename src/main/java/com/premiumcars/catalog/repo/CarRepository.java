@@ -12,10 +12,11 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import com.premiumcars.catalog.domain.Car;
-import com.premiumcars.catalog.domain.CarDetails;
 import com.premiumcars.catalog.domain.CarSort;
+import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.web.dto.CarFilter;
 
 /** All SQL for the {@code car} table. */
@@ -96,23 +97,30 @@ public class CarRepository {
 
     /** Inserts a car and returns its generated id. */
     public long insert(String slug, CarStatus status, CarSource source, String sourceUrl, String sourceRef,
-                       CarDetails details, BigDecimal totalPriceEur) {
-        Map<String, Object> p = detailParams(details);
+                       String sourceLocation, CarSpecs specs, PricingInputs pricing, BigDecimal totalPriceEur) {
+        Map<String, Object> p = specParams(specs, pricing);
         p.put("slug", slug);
         p.put("status", status.name());
         p.put("source", source.name());
         p.put("sourceUrl", sourceUrl);
         p.put("sourceRef", sourceRef);
+        p.put("sourceLocation", sourceLocation);
         p.put("totalPriceEur", totalPriceEur);
         return jdbc.sql("""
-                        INSERT INTO car (slug, status, source, source_url, source_ref,
-                                         title, make, model, trim_level, model_year, mileage_km, fuel_type,
-                                         transmission, body_type, engine, power_hp, color, description, specs,
+                        INSERT INTO car (slug, status, source, source_url, source_ref, source_location,
+                                         title, make, model, trim_level, model_year, first_registration, mileage_km,
+                                         fuel_type, transmission, drivetrain, engine_cc, engine, power_hp,
+                                         battery_kwh, electric_range_km, range_standard, motor_power_kw,
+                                         body_type, seats, doors, color, curb_weight_kg, dimensions,
+                                         description, specs,
                                          source_price, source_currency, shipping_eur, margin_eur, extra_duty_rate,
                                          total_price_eur, created_at, updated_at)
-                        VALUES (:slug, :status, :source, :sourceUrl, :sourceRef,
-                                :title, :make, :model, :trim, :year, :mileageKm, :fuelType,
-                                :transmission, :bodyType, :engine, :powerHp, :color, :description, CAST(:specs AS jsonb),
+                        VALUES (:slug, :status, :source, :sourceUrl, :sourceRef, :sourceLocation,
+                                :title, :make, :model, :trim, :year, :firstRegistration, :mileageKm,
+                                :fuelType, :transmission, :drivetrain, :engineCc, :engine, :powerHp,
+                                :batteryKwh, :electricRangeKm, :rangeStandard, :motorPowerKw,
+                                :bodyType, :seats, :doors, :color, :curbWeightKg, :dimensions,
+                                :description, CAST(:specs AS jsonb),
                                 :sourcePrice, :sourceCurrency, :shippingEur, :marginEur, :extraDutyRate,
                                 :totalPriceEur, now(), now())
                         RETURNING id""")
@@ -122,19 +130,23 @@ public class CarRepository {
     }
 
     /** Replaces all editable fields of a car. Returns false when the car does not exist. */
-    public boolean update(long id, CarDetails details, BigDecimal totalPriceEur) {
-        Map<String, Object> p = detailParams(details);
+    public boolean update(long id, CarSpecs specs, PricingInputs pricing, BigDecimal totalPriceEur) {
+        Map<String, Object> p = specParams(specs, pricing);
         p.put("id", id);
         p.put("totalPriceEur", totalPriceEur);
         int rows = jdbc.sql("""
                         UPDATE car SET
                             title = :title, make = :make, model = :model, trim_level = :trim,
-                            model_year = :year, mileage_km = :mileageKm, fuel_type = :fuelType,
-                            transmission = :transmission, body_type = :bodyType, engine = :engine,
-                            power_hp = :powerHp, color = :color, description = :description,
-                            specs = CAST(:specs AS jsonb), source_price = :sourcePrice,
-                            source_currency = :sourceCurrency, shipping_eur = :shippingEur,
-                            margin_eur = :marginEur, extra_duty_rate = :extraDutyRate,
+                            model_year = :year, first_registration = :firstRegistration, mileage_km = :mileageKm,
+                            fuel_type = :fuelType, transmission = :transmission, drivetrain = :drivetrain,
+                            engine_cc = :engineCc, engine = :engine, power_hp = :powerHp,
+                            battery_kwh = :batteryKwh, electric_range_km = :electricRangeKm,
+                            range_standard = :rangeStandard, motor_power_kw = :motorPowerKw,
+                            body_type = :bodyType, seats = :seats, doors = :doors, color = :color,
+                            curb_weight_kg = :curbWeightKg, dimensions = :dimensions,
+                            description = :description, specs = CAST(:specs AS jsonb),
+                            source_price = :sourcePrice, source_currency = :sourceCurrency,
+                            shipping_eur = :shippingEur, margin_eur = :marginEur, extra_duty_rate = :extraDutyRate,
                             total_price_eur = :totalPriceEur, updated_at = now()
                         WHERE id = :id""")
                 .params(p)
@@ -178,27 +190,42 @@ public class CarRepository {
     // ---------------------------------------------------------------- helpers
 
     /** Named parameters shared by INSERT and UPDATE. A HashMap because values may be null. */
-    private Map<String, Object> detailParams(CarDetails d) {
+    private Map<String, Object> specParams(CarSpecs d, PricingInputs pricing) {
         Map<String, Object> p = new HashMap<>();
         p.put("title", d.title());
         p.put("make", d.make());
         p.put("model", d.model());
         p.put("trim", d.trim());
         p.put("year", d.year());
+        p.put("firstRegistration", d.firstRegistration());
         p.put("mileageKm", d.mileageKm());
-        p.put("fuelType", d.fuelType() == null ? null : d.fuelType().name());
-        p.put("transmission", d.transmission() == null ? null : d.transmission().name());
-        p.put("bodyType", d.bodyType());
+        p.put("fuelType", name(d.fuelType()));
+        p.put("transmission", name(d.transmission()));
+        p.put("drivetrain", name(d.drivetrain()));
+        p.put("engineCc", d.engineCc());
         p.put("engine", d.engine());
         p.put("powerHp", d.powerHp());
+        p.put("batteryKwh", d.batteryKwh());
+        p.put("electricRangeKm", d.electricRangeKm());
+        p.put("rangeStandard", d.rangeStandard());
+        p.put("motorPowerKw", d.motorPowerKw());
+        p.put("bodyType", d.bodyType());
+        p.put("seats", d.seats());
+        p.put("doors", d.doors());
         p.put("color", d.color());
+        p.put("curbWeightKg", d.curbWeightKg());
+        p.put("dimensions", d.dimensions());
         p.put("description", d.description());
-        p.put("specs", json.write(d.specs()));
-        p.put("sourcePrice", d.sourcePrice());
-        p.put("sourceCurrency", d.sourceCurrency());
-        p.put("shippingEur", d.shippingEur());
-        p.put("marginEur", d.marginEur());
-        p.put("extraDutyRate", d.extraDutyRate());
+        p.put("specs", json.write(d.extraSpecs()));
+        p.put("sourcePrice", pricing.sourcePrice());
+        p.put("sourceCurrency", pricing.sourceCurrency());
+        p.put("shippingEur", pricing.shippingEur());
+        p.put("marginEur", pricing.marginEur());
+        p.put("extraDutyRate", pricing.extraDutyRate());
         return p;
+    }
+
+    private static String name(Enum<?> value) {
+        return value == null ? null : value.name();
     }
 }

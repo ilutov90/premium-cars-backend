@@ -5,9 +5,10 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 import com.premiumcars.catalog.domain.Car;
-import com.premiumcars.catalog.domain.CarDetails;
 import com.premiumcars.catalog.domain.CarImage;
+import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.Origin;
+import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.repo.CarRepository.CarListRow;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminImage;
@@ -32,27 +33,22 @@ public class CarMapper {
 
     public CarSummary toSummary(CarListRow row) {
         Car c = row.car();
-        CarDetails d = c.details();
+        CarSpecs s = c.specs();
         String cover = row.coverPath() == null ? null : storage.publicUrl(row.coverPath());
-        return new CarSummary(c.id(), c.slug(), d.title(), d.make(), d.model(), d.year(), d.mileageKm(),
-                d.fuelType(), d.transmission(), Origin.of(c.source()), c.status(), c.totalPriceEur(), cover);
+        return new CarSummary(c.id(), c.slug(), s.title(), s.make(), s.model(), s.year(), s.mileageKm(),
+                s.fuelType(), s.transmission(), s.powerHp(), s.batteryKwh(), s.electricRangeKm(),
+                Origin.of(c.source()), c.status(), c.totalPriceEur(), cover);
     }
 
     public CarDetail toDetail(Car c, List<CarImage> images) {
-        CarDetails d = c.details();
-        return new CarDetail(c.id(), c.slug(), d.title(), d.make(), d.model(), d.trim(), d.year(), d.mileageKm(),
-                d.fuelType(), d.transmission(), d.bodyType(), d.engine(), d.powerHp(), d.color(), d.description(),
-                d.specs(), Origin.of(c.source()), c.status(),
+        return new CarDetail(c.id(), c.slug(), c.status(), Origin.of(c.source()), c.specs(),
                 images.stream().map(i -> storage.publicUrl(i.storagePath())).toList(),
-                PublicPrice.of(breakdown(d)));
+                PublicPrice.of(breakdown(c.pricing())));
     }
 
     public AdminCar toAdmin(Car c, List<CarImage> images) {
-        CarDetails d = c.details();
-        return new AdminCar(c.id(), c.slug(), c.status(), c.source(), c.sourceUrl(), c.sourceRef(), d.title(),
-                d.make(), d.model(), d.trim(), d.year(), d.mileageKm(), d.fuelType(), d.transmission(),
-                d.bodyType(), d.engine(), d.powerHp(), d.color(), d.description(), d.specs(), d.sourcePrice(),
-                d.sourceCurrency(), d.shippingEur(), d.marginEur(), d.extraDutyRate(), breakdown(d),
+        return new AdminCar(c.id(), c.slug(), c.status(), c.source(), c.sourceUrl(), c.sourceRef(),
+                c.sourceLocation(), c.specs(), c.pricing(), breakdown(c.pricing()),
                 images.stream()
                         .map(i -> new AdminImage(i.id(), storage.publicUrl(i.storagePath()), i.sourceUrl(),
                                 i.position()))
@@ -61,8 +57,8 @@ public class CarMapper {
     }
 
     /** Price breakdown from the current settings; null when the source price is unknown. */
-    public PriceBreakdown breakdown(CarDetails d) {
-        return priceCalculator.calculate(d.sourcePrice(), d.sourceCurrency(), d.shippingEur(), d.marginEur(),
-                d.extraDutyRate());
+    public PriceBreakdown breakdown(PricingInputs p) {
+        return priceCalculator.calculate(p.sourcePrice(), p.sourceCurrency(), p.shippingEur(), p.marginEur(),
+                p.extraDutyRate());
     }
 }

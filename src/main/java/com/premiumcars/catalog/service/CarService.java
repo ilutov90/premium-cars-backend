@@ -3,9 +3,7 @@ package com.premiumcars.catalog.service;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -14,14 +12,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.premiumcars.catalog.domain.Car;
-import com.premiumcars.catalog.domain.CarDetails;
 import com.premiumcars.catalog.domain.CarImage;
 import com.premiumcars.catalog.domain.CarSort;
 import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.NewCarImage;
 import com.premiumcars.catalog.domain.Origin;
+import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.catalog.repo.CarImageRepository;
 import com.premiumcars.catalog.repo.CarRepository;
@@ -100,29 +99,12 @@ public class CarService {
     /** Creates a DRAFT from imported data. The slug needs the generated id, so it is set right after the insert. */
     @Transactional
     public AdminCar createDraft(ImportedCar data, CarSource source, String sourceUrl) {
-        var details = new CarDetails(
-                data.title() != null ? truncate(data.title(), 255) : "Imported car",
-                truncate(data.make(), 100),
-                truncate(data.model(), 100),
-                truncate(data.trim(), 255),
-                data.year(),
-                data.mileageKm(),
-                data.fuelType(),
-                data.transmission(),
-                truncate(data.bodyType(), 100),
-                truncate(data.engine(), 100),
-                null,
-                truncate(data.color(), 50),
-                data.description(),
-                data.specs() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(data.specs()),
-                data.price(),
-                data.currency(),
-                null,
-                null,
-                null);
+        CarSpecs specs = data.specs().toBuilder().build();
+        PricingInputs pricing = PricingInputs.EMPTY.withSourcePrice(data.price(), data.currency());
         long id = cars.insert("tmp-" + UUID.randomUUID(), CarStatus.DRAFT, source, sourceUrl,
-                truncate(data.sourceRef(), 255), details, totalPrice(details));
-        cars.updateSlug(id, slugFor(details, id));
+                truncate(data.sourceRef(), 255), truncate(data.sourceLocation(), 100), specs, pricing,
+                totalPrice(pricing));
+        cars.updateSlug(id, slugFor(specs, id));
         return loadAdmin(id);
     }
 
@@ -136,30 +118,12 @@ public class CarService {
     @Transactional
     public AdminCar update(long id, CarUpdateRequest r) {
         Car existing = find(id);
-        var details = new CarDetails(
-                r.title().trim(),
-                blankToNull(r.make()),
-                blankToNull(r.model()),
-                blankToNull(r.trim()),
-                r.year(),
-                r.mileageKm(),
-                r.fuelType(),
-                r.transmission(),
-                blankToNull(r.bodyType()),
-                blankToNull(r.engine()),
-                r.powerHp(),
-                blankToNull(r.color()),
-                blankToNull(r.description()),
-                r.specs() != null ? new LinkedHashMap<>(r.specs()) : existing.details().specs(),
-                r.sourcePrice(),
-                r.sourceCurrency() == null ? null : r.sourceCurrency().toUpperCase(Locale.ROOT),
-                r.shippingEur(),
-                r.marginEur(),
-                r.extraDutyRate());
-        cars.update(id, details, totalPrice(details));
+        CarSpecs specs = r.specs().toBuilder().build();
+        PricingInputs pricing = r.pricing();
+        cars.update(id, specs, pricing, totalPrice(pricing));
         if (existing.status() == CarStatus.DRAFT) {
             // Keep links of published cars stable (SEO, shared links); drafts may still be renamed.
-            cars.updateSlug(id, slugFor(details, id));
+            cars.updateSlug(id, slugFor(specs, id));
         }
         return loadAdmin(id);
     }
@@ -198,7 +162,7 @@ public class CarService {
     @Transactional
     public int recalculateAllPrices() {
         List<Car> all = cars.findAll();
-        all.forEach(c -> cars.updateTotalPrice(c.id(), totalPrice(c.details())));
+        all.forEach(c -> cars.updateTotalPrice(c.id(), totalPrice(c.pricing())));
         return all.size();
     }
 
@@ -225,17 +189,13 @@ public class CarService {
                 .orElseThrow(() -> new NotFoundException("Image not found: " + imageId));
     }
 
-    private BigDecimal totalPrice(CarDetails details) {
-        PriceBreakdown b = mapper.breakdown(details);
+    private BigDecimal totalPrice(PricingInputs pricing) {
+        PriceBreakdown b = mapper.breakdown(pricing);
         return b == null ? null : b.totalEur();
     }
 
-    private static String slugFor(CarDetails d, long id) {
-        return Slugs.forCar(d.make(), d.model(), d.title(), d.year(), id);
-    }
-
-    private static String blankToNull(String s) {
-        return s == null || s.isBlank() ? null : s.trim();
+    private static String slugFor(CarSpecs s, long id) {
+        return Slugs.forCar(s.make(), s.model(), s.title(), s.year(), id);
     }
 
     private static String truncate(String s, int max) {

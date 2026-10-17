@@ -48,7 +48,7 @@ public class AdminCarController {
 
     @PostMapping("/imports")
     public ImportResult importCar(@Valid @RequestBody ImportRequest request) {
-        return importService.importFromUrl(request.url());
+        return importService.importFromUrl(request.url(), request.price(), request.currency());
     }
 
     @GetMapping("/cars")

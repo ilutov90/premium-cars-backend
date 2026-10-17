@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/changes/001-init.sql
   - include:
       file: db/changelog/changes/002-demo-data.sql
+  - include:
+      file: db/changelog/changes/003-car-specs.sql

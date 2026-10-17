@@ -51,7 +51,16 @@ public record AppProperties(
      * @param userAgent       browser user agent used when fetching source pages
      * @param timeoutSeconds  HTTP timeout for pages and photos
      * @param maxImages       maximum number of photos imported per car
+     * @param browser         headless browser for pages that load data with JavaScript
+     * @param autowini        autowini.com account (from AUTOWINI_USER / AUTOWINI_PASS)
      */
-    public record Importer(String userAgent, int timeoutSeconds, int maxImages) {
+    public record Importer(String userAgent, int timeoutSeconds, int maxImages, Browser browser, Autowini autowini) {
+    }
+
+    /** @param enabled false skips rendering: imports are faster but may miss photos and EV data */
+    public record Browser(boolean enabled, int timeoutSeconds) {
+    }
+
+    public record Autowini(String username, String password) {
     }
 }

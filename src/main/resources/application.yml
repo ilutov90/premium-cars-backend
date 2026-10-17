@@ -7,6 +7,10 @@ server:
 spring:
   application:
     name: premium-cars-backend
+  config:
+    # Local secrets (e.g. AUTOWINI_USER / AUTOWINI_PASS) from a .env file next to pom.xml.
+    # The file is git-ignored; in production use real environment variables instead.
+    import: optional:file:.env[.properties]
   datasource:
     # PostgreSQL from premium-cars-infra/docker-compose.yml (host port 5433 so it does not clash with a local 5432)
     url: jdbc:postgresql://localhost:5433/premiumcars
@@ -44,7 +48,16 @@ app:
   importer:
     user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
     timeout-seconds: 20
-    max-images: 25
+    max-images: 30
+    browser:
+      # Headless Chromium (Playwright) for photos and EV data that sites load with JavaScript.
+      # Downloaded automatically on first use (~150 MB). Set to false to skip it.
+      enabled: ${APP_IMPORTER_BROWSER_ENABLED:true}
+      timeout-seconds: 60
+    autowini:
+      # Same variable names as autowini_poster.py's .env, so one file can serve both.
+      username: ${AUTOWINI_USER:}
+      password: ${AUTOWINI_PASS:}
   pricing:
     # Simplified landed-cost model, see PriceCalculator. Check every rate with your customs broker / accountant.
     default-shipping-eur: 2500   # sea freight + port handling up to Varna/Burgas

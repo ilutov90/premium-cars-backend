@@ -19,10 +19,13 @@ final class CarSearchSql {
 
     /** Columns of {@code car} read by {@link CarRowMapper}, prefixed with the "c" alias. */
     static final String CAR_COLUMNS = """
-            c.id, c.slug, c.status, c.source, c.source_url, c.source_ref, c.title, c.make, c.model, c.trim_level,
-            c.model_year, c.mileage_km, c.fuel_type, c.transmission, c.body_type, c.engine, c.power_hp, c.color,
-            c.description, c.specs, c.source_price, c.source_currency, c.shipping_eur, c.margin_eur,
-            c.extra_duty_rate, c.total_price_eur, c.created_at, c.updated_at, c.published_at""";
+            c.id, c.slug, c.status, c.source, c.source_url, c.source_ref, c.source_location,
+            c.title, c.make, c.model, c.trim_level, c.model_year, c.first_registration, c.mileage_km,
+            c.fuel_type, c.transmission, c.drivetrain, c.engine_cc, c.engine, c.power_hp,
+            c.battery_kwh, c.electric_range_km, c.range_standard, c.motor_power_kw,
+            c.body_type, c.seats, c.doors, c.color, c.curb_weight_kg, c.dimensions, c.description, c.specs,
+            c.source_price, c.source_currency, c.shipping_eur, c.margin_eur, c.extra_duty_rate,
+            c.total_price_eur, c.created_at, c.updated_at, c.published_at""";
 
     /** A SQL text with its named parameters (":name"). */
     record Sql(String text, Map<String, Object> params) {

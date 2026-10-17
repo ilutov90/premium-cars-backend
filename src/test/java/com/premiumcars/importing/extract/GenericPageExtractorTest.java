@@ -37,15 +37,15 @@ class GenericPageExtractorTest {
 
         ImportedCar car = extractor.extract(Jsoup.parse(html), hints);
 
-        assertThat(car.title()).isEqualTo("Audi A3 2021 Sportback 35 TFSI");
-        assertThat(car.make()).isEqualTo("Audi");
-        assertThat(car.model()).isEqualTo("A3");
-        assertThat(car.year()).isEqualTo(2021);
-        assertThat(car.mileageKm()).isEqualTo(35_000); // "3.5" = 3.5 x 10,000 km on che168
+        assertThat(car.specs().title()).isEqualTo("Audi A3 2021 Sportback 35 TFSI");
+        assertThat(car.specs().make()).isEqualTo("Audi");
+        assertThat(car.specs().model()).isEqualTo("A3");
+        assertThat(car.specs().year()).isEqualTo(2021);
+        assertThat(car.specs().mileageKm()).isEqualTo(35_000); // "3.5" = 3.5 x 10,000 km on che168
         assertThat(car.price()).isEqualByComparingTo("14980");
         assertThat(car.currency()).isEqualTo("USD");
-        assertThat(car.fuelType()).isEqualTo(FuelType.PETROL);
-        assertThat(car.transmission()).isEqualTo(Transmission.AUTOMATIC);
+        assertThat(car.specs().fuelType()).isEqualTo(FuelType.PETROL);
+        assertThat(car.specs().transmission()).isEqualTo(Transmission.AUTOMATIC);
         assertThat(car.imageUrls()).containsExactly(
                 "https://car2.autoimg.cn/a/1.jpg", "https://car3.autoimg.cn/a/2.png.webp");
     }
@@ -66,11 +66,11 @@ class GenericPageExtractorTest {
 
         ImportedCar car = extractor.extract(Jsoup.parse(html), hints);
 
-        assertThat(car.title()).isEqualTo("Kia Sorento 2.2 CRDi");
-        assertThat(car.make()).isEqualTo("Kia");
-        assertThat(car.year()).isEqualTo(2020);
-        assertThat(car.mileageKm()).isEqualTo(76_000);
-        assertThat(car.fuelType()).isEqualTo(FuelType.DIESEL);
+        assertThat(car.specs().title()).isEqualTo("Kia Sorento 2.2 CRDi");
+        assertThat(car.specs().make()).isEqualTo("Kia");
+        assertThat(car.specs().year()).isEqualTo(2020);
+        assertThat(car.specs().mileageKm()).isEqualTo(76_000);
+        assertThat(car.specs().fuelType()).isEqualTo(FuelType.DIESEL);
         assertThat(car.price()).isEqualByComparingTo("16200");
         assertThat(car.imageUrls()).containsExactly("https://img.autoimg.cn/s/1.jpg");
     }
@@ -89,13 +89,13 @@ class GenericPageExtractorTest {
 
         ImportedCar car = extractor.extract(Jsoup.parse(html), hints);
 
-        assertThat(car.title()).isEqualTo("BYD Seal 2023 650 Premium");
-        assertThat(car.make()).isEqualTo("BYD");
-        assertThat(car.model()).isEqualTo("Seal");
-        assertThat(car.year()).isEqualTo(2023);
+        assertThat(car.specs().title()).isEqualTo("BYD Seal 2023 650 Premium");
+        assertThat(car.specs().make()).isEqualTo("BYD");
+        assertThat(car.specs().model()).isEqualTo("Seal");
+        assertThat(car.specs().year()).isEqualTo(2023);
         assertThat(car.price()).isEqualByComparingTo("19800");
-        assertThat(car.mileageKm()).isEqualTo(21_000);
-        assertThat(car.specs()).containsEntry("Battery", "82.5 kWh");
+        assertThat(car.specs().mileageKm()).isEqualTo(21_000);
+        assertThat(car.specs().extraSpecs()).containsEntry("Battery", "82.5 kWh");
         assertThat(car.imageUrls()).containsExactly("https://car2.autoimg.cn/x/seal.jpg");
     }
 
