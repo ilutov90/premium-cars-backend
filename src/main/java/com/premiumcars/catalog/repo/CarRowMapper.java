@@ -15,6 +15,7 @@ import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.domain.Transmission;
+import com.premiumcars.pricing.PriceProfile;
 
 /** ResultSet -> Car for queries that select {@link CarSearchSql#CAR_COLUMNS}. */
 final class CarRowMapper implements RowMapper<Car> {
@@ -57,9 +58,7 @@ final class CarRowMapper implements RowMapper<Car> {
         var pricing = new PricingInputs(
                 rs.getBigDecimal("source_price"),
                 rs.getString("source_currency"),
-                rs.getBigDecimal("shipping_eur"),
-                rs.getBigDecimal("margin_eur"),
-                rs.getBigDecimal("extra_duty_rate"));
+                enumOf(PriceProfile.class, rs.getString("price_profile")));
         return new Car(
                 rs.getLong("id"),
                 rs.getString("slug"),

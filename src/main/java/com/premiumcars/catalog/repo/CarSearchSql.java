@@ -24,7 +24,7 @@ final class CarSearchSql {
             c.fuel_type, c.transmission, c.drivetrain, c.engine_cc, c.engine, c.power_hp,
             c.battery_kwh, c.electric_range_km, c.range_standard, c.motor_power_kw,
             c.body_type, c.seats, c.doors, c.color, c.curb_weight_kg, c.dimensions, c.description, c.specs,
-            c.source_price, c.source_currency, c.shipping_eur, c.margin_eur, c.extra_duty_rate,
+            c.source_price, c.source_currency, c.price_profile,
             c.total_price_eur, c.created_at, c.updated_at, c.published_at""";
 
     /** A SQL text with its named parameters (":name"). */

@@ -4,10 +4,15 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +41,9 @@ import com.premiumcars.common.PageResponse;
 import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.media.ImageStorage;
 import com.premiumcars.pricing.PriceBreakdown;
+import com.premiumcars.pricing.PriceProfile;
+import com.premiumcars.pricing.PricingProfile;
+import com.premiumcars.pricing.PricingProfileRepository;
 
 @Service
 public class CarService {
@@ -48,12 +56,37 @@ public class CarService {
     private final CarImageRepository images;
     private final CarMapper mapper;
     private final ImageStorage storage;
+    private final PricingProfileRepository profiles;
 
-    public CarService(CarRepository cars, CarImageRepository images, CarMapper mapper, ImageStorage storage) {
+    public CarService(CarRepository cars, CarImageRepository images, CarMapper mapper, ImageStorage storage,
+                      PricingProfileRepository profiles) {
         this.cars = cars;
         this.images = images;
         this.mapper = mapper;
         this.storage = storage;
+        this.profiles = profiles;
+    }
+
+    // ---------------------------------------------------------------- price profiles
+
+    public List<PricingProfile> pricingProfiles() {
+        return profiles.findAll();
+    }
+
+    /** Saves a site's price formula and reprices every car. */
+    @Transactional
+    public PricingProfile updatePricingProfile(PriceProfile id, PricingProfile values) {
+        if (!profiles.update(id, values)) {
+            throw new NotFoundException("Price profile not found: " + id);
+        }
+        recalculateAllPrices();
+        return profiles.find(id).orElseThrow();
+    }
+
+    /** Exchange rates live in configuration, so prices are refreshed on every start. */
+    @EventListener(ApplicationReadyEvent.class)
+    public void recalculatePricesOnStartup() {
+        recalculateAllPrices();
     }
 
     // ---------------------------------------------------------------- public
@@ -100,7 +133,8 @@ public class CarService {
     @Transactional
     public AdminCar createDraft(ImportedCar data, CarSource source, String sourceUrl) {
         CarSpecs specs = data.specs().toBuilder().build();
-        PricingInputs pricing = PricingInputs.EMPTY.withSourcePrice(data.price(), data.currency());
+        PricingInputs pricing = PricingInputs.EMPTY.withSourcePrice(data.price(), data.currency())
+                .withProfile(defaultProfile(source));
         long id = cars.insert("tmp-" + UUID.randomUUID(), CarStatus.DRAFT, source, sourceUrl,
                 truncate(data.sourceRef(), 255), truncate(data.sourceLocation(), 100), specs, pricing,
                 totalPrice(pricing));
@@ -119,7 +153,8 @@ public class CarService {
     public AdminCar update(long id, CarUpdateRequest r) {
         Car existing = find(id);
         CarSpecs specs = r.specs().toBuilder().build();
-        PricingInputs pricing = r.pricing();
+        PricingInputs pricing = r.pricing().profile() != null
+                ? r.pricing() : r.pricing().withProfile(defaultProfile(existing.source()));
         cars.update(id, specs, pricing, totalPrice(pricing));
         if (existing.status() == CarStatus.DRAFT) {
             // Keep links of published cars stable (SEO, shared links); drafts may still be renamed.
@@ -158,11 +193,17 @@ public class CarService {
         return loadAdmin(carId);
     }
 
-    /** Re-applies current exchange rates and pricing settings to every car. Returns the number of cars. */
+    /** Re-applies current exchange rates and price profiles to every car. Returns the number of cars. */
     @Transactional
     public int recalculateAllPrices() {
+        Map<PriceProfile, PricingProfile> byId = profiles.findAll().stream()
+                .collect(Collectors.toMap(PricingProfile::id, Function.identity()));
         List<Car> all = cars.findAll();
-        all.forEach(c -> cars.updateTotalPrice(c.id(), totalPrice(c.pricing())));
+        for (Car c : all) {
+            PricingProfile profile = c.pricing().profile() == null ? null : byId.get(c.pricing().profile());
+            PriceBreakdown b = mapper.breakdown(c.pricing(), profile);
+            cars.updateTotalPrice(c.id(), b == null ? null : b.totalEur());
+        }
         return all.size();
     }
 
@@ -192,6 +233,15 @@ public class CarService {
     private BigDecimal totalPrice(PricingInputs pricing) {
         PriceBreakdown b = mapper.breakdown(pricing);
         return b == null ? null : b.totalEur();
+    }
+
+    /** Imported cars are priced with their site's formula; other cars get one chosen in the editor. */
+    static PriceProfile defaultProfile(CarSource source) {
+        return switch (source) {
+            case AUTOHOME -> PriceProfile.AUTOHOME;
+            case AUTOWINI -> PriceProfile.AUTOWINI;
+            case OTHER, MANUAL -> null;
+        };
     }
 
     private static String slugFor(CarSpecs s, long id) {

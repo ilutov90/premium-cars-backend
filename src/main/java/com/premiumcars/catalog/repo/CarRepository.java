@@ -113,7 +113,7 @@ public class CarRepository {
                                          battery_kwh, electric_range_km, range_standard, motor_power_kw,
                                          body_type, seats, doors, color, curb_weight_kg, dimensions,
                                          description, specs,
-                                         source_price, source_currency, shipping_eur, margin_eur, extra_duty_rate,
+                                         source_price, source_currency, price_profile,
                                          total_price_eur, created_at, updated_at)
                         VALUES (:slug, :status, :source, :sourceUrl, :sourceRef, :sourceLocation,
                                 :title, :make, :model, :trim, :year, :firstRegistration, :mileageKm,
@@ -121,7 +121,7 @@ public class CarRepository {
                                 :batteryKwh, :electricRangeKm, :rangeStandard, :motorPowerKw,
                                 :bodyType, :seats, :doors, :color, :curbWeightKg, :dimensions,
                                 :description, CAST(:specs AS jsonb),
-                                :sourcePrice, :sourceCurrency, :shippingEur, :marginEur, :extraDutyRate,
+                                :sourcePrice, :sourceCurrency, :priceProfile,
                                 :totalPriceEur, now(), now())
                         RETURNING id""")
                 .params(p)
@@ -146,7 +146,7 @@ public class CarRepository {
                             curb_weight_kg = :curbWeightKg, dimensions = :dimensions,
                             description = :description, specs = CAST(:specs AS jsonb),
                             source_price = :sourcePrice, source_currency = :sourceCurrency,
-                            shipping_eur = :shippingEur, margin_eur = :marginEur, extra_duty_rate = :extraDutyRate,
+                            price_profile = :priceProfile,
                             total_price_eur = :totalPriceEur, updated_at = now()
                         WHERE id = :id""")
                 .params(p)
@@ -219,9 +219,7 @@ public class CarRepository {
         p.put("specs", json.write(d.extraSpecs()));
         p.put("sourcePrice", pricing.sourcePrice());
         p.put("sourceCurrency", pricing.sourceCurrency());
-        p.put("shippingEur", pricing.shippingEur());
-        p.put("marginEur", pricing.marginEur());
-        p.put("extraDutyRate", pricing.extraDutyRate());
+        p.put("priceProfile", name(pricing.profile()));
         return p;
     }
 

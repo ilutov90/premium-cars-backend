@@ -33,18 +33,12 @@ public record AppProperties(
     }
 
     /**
-     * Simplified landed-cost model. All amounts in EUR, rates as fractions (0.10 = 10%).
+     * Price formulas (costs, profit) live in the database and are edited in the admin panel; only the
+     * exchange rates are configuration.
      *
      * @param exchangeRates how many EUR one unit of the currency is worth (USD -> 0.92 means 1 USD = 0.92 EUR)
      */
-    public record Pricing(
-            BigDecimal defaultShippingEur,
-            BigDecimal defaultMarginEur,
-            BigDecimal fixedFeesEur,
-            BigDecimal customsDutyRate,
-            BigDecimal vatRate,
-            Map<String, BigDecimal> exchangeRates
-    ) {
+    public record Pricing(Map<String, BigDecimal> exchangeRates) {
     }
 
     /**
