@@ -1,5 +1,6 @@
 package com.premiumcars.importing.source.autowini;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
@@ -21,6 +22,10 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.Inflater;
+import java.util.zip.InflaterInputStream;
+import java.util.zip.ZipException;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -72,8 +77,10 @@ public class AutowiniClient {
     public synchronized String fetchListing(String desktopUrl, String mobileUrl) {
         ensureLoggedIn();
         Page page = get(desktopUrl);
+        log.info("autowini listing {}: HTTP {}", desktopUrl, page.status());
         if (page.status() == 403 && mobileUrl != null) {
             page = get(mobileUrl);
+            log.info("autowini mobile listing {}: HTTP {}", mobileUrl, page.status());
         }
         if (looksLikeLogin(page)) {
             log.info("autowini session expired, logging in again");
@@ -221,7 +228,7 @@ public class AutowiniClient {
     record Page(int status, String url, String body) {
     }
 
-    private Page get(String url) {
+    Page get(String url) {
         return send(base(url).GET().build());
     }
 
@@ -239,21 +246,49 @@ public class AutowiniClient {
     private HttpRequest.Builder base(String url) {
         return HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(props.importer().timeoutSeconds()))
+                // The same headers as Python requests in the posting script, which autowini lets through.
+                // With browser-like Accept headers and no Accept-Encoding it answered 403.
                 .header("User-Agent", props.importer().userAgent())
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9");
+                .header("Accept-Encoding", "gzip, deflate")
+                .header("Accept", "*/*");
     }
 
     private Page send(HttpRequest request) {
         try {
-            HttpResponse<String> r = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            return new Page(r.statusCode(), r.uri().toString(), r.body());
+            HttpResponse<byte[]> r = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            String encoding = r.headers().firstValue("Content-Encoding").orElse("");
+            return new Page(r.statusCode(), r.uri().toString(),
+                    new String(decode(r.body(), encoding), StandardCharsets.UTF_8));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BadRequestException("autowini request interrupted", e);
         } catch (IOException e) {
             throw new BadRequestException("Could not reach autowini: " + e.getMessage(), e);
         }
+    }
+
+    /** Undoes gzip/deflate, which we accept like Python requests does. */
+    static byte[] decode(byte[] body, String contentEncoding) throws IOException {
+        String enc = contentEncoding.toLowerCase(Locale.ROOT).trim();
+        if (body.length == 0 || enc.isEmpty() || enc.equals("identity")) {
+            return body;
+        }
+        if (enc.contains("gzip")) {
+            try (var in = new GZIPInputStream(new ByteArrayInputStream(body))) {
+                return in.readAllBytes();
+            }
+        }
+        if (enc.contains("deflate")) {
+            try (var in = new InflaterInputStream(new ByteArrayInputStream(body))) {
+                return in.readAllBytes();
+            } catch (ZipException e) {
+                // some servers send raw deflate without the zlib header
+                try (var in = new InflaterInputStream(new ByteArrayInputStream(body), new Inflater(true))) {
+                    return in.readAllBytes();
+                }
+            }
+        }
+        return body;
     }
 
     private static String enc(String s) {

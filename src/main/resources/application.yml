@@ -46,7 +46,9 @@ app:
     dir: ./data/media
     base-url: http://localhost:8080/media/
   importer:
-    user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
+    # Exactly the posting script's user agent. autowini answered 403 (pages and photos) to the same requests
+    # sent with "Chrome/141.0" while the script's requests went through.
+    user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     timeout-seconds: 20
     max-images: 30
     browser:
