@@ -3,8 +3,10 @@ package com.premiumcars.importing;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.List;
+import java.util.Map;
 
 import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.media.ImageDownloader.DownloadedImage;
 
 /**
  * One implementation per source site. To support a new site (encar.com, che168.com, a paid API ...),
@@ -34,6 +36,14 @@ public interface SourceAdapter {
      */
     default HttpClient imageClient() {
         return null;
+    }
+
+    /**
+     * Second chance for photos the plain download could not get: index in {@code imageUrls} -> photo.
+     * autowini loads them in a headless browser; other sites return nothing.
+     */
+    default Map<Integer, DownloadedImage> imagesFromBrowser(URI listingUrl, List<String> imageUrls) {
+        return Map.of();
     }
 
     /** URLs to try, in order, for one photo (e.g. the large variant first). */
