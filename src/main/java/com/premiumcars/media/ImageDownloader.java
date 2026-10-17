@@ -90,6 +90,15 @@ public class ImageDownloader {
         return Optional.empty();
     }
 
+    /** The bytes as a photo when they are a complete image (e.g. bytes a browser loaded), else empty. */
+    public static Optional<DownloadedImage> accept(byte[] body) {
+        if (body == null) {
+            return Optional.empty();
+        }
+        String ext = sniff(body);
+        return problem(body, ext) == null ? Optional.of(new DownloadedImage(body, ext)) : Optional.empty();
+    }
+
     /** Why the last photo was refused (status, type and the start of the answer), for one summary log line. */
     private volatile String lastRefusal;
 

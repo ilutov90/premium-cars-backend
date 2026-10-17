@@ -3,6 +3,7 @@ package com.premiumcars.importing.source.autowini;
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -10,9 +11,13 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -26,6 +31,7 @@ import org.springframework.stereotype.Component;
 
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.config.AppProperties;
+import com.premiumcars.importing.browser.PageRenderer.BrowserCookie;
 
 /**
  * Logged-in HTTP session with autowini.com. Port of AutowiniScraper.login() from autowini_poster_parallel.py.
@@ -87,6 +93,23 @@ public class AutowiniClient {
      */
     public HttpClient sessionClient() {
         return http;
+    }
+
+    /** The session cookies, to carry the login into the headless browser. */
+    public synchronized List<BrowserCookie> browserCookies() {
+        List<BrowserCookie> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        var store = cookies.getCookieStore();
+        for (URI uri : store.getURIs()) {
+            for (HttpCookie c : store.get(uri)) {
+                String domain = c.getDomain() != null ? c.getDomain() : uri.getHost();
+                String path = c.getPath() != null ? c.getPath() : "/";
+                if (domain != null && seen.add(c.getName() + "|" + domain + "|" + path)) {
+                    out.add(new BrowserCookie(c.getName(), c.getValue(), domain, path));
+                }
+            }
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------- login

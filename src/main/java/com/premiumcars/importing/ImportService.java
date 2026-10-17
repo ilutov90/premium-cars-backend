@@ -78,18 +78,34 @@ public class ImportService {
 
         String referer = adapter.referer(canonical);
         var imageClient = adapter.imageClient();
-        List<NewCarImage> images = new ArrayList<>();
         List<String> urls = data.imageUrls().stream().limit(props.importer().maxImages()).toList();
-        for (String imageUrl : urls) {
-            Optional<DownloadedImage> img = Optional.empty();
-            for (String candidate : adapter.imageCandidates(imageUrl)) {
-                img = downloader.download(candidate, referer, imageClient);
+        DownloadedImage[] photos = new DownloadedImage[urls.size()];
+        for (int i = 0; i < urls.size(); i++) {
+            for (String candidate : adapter.imageCandidates(urls.get(i))) {
+                Optional<DownloadedImage> img = downloader.download(candidate, referer, imageClient);
                 if (img.isPresent()) {
+                    photos[i] = img.get();
                     break;
                 }
             }
-            img.ifPresent(i -> images.add(
-                    new NewCarImage(storage.store("cars/" + draft.id(), i.bytes(), i.extension()), imageUrl)));
+        }
+        List<Integer> missing = new ArrayList<>();
+        for (int i = 0; i < photos.length; i++) {
+            if (photos[i] == null) {
+                missing.add(i);
+            }
+        }
+        if (!missing.isEmpty()) {
+            List<String> missingUrls = missing.stream().map(urls::get).toList();
+            adapter.imagesFromBrowser(canonical, missingUrls)
+                    .forEach((k, img) -> photos[missing.get(k)] = img);
+        }
+        List<NewCarImage> images = new ArrayList<>();
+        for (int i = 0; i < photos.length; i++) {
+            if (photos[i] != null) {
+                images.add(new NewCarImage(storage.store("cars/" + draft.id(), photos[i].bytes(),
+                        photos[i].extension()), urls.get(i)));
+            }
         }
         if (images.size() < urls.size()) {
             warnings.add("Downloaded " + images.size() + " of " + urls.size() + " photos.");
