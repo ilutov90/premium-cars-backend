@@ -4,9 +4,14 @@ import java.math.BigDecimal;
 
 /**
  * How a car's final price was built (admin only; customers see only {@code totalEur}). Amounts in EUR.
+ * When the price was set by hand without a source price, the calculated parts are null.
  *
- * @param steps      steps above the threshold, proportional (1.5 = 15 000 above)
- * @param stepCosts  steps * step cost
+ * @param steps              steps above the threshold, proportional (1.5 = 15 000 above)
+ * @param stepCostsEur       steps * step cost
+ * @param profitOverridden   the profit was set for this car instead of taken from the formula
+ * @param calculatedTotalEur what the formula gives (null when it cannot be calculated)
+ * @param totalEur           the final price: {@code calculatedTotalEur}, or the price set by hand
+ * @param fixedTotal         {@code totalEur} was set by hand
  */
 public record PriceBreakdown(
         PriceProfile profile,
@@ -17,6 +22,9 @@ public record PriceBreakdown(
         BigDecimal steps,
         BigDecimal stepCostsEur,
         BigDecimal profitEur,
-        BigDecimal totalEur
+        boolean profitOverridden,
+        BigDecimal calculatedTotalEur,
+        BigDecimal totalEur,
+        boolean fixedTotal
 ) {
 }

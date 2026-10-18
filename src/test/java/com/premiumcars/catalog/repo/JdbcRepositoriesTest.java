@@ -134,7 +134,7 @@ class JdbcRepositoriesTest {
                 .extraSpecs(Map.of("Drive", "AWD", "Seats", "5"))
                 .build();
         var update = new CarUpdateRequest(edited,
-                new PricingInputs(new BigDecimal("21000"), "usd", null));
+                new PricingInputs(new BigDecimal("21000"), "usd", null, null, null));
         AdminCar updated = carService.update(draft.id(), update);
         assertThat(updated.pricing().sourceCurrency()).isEqualTo("USD");
         assertThat(updated.pricing().profile()).isEqualTo(PriceProfile.AUTOHOME); // null = keep the site's formula
@@ -194,6 +194,17 @@ class JdbcRepositoriesTest {
                     new BigDecimal("2500"), null));
             // 25000 + 5100 + 1.5 * 600 + 2500
             assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("33500");
+
+            // per-car corrections are stored and survive repricing
+            var withProfit = carService.update(car.id(), new CarUpdateRequest(car.specs(),
+                    new PricingInputs(new BigDecimal("25000"), "EUR", null, new BigDecimal("4000"), null)));
+            assertThat(withProfit.price().totalEur()).isEqualByComparingTo("35000"); // 25000 + 5100 + 900 + 4000
+            var fixed = carService.update(car.id(), new CarUpdateRequest(car.specs(),
+                    new PricingInputs(new BigDecimal("25000"), "EUR", null, null, new BigDecimal("29990"))));
+            assertThat(fixed.price().totalEur()).isEqualByComparingTo("29990");
+            assertThat(fixed.pricing().fixedTotalEur()).isEqualByComparingTo("29990");
+            carService.recalculateAllPrices();
+            assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("29990");
         } finally {
             carService.updatePricingProfile(PriceProfile.AUTOWINI, original);
             carService.delete(car.id());

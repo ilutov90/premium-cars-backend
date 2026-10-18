@@ -103,7 +103,8 @@ Posts are recorded in `social_post` (link, date, number of photos); the editor a
 ## Viber channel
 
 The car editor's **Publish to Viber** posts the car to the Viber channel through the Viber Channels Post API:
-each photo (at most `app.social.viber-max-photos`, default 6) is its own message, then the post text. Photos go
+each photo is its own message (the first N of the gallery; N is chosen in the editor, 1-20, default
+`app.social.viber-max-photos` = 10), then the post text (the editor offers a shorter text for Viber). Photos go
 through imgbb like for Instagram (Viber loads them from public URLs) and are scaled down to 1 MB when bigger.
 Posts are recorded in `social_post` (network `VIBER`, no link: channel messages have none).
 
@@ -162,6 +163,10 @@ final price = car price in € + base costs + step cost × steps above the thres
 Above the threshold the step costs are proportional: autohome, car for 25 000 € = 5860 + 2880 (up to 20 000)
 + 1440 (the 5000 above 20 000) + 2000. The result is rounded to whole euros. Saving a profile reprices every car. Imported cars use their site's profile;
 cars from other sites get one chosen in the editor.
+
+Per car, the editor can correct the result (columns `profit_eur`, `fixed_total_eur`; empty = the formula):
+**profit for this car** replaces the profile's profit in the formula, and **final price by hand** replaces the
+whole result (the calculated price stays visible next to it). Repricing keeps both corrections.
 
 ## Data model
 

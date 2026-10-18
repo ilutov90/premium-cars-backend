@@ -48,6 +48,39 @@ class PriceCalculatorTest {
     }
 
     @Test
+    void anotherProfitForOneCar() {
+        // 25000 + 5000 + 1.5 * 600 + 3500 (instead of the profile's 2000)
+        PriceBreakdown b = calculator.calculate(new BigDecimal("25000"), "EUR", AUTOWINI, new BigDecimal("3500"), null);
+
+        assertThat(b.profitEur()).isEqualByComparingTo("3500");
+        assertThat(b.profitOverridden()).isTrue();
+        assertThat(b.calculatedTotalEur()).isEqualByComparingTo("34400");
+        assertThat(b.totalEur()).isEqualByComparingTo("34400");
+        assertThat(b.fixedTotal()).isFalse();
+    }
+
+    @Test
+    void finalPriceSetByHandWinsButTheCalculationStaysVisible() {
+        PriceBreakdown b = calculator.calculate(new BigDecimal("25000"), "EUR", AUTOWINI, null, new BigDecimal("31999.6"));
+
+        assertThat(b.calculatedTotalEur()).isEqualByComparingTo("32900");
+        assertThat(b.totalEur()).isEqualByComparingTo("32000"); // whole euros
+        assertThat(b.fixedTotal()).isTrue();
+        assertThat(b.profitOverridden()).isFalse();
+    }
+
+    @Test
+    void finalPriceSetByHandWorksWithoutASourcePrice() {
+        PriceBreakdown b = calculator.calculate(null, null, AUTOWINI, null, new BigDecimal("28500"));
+
+        assertThat(b.totalEur()).isEqualByComparingTo("28500");
+        assertThat(b.fixedTotal()).isTrue();
+        assertThat(b.carPriceEur()).isNull();
+        assertThat(b.calculatedTotalEur()).isNull();
+        assertThat(calculator.calculate(null, null, AUTOWINI, null, null)).isNull();
+    }
+
+    @Test
     void roundsToWholeEuros() {
         // 12345.67 + 5000 + 0.234567 * 600 (140.74) + 2000 = 19486.41 -> 19486
         PriceBreakdown b = calculator.calculate(new BigDecimal("12345.67"), "EUR", AUTOWINI);

@@ -58,7 +58,9 @@ final class CarRowMapper implements RowMapper<Car> {
         var pricing = new PricingInputs(
                 rs.getBigDecimal("source_price"),
                 rs.getString("source_currency"),
-                enumOf(PriceProfile.class, rs.getString("price_profile")));
+                enumOf(PriceProfile.class, rs.getString("price_profile")),
+                rs.getBigDecimal("profit_eur"),
+                rs.getBigDecimal("fixed_total_eur"));
         return new Car(
                 rs.getLong("id"),
                 rs.getString("slug"),

@@ -42,6 +42,10 @@ public class SocialPublisher {
     /** Viber shows photos up to 1 MB on every platform; bigger ones are scaled down. */
     static final int VIBER_PHOTO_MAX_BYTES = 1_000_000;
 
+    /** Most photos one Viber post may send (each photo is its own message in the channel). */
+    public static final int VIBER_PHOTOS_LIMIT = 20;
+
+
     public record Status(boolean facebook, boolean instagram, boolean viber) {
     }
 
@@ -105,8 +109,19 @@ public class SocialPublisher {
     }
 
     public SocialPost publish(long carId, SocialNetwork network, String text) {
+        return publish(carId, network, text, null);
+    }
+
+    /**
+     * @param photoCount how many photos to post to Viber (gallery order); null = {@code viber-max-photos}.
+     *                   Facebook and Instagram always take up to {@code max-photos}.
+     */
+    public SocialPost publish(long carId, SocialNetwork network, String text, Integer photoCount) {
         requireCar(carId);
-        List<Photo> photos = photos(carId);
+        int limit = network == SocialNetwork.VIBER
+                ? Math.clamp(photoCount == null ? cfg.viberMaxPhotos() : photoCount, 1, VIBER_PHOTOS_LIMIT)
+                : cfg.maxPhotos();
+        List<Photo> photos = photos(carId, limit);
         if (photos.isEmpty()) {
             throw new BadRequestException("The car has no photos to publish");
         }
@@ -181,7 +196,7 @@ public class SocialPublisher {
         }
         String from = viber.superadminId();
         List<String> urls = new ArrayList<>();
-        for (Photo p : photos.subList(0, Math.min(photos.size(), cfg.viberMaxPhotos()))) {
+        for (Photo p : photos) {
             byte[] jpeg = toJpeg(p);
             if (jpeg != null) {
                 urls.add(imgbb.upload(fitWithin(jpeg, VIBER_PHOTO_MAX_BYTES)));
@@ -198,10 +213,10 @@ public class SocialPublisher {
         return posts.insert(carId, SocialNetwork.VIBER, messageToken, null, urls.size());
     }
 
-    private List<Photo> photos(long carId) {
+    private List<Photo> photos(long carId, int limit) {
         List<Photo> out = new ArrayList<>();
         for (CarImage image : images.findByCarId(carId)) {
-            if (out.size() >= cfg.maxPhotos()) {
+            if (out.size() >= limit) {
                 break;
             }
             String path = image.storagePath();
