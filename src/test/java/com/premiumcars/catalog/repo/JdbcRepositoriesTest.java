@@ -201,6 +201,26 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void adminListShowsAndFindsTheSourceListing() {
+        String ref = "IC" + UUID.randomUUID().toString().substring(0, 8);
+        String url = "https://www.autowini.com/goods/detail?listingId=" + ref;
+        var imported = new ImportedCar(ref, null, CarSpecs.builder().title("Hyundai Tucson 2023").build(),
+                new BigDecimal("20000"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
+
+        var byLink = carService.searchAdmin(null, url, 0, 10).items();
+        assertThat(byLink).singleElement().satisfies(row -> {
+            assertThat(row.id()).isEqualTo(car.id());
+            assertThat(row.source()).isEqualTo(CarSource.AUTOWINI);
+            assertThat(row.sourceRef()).isEqualTo(ref);
+            assertThat(row.sourceUrl()).isEqualTo(url);
+        });
+        assertThat(carService.searchAdmin(null, ref.toLowerCase(), 0, 10).items()).hasSize(1);
+
+        carService.delete(car.id());
+    }
+
+    @Test
     void socialPostsAreRecordedPerCarAndGoWithTheCar() {
         String url = "https://www.autowini.com/test/" + UUID.randomUUID();
         var imported = new ImportedCar("IC2", null, CarSpecs.builder().title("Kia Sportage 2024").build(),
@@ -209,8 +229,9 @@ class JdbcRepositoriesTest {
 
         socialPosts.insert(car.id(), SocialNetwork.FACEBOOK, "PAGE_1", "https://www.facebook.com/PAGE_1", 10);
         socialPosts.insert(car.id(), SocialNetwork.INSTAGRAM, "media1", null, 8);
+        socialPosts.insert(car.id(), SocialNetwork.VIBER, "5491", null, 6);
         assertThat(socialPublisher.posts(car.id())).extracting(SocialPost::network)
-                .containsExactlyInAnyOrder(SocialNetwork.FACEBOOK, SocialNetwork.INSTAGRAM);
+                .containsExactlyInAnyOrder(SocialNetwork.FACEBOOK, SocialNetwork.INSTAGRAM, SocialNetwork.VIBER);
 
         // a car without photos cannot be published (checked before any network call)
         assertThatThrownBy(() -> socialPublisher.publish(car.id(), SocialNetwork.FACEBOOK, "text"))

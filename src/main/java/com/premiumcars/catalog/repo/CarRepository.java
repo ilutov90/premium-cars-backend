@@ -72,7 +72,15 @@ public class CarRepository {
     }
 
     public CarPage search(CarFilter filter, Collection<CarStatus> statuses, CarSort sort, int page, int size) {
-        CarSearchSql sql = CarSearchSql.of(filter, statuses);
+        return search(CarSearchSql.of(filter, statuses), sort, page, size);
+    }
+
+    /** Like {@link #search}, but the text also matches the source listing's URL and id (admin only). */
+    public CarPage searchAdmin(CarFilter filter, Collection<CarStatus> statuses, CarSort sort, int page, int size) {
+        return search(CarSearchSql.forAdmin(filter, statuses), sort, page, size);
+    }
+
+    private CarPage search(CarSearchSql sql, CarSort sort, int page, int size) {
         CarSearchSql.Sql count = sql.count();
         long total = jdbc.sql(count.text()).params(count.params()).query(Long.class).single();
         if (total == 0) {

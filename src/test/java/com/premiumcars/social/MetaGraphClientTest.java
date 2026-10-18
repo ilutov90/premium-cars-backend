@@ -41,7 +41,7 @@ class MetaGraphClientTest {
         server.createContext("/", this::handle);
         server.start();
         String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/";
-        var cfg = new AppProperties.Social("v23.0", "PAGE", "secret-token", "IGUSER", "imgbb-key", 10);
+        var cfg = new AppProperties.Social("v23.0", "PAGE", "secret-token", "IGUSER", "imgbb-key", 10, null, 6);
         graph = new MetaGraphClient(cfg, new ObjectMapper(), URI.create(base), Duration.ofMillis(10));
         imgbb = new ImgbbUploader("imgbb-key", new ObjectMapper(), URI.create(base + "imgbb/upload"));
     }

@@ -73,9 +73,11 @@ public record AppProperties(
      * @param accessToken      a long-lived Page access token (also used for the Instagram account linked to the page)
      * @param imgbbApiKey      Instagram needs public photo URLs; photos are uploaded to imgbb for that
      * @param maxPhotos        photos per post (Instagram carousels take at most 10)
+     * @param viberChannelToken the Viber channel's token (channel info -> Developer tools), VIBER_CHANNEL_TOKEN
+     * @param viberMaxPhotos   photos per Viber post (each photo is its own message in the channel)
      */
     public record Social(String graphVersion, String facebookPageId, String accessToken, String instagramUserId,
-                         String imgbbApiKey, int maxPhotos) {
+                         String imgbbApiKey, int maxPhotos, String viberChannelToken, int viberMaxPhotos) {
 
         public boolean facebookConfigured() {
             return notBlank(facebookPageId) && notBlank(accessToken);
@@ -83,6 +85,11 @@ public record AppProperties(
 
         public boolean instagramConfigured() {
             return notBlank(instagramUserId) && notBlank(accessToken) && notBlank(imgbbApiKey);
+        }
+
+        /** Viber fetches photos from public URLs too, so it needs imgbb like Instagram. */
+        public boolean viberConfigured() {
+            return notBlank(viberChannelToken) && notBlank(imgbbApiKey);
         }
 
         private static boolean notBlank(String s) {

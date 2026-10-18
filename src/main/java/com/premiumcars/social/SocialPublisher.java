@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -23,7 +24,7 @@ import com.premiumcars.config.AppProperties;
 import com.premiumcars.media.ImageStorage;
 
 /**
- * Publishes a car to the Facebook page / Instagram account: the admin's text (generated in the admin panel in the
+ * Publishes a car to the Facebook page / Instagram account / Viber channel: the admin's text (generated in the admin panel in the
  * posting script's format, editable) plus the car's photos in their order. Not transactional: it makes slow network
  * calls and only records the result at the end.
  */
@@ -35,7 +36,13 @@ public class SocialPublisher {
     /** Instagram's caption limit. */
     static final int INSTAGRAM_CAPTION_MAX = 2200;
 
-    public record Status(boolean facebook, boolean instagram) {
+    /** Viber's limit for a text message. */
+    static final int VIBER_TEXT_MAX = 7000;
+
+    /** Viber shows photos up to 1 MB on every platform; bigger ones are scaled down. */
+    static final int VIBER_PHOTO_MAX_BYTES = 1_000_000;
+
+    public record Status(boolean facebook, boolean instagram, boolean viber) {
     }
 
     private record Photo(byte[] bytes, String extension) {
@@ -48,9 +55,11 @@ public class SocialPublisher {
     private final MetaGraphClient graph;
     private final ImgbbUploader imgbb;
     private final SocialPostRepository posts;
+    private final ViberChannelClient viber;
 
     public SocialPublisher(AppProperties props, CarRepository cars, CarImageRepository images, ImageStorage storage,
-                           MetaGraphClient graph, ImgbbUploader imgbb, SocialPostRepository posts) {
+                           MetaGraphClient graph, ImgbbUploader imgbb, SocialPostRepository posts,
+                           ViberChannelClient viber) {
         this.cfg = props.social();
         this.cars = cars;
         this.images = images;
@@ -58,10 +67,36 @@ public class SocialPublisher {
         this.graph = graph;
         this.imgbb = imgbb;
         this.posts = posts;
+        this.viber = viber;
     }
 
     public Status status() {
-        return new Status(cfg.facebookConfigured(), cfg.instagramConfigured());
+        return new Status(cfg.facebookConfigured(), cfg.instagramConfigured(), cfg.viberConfigured());
+    }
+
+    /**
+     * Registers the site's Viber callback ({@code siteUrl} + {@link ViberWebhookController#PATH}). Viber checks the
+     * URL right away, so the site must be reachable from the internet over HTTPS (a tunnel works for testing).
+     *
+     * @return the registered callback URL
+     */
+    public String connectViber(String siteUrl) {
+        if (!cfg.viberConfigured()) {
+            throw new BadRequestException("Viber is not configured: set VIBER_CHANNEL_TOKEN and IMGBB_API_KEY");
+        }
+        URI uri;
+        try {
+            uri = URI.create(siteUrl.trim());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Not a valid address: " + siteUrl);
+        }
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
+            throw new BadRequestException("Viber needs a public https:// address of the site");
+        }
+        String callback = "https://" + uri.getRawAuthority() + ViberWebhookController.PATH;
+        viber.setWebhook(callback);
+        log.info("Viber channel connected, callback {}", callback);
+        return callback;
     }
 
     public List<SocialPost> posts(long carId) {
@@ -78,6 +113,7 @@ public class SocialPublisher {
         return switch (network) {
             case FACEBOOK -> publishToFacebook(carId, text, photos);
             case INSTAGRAM -> publishToInstagram(carId, text, photos);
+            case VIBER -> publishToViber(carId, text, photos);
         };
     }
 
@@ -134,6 +170,34 @@ public class SocialPublisher {
         return posts.insert(carId, SocialNetwork.INSTAGRAM, mediaId, link, urls.size());
     }
 
+    /** Viber channels have no albums: each photo is a message, then the text as the last (newest) message. */
+    private SocialPost publishToViber(long carId, String text, List<Photo> photos) {
+        if (!cfg.viberConfigured()) {
+            throw new BadRequestException("Viber is not configured: set VIBER_CHANNEL_TOKEN and IMGBB_API_KEY");
+        }
+        if (text.length() > VIBER_TEXT_MAX) {
+            throw new BadRequestException("Viber messages are limited to " + VIBER_TEXT_MAX
+                    + " characters (this one has " + text.length() + ")");
+        }
+        String from = viber.superadminId();
+        List<String> urls = new ArrayList<>();
+        for (Photo p : photos.subList(0, Math.min(photos.size(), cfg.viberMaxPhotos()))) {
+            byte[] jpeg = toJpeg(p);
+            if (jpeg != null) {
+                urls.add(imgbb.upload(fitWithin(jpeg, VIBER_PHOTO_MAX_BYTES)));
+            }
+        }
+        if (urls.isEmpty()) {
+            throw new BadRequestException("None of the photos could be converted to JPEG for Viber");
+        }
+        for (String url : urls) {
+            viber.postPicture(from, url);
+        }
+        String messageToken = viber.postText(from, text);
+        log.info("Published car {} to Viber ({} photos)", carId, urls.size());
+        return posts.insert(carId, SocialNetwork.VIBER, messageToken, null, urls.size());
+    }
+
     private List<Photo> photos(long carId) {
         List<Photo> out = new ArrayList<>();
         for (CarImage image : images.findByCarId(carId)) {
@@ -166,6 +230,36 @@ public class SocialPublisher {
             return out.toByteArray();
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    /** Scales a JPEG down (and re-encodes it) until it is at most {@code maxBytes}; small ones are kept as they are. */
+    static byte[] fitWithin(byte[] jpeg, int maxBytes) {
+        if (jpeg.length <= maxBytes) {
+            return jpeg;
+        }
+        try {
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(jpeg));
+            if (image == null) {
+                return jpeg;
+            }
+            byte[] out = jpeg;
+            for (int width = Math.min(image.getWidth(), 1600); width >= 400 && out.length > maxBytes;
+                 width = width * 3 / 4) {
+                int height = Math.max(1, image.getHeight() * width / image.getWidth());
+                BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+                var g = scaled.createGraphics();
+                g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                        java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g.drawImage(image, 0, 0, width, height, java.awt.Color.WHITE, null);
+                g.dispose();
+                var bytes = new ByteArrayOutputStream();
+                ImageIO.write(scaled, "jpg", bytes);
+                out = bytes.toByteArray();
+            }
+            return out;
+        } catch (IOException e) {
+            return jpeg;
         }
     }
 

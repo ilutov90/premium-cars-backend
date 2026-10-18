@@ -31,6 +31,7 @@ import com.premiumcars.catalog.repo.CarImageRepository;
 import com.premiumcars.catalog.repo.CarRepository;
 import com.premiumcars.catalog.repo.CarRepository.CarPage;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
+import com.premiumcars.catalog.web.dto.CarDtos.AdminCarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.CarDetail;
 import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.CarUpdateRequest;
@@ -113,10 +114,14 @@ public class CarService {
     // ---------------------------------------------------------------- admin
 
     @Transactional(readOnly = true)
-    public PageResponse<CarSummary> searchAdmin(CarStatus status, String q, int page, int size) {
+    /** The admin list; {@code q} matches the title, make, model and the source listing's URL or id. */
+    public PageResponse<AdminCarSummary> searchAdmin(CarStatus status, String q, int page, int size) {
         Set<CarStatus> statuses = status == null ? EnumSet.allOf(CarStatus.class) : EnumSet.of(status);
         var filter = new CarFilter(q, null, null, null, null, null, null, null, null, null);
-        return search(filter, statuses, CarSort.UPDATED, page, size);
+        int p = Math.max(page, 0);
+        int s = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        CarPage result = cars.searchAdmin(filter, statuses, CarSort.UPDATED, p, s);
+        return PageResponse.of(result.rows(), p, s, result.total(), mapper::toAdminSummary);
     }
 
     @Transactional(readOnly = true)
