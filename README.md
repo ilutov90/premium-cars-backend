@@ -100,11 +100,21 @@ Settings, in Vault like the other secrets (the same names as the script's `.env`
 A network whose settings are missing has its button disabled. Restart the backend after changing them in Vault.
 Posts are recorded in `social_post` (link, date, number of photos); the editor asks before posting a car twice.
 
+## Post templates and publishing
+
+The texts for Facebook, Instagram and Viber come from templates, one per network, edited in the admin panel
+("Шаблони") and stored in `post_template` (no row = the admin panel's default). Placeholders such as
+`{{price}}`, `{{year}}`, `{{mileage}}`, `{{battery}}` are filled in by the admin panel from the car; a line whose
+placeholder is empty for the car (e.g. the battery of a diesel) is left out.
+
+Publishing always goes through a confirmation step in the admin panel: the filled-in text (editable) and the car's
+photos to pick from (1 to 10, sent in gallery order). `POST /api/admin/cars/{id}/social-posts` takes
+`{network, text, imageIds}`; the ids must be photos of that car.
+
 ## Viber channel
 
 The car editor's **Publish to Viber** posts the car to the Viber channel through the Viber Channels Post API:
-each photo is its own message (the first N of the gallery; N is chosen in the editor, 1-20, default
-`app.social.viber-max-photos` = 10), then the post text (the editor offers a shorter text for Viber). Photos go
+each photo is its own message (the photos picked when publishing), then the post text. Photos go
 through imgbb like for Instagram (Viber loads them from public URLs) and are scaled down to 1 MB when bigger.
 Posts are recorded in `social_post` (network `VIBER`, no link: channel messages have none).
 
