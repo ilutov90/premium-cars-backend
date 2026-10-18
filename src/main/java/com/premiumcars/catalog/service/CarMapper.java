@@ -11,6 +11,7 @@ import com.premiumcars.catalog.domain.Origin;
 import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.repo.CarRepository.CarListRow;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
+import com.premiumcars.catalog.web.dto.CarDtos.AdminCarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminImage;
 import com.premiumcars.catalog.web.dto.CarDtos.CarDetail;
 import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
@@ -41,6 +42,14 @@ public class CarMapper {
         return new CarSummary(c.id(), c.slug(), s.title(), s.make(), s.model(), s.year(), s.mileageKm(),
                 s.fuelType(), s.transmission(), s.powerHp(), s.batteryKwh(), s.electricRangeKm(),
                 Origin.of(c.source()), c.status(), c.totalPriceEur(), cover);
+    }
+
+    public AdminCarSummary toAdminSummary(CarListRow row) {
+        Car c = row.car();
+        CarSpecs s = c.specs();
+        String cover = row.coverPath() == null ? null : storage.publicUrl(row.coverPath());
+        return new AdminCarSummary(c.id(), c.slug(), s.title(), s.year(), s.mileageKm(), c.status(),
+                c.totalPriceEur(), cover, c.source(), c.sourceRef(), c.sourceUrl());
     }
 
     public CarDetail toDetail(Car c, List<CarImage> images) {

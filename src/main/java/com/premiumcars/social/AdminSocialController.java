@@ -16,13 +16,20 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-/** Publishing cars to Facebook / Instagram from the admin panel. */
+/** Publishing cars to Facebook / Instagram / Viber from the admin panel. */
 @RestController
 @RequestMapping("/api/admin")
 public class AdminSocialController {
 
     /** @param text the post text, as shown (and possibly edited) in the admin panel */
     public record PublishRequest(@NotNull SocialNetwork network, @NotBlank @Size(max = 5000) String text) {
+    }
+
+    /** @param siteUrl the site's public https:// address, e.g. a temporary tunnel while testing locally */
+    public record ViberConnectRequest(@NotBlank @Size(max = 300) String siteUrl) {
+    }
+
+    public record ViberConnectResponse(String callbackUrl) {
     }
 
     private final SocialPublisher publisher;
@@ -35,6 +42,12 @@ public class AdminSocialController {
     @GetMapping("/social/status")
     public SocialPublisher.Status status() {
         return publisher.status();
+    }
+
+    /** Registers the Viber callback once; Viber accepts channel posts only after that. */
+    @PostMapping("/social/viber/connect")
+    public ViberConnectResponse connectViber(@Valid @RequestBody ViberConnectRequest request) {
+        return new ViberConnectResponse(publisher.connectViber(request.siteUrl()));
     }
 
     @GetMapping("/cars/{id}/social-posts")

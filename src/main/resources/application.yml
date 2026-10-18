@@ -106,6 +106,9 @@ app:
     instagram-user-id: ${IG_USER_ID:}
     imgbb-api-key: ${IMGBB_API_KEY:}
     max-photos: 10
+    # Viber channel: token from the channel's Developer tools (README "Viber"); photos go through imgbb.
+    viber-channel-token: ${VIBER_CHANNEL_TOKEN:}
+    viber-max-photos: 6
   pricing:
     # Costs and profit per site are in the database (admin panel -> "Цени"), see PriceCalculator.
     exchange-rates:              # EUR per 1 unit — update regularly (later: fetch daily from the ECB)

@@ -59,4 +59,16 @@ class CarSearchSqlTest {
         assertThat(CarSort.fromParam(null)).isEqualTo(CarSort.NEWEST);
         assertThat(CarSort.fromParam("price_desc")).isEqualTo(CarSort.PRICE_DESC);
     }
+
+    @Test
+    void onlyTheAdminSearchMatchesTheSourceListing() {
+        var filter = new CarFilter("IC5546178", null, null, null, null, null, null, null, null, null);
+
+        var admin = CarSearchSql.forAdmin(filter, EnumSet.allOf(CarStatus.class)).count();
+        var pub = CarSearchSql.of(filter, PUBLIC).count();
+
+        assertThat(admin.text()).contains("c.source_url ILIKE :q", "c.source_ref ILIKE :q");
+        assertThat(admin.params()).containsEntry("q", "%IC5546178%");
+        assertThat(pub.text()).doesNotContain("source_url").doesNotContain("source_ref");
+    }
 }

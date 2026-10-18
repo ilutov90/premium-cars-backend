@@ -34,7 +34,7 @@ Always run `mvn test` before finishing a change.
 - Network calls (page/photo download) happen outside DB transactions (`ImportService` is not `@Transactional`).
 - The source site URL, source id and dealer are admin-only; never return them from `/api/public/**`.
 - Customers see only the final price (`priceEur` / `totalPriceEur`); purchase price, costs and profit are admin-only.
-- Secrets (DB password, autowini login, Meta token, imgbb key, first admin password) come only from Vault
+- Secrets (DB password, autowini login, Meta token, Viber channel token, imgbb key, first admin password) come only from Vault
   (`secret/premium-cars/backend`, keys = the `${...}` placeholder names in `application.yml`). No defaults for
   secrets in `application.yml`, `.env`, tests or git; tests use dummy values in `src/test/resources`. Tokens go in
   headers, never URLs. CI runs gitleaks.
@@ -54,7 +54,7 @@ Always run `mvn test` before finishing a change.
 | `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser`, `AutowiniSourceAdapter` |
 | `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
-| `social` | publishing to Facebook / Instagram: `MetaGraphClient` (Graph API), `ImgbbUploader`, `SocialPublisher`, `social_post` |
+| `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post` |
 | `auth` | admin login: `AdminAuthService` (bcrypt, lock), `AdminAuthController` (login/logout/me/password), `RateLimitFilter`, `admin_user` |
 | `inquiry` | customer inquiries |
 | `config`, `common` | security, CORS, properties, errors, paging |

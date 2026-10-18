@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.service.CarService;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
-import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
+import com.premiumcars.catalog.web.dto.CarDtos.AdminCarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.CarUpdateRequest;
 import com.premiumcars.catalog.web.dto.CarDtos.ImportRequest;
 import com.premiumcars.catalog.web.dto.CarDtos.ImportResult;
@@ -46,7 +46,7 @@ public class AdminCarController {
     }
 
     @GetMapping("/cars")
-    public PageResponse<CarSummary> list(@RequestParam(required = false) CarStatus status,
+    public PageResponse<AdminCarSummary> list(@RequestParam(required = false) CarStatus status,
                                          @RequestParam(required = false) String q,
                                          @RequestParam(defaultValue = "0") int page,
                                          @RequestParam(defaultValue = "24") int size) {

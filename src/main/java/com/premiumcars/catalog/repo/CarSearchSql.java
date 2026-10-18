@@ -33,12 +33,27 @@ final class CarSearchSql {
 
     private final StringBuilder where = new StringBuilder();
     private final Map<String, Object> params = new LinkedHashMap<>();
+    private final boolean matchSource;
 
-    private CarSearchSql() {
+    private CarSearchSql(boolean matchSource) {
+        this.matchSource = matchSource;
     }
 
+    /** The public catalog: the text search looks at title, make and model. */
     static CarSearchSql of(CarFilter filter, Collection<CarStatus> statuses) {
-        var b = new CarSearchSql();
+        return build(filter, statuses, false);
+    }
+
+    /**
+     * The admin list: the text search also matches the source listing's URL and id, so pasting a link from
+     * autohome / autowini finds the car imported from it. Never used for public requests.
+     */
+    static CarSearchSql forAdmin(CarFilter filter, Collection<CarStatus> statuses) {
+        return build(filter, statuses, true);
+    }
+
+    private static CarSearchSql build(CarFilter filter, Collection<CarStatus> statuses, boolean matchSource) {
+        var b = new CarSearchSql(matchSource);
         b.where.append("WHERE c.status IN (:statuses)");
         b.params.put("statuses", statuses.stream().map(Enum::name).toList());
         if (filter != null) {
@@ -49,7 +64,11 @@ final class CarSearchSql {
 
     private void addFilters(CarFilter f) {
         if (notBlank(f.q())) {
-            and("(c.title ILIKE :q OR c.make ILIKE :q OR c.model ILIKE :q)", "q", "%" + escapeLike(f.q().trim()) + "%");
+            String fields = matchSource
+                    ? "(c.title ILIKE :q OR c.make ILIKE :q OR c.model ILIKE :q"
+                      + " OR c.source_url ILIKE :q OR c.source_ref ILIKE :q)"
+                    : "(c.title ILIKE :q OR c.make ILIKE :q OR c.model ILIKE :q)";
+            and(fields, "q", "%" + escapeLike(f.q().trim()) + "%");
         }
         if (notBlank(f.make())) {
             and("lower(c.make) = :make", "make", f.make().trim().toLowerCase(Locale.ROOT));

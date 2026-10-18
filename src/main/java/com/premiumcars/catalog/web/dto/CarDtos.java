@@ -71,6 +71,22 @@ public final class CarDtos {
 
     // ---------------------------------------------------------------- admin
 
+    /** A row of the admin car list: like {@link CarSummary} plus where the car was imported from. */
+    public record AdminCarSummary(
+            Long id,
+            String slug,
+            String title,
+            Integer year,
+            Integer mileageKm,
+            CarStatus status,
+            BigDecimal totalPriceEur,
+            String coverImageUrl,
+            CarSource source,
+            String sourceRef,
+            String sourceUrl
+    ) {
+    }
+
     public record AdminImage(Long id, String url, String sourceUrl, int position) {
     }
 
