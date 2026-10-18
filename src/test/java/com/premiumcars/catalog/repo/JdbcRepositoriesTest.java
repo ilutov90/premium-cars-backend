@@ -2,6 +2,7 @@ package com.premiumcars.catalog.repo;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -34,6 +35,8 @@ import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.inquiry.Inquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 import com.premiumcars.inquiry.InquiryService;
+import com.premiumcars.social.PostTemplate;
+import com.premiumcars.social.PostTemplateRepository;
 import com.premiumcars.social.SocialNetwork;
 import com.premiumcars.social.SocialPost;
 import com.premiumcars.social.SocialPostRepository;
@@ -64,6 +67,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     SocialPublisher socialPublisher;
+
+    @Autowired
+    PostTemplateRepository templates;
 
     @Test
     void publicCatalogSortsWithNullsLast() {
@@ -247,9 +253,27 @@ class JdbcRepositoriesTest {
         // a car without photos cannot be published (checked before any network call)
         assertThatThrownBy(() -> socialPublisher.publish(car.id(), SocialNetwork.FACEBOOK, "text"))
                 .hasMessageContaining("no photos");
+        // only the car's own photos can be picked
+        assertThatThrownBy(() -> socialPublisher.publish(car.id(), SocialNetwork.VIBER, "text", List.of(-1L)))
+                .hasMessageContaining("is not a photo of car");
 
         carService.delete(car.id());
         assertThat(socialPosts.findByCarId(car.id())).isEmpty();
+    }
+
+    @Test
+    void postTemplatesAreSavedPerNetworkAndReset() {
+        templates.save(SocialNetwork.VIBER, "🎯{{title}}\n🔹Година: {{year}}");
+        templates.save(SocialNetwork.VIBER, "🎯{{title}}");
+        templates.save(SocialNetwork.FACEBOOK, "{{title}} {{price}}");
+
+        assertThat(templates.findAll()).extracting(PostTemplate::network, PostTemplate::body)
+                .contains(tuple(SocialNetwork.VIBER, "🎯{{title}}"), tuple(SocialNetwork.FACEBOOK, "{{title}} {{price}}"));
+
+        templates.delete(SocialNetwork.VIBER);
+        templates.delete(SocialNetwork.FACEBOOK);
+        assertThat(templates.findAll()).extracting(PostTemplate::network)
+                .doesNotContain(SocialNetwork.VIBER, SocialNetwork.FACEBOOK);
     }
 
     @Test

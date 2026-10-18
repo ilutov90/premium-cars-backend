@@ -6,8 +6,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import javax.imageio.ImageIO;
 
@@ -42,8 +45,8 @@ public class SocialPublisher {
     /** Viber shows photos up to 1 MB on every platform; bigger ones are scaled down. */
     static final int VIBER_PHOTO_MAX_BYTES = 1_000_000;
 
-    /** Most photos one Viber post may send (each photo is its own message in the channel). */
-    public static final int VIBER_PHOTOS_LIMIT = 20;
+    /** Most photos the admin may pick for one post (Instagram carousels take at most 10). */
+    public static final int MAX_SELECTED_PHOTOS = 10;
 
 
     public record Status(boolean facebook, boolean instagram, boolean viber) {
@@ -113,15 +116,17 @@ public class SocialPublisher {
     }
 
     /**
-     * @param photoCount how many photos to post to Viber (gallery order); null = {@code viber-max-photos}.
-     *                   Facebook and Instagram always take up to {@code max-photos}.
+     * @param imageIds the car's photos to post, in this order (at most {@link #MAX_SELECTED_PHOTOS}); null = the
+     *                 first ones of the gallery ({@code max-photos}, for Viber {@code viber-max-photos})
      */
-    public SocialPost publish(long carId, SocialNetwork network, String text, Integer photoCount) {
+    public SocialPost publish(long carId, SocialNetwork network, String text, List<Long> imageIds) {
         requireCar(carId);
-        int limit = network == SocialNetwork.VIBER
-                ? Math.clamp(photoCount == null ? cfg.viberMaxPhotos() : photoCount, 1, VIBER_PHOTOS_LIMIT)
-                : cfg.maxPhotos();
-        List<Photo> photos = photos(carId, limit);
+        List<Photo> photos;
+        if (imageIds == null) {
+            photos = photos(carId, network == SocialNetwork.VIBER ? cfg.viberMaxPhotos() : cfg.maxPhotos());
+        } else {
+            photos = selectedPhotos(carId, imageIds);
+        }
         if (photos.isEmpty()) {
             throw new BadRequestException("The car has no photos to publish");
         }
@@ -213,15 +218,39 @@ public class SocialPublisher {
         return posts.insert(carId, SocialNetwork.VIBER, messageToken, null, urls.size());
     }
 
+    /** The chosen photos in the chosen order; each must belong to the car. */
+    private List<Photo> selectedPhotos(long carId, List<Long> imageIds) {
+        if (imageIds.size() > MAX_SELECTED_PHOTOS) {
+            throw new BadRequestException("At most " + MAX_SELECTED_PHOTOS + " photos per post");
+        }
+        Map<Long, CarImage> byId = new HashMap<>();
+        for (CarImage image : images.findByCarId(carId)) {
+            byId.put(image.id(), image);
+        }
+        List<Photo> out = new ArrayList<>();
+        for (Long id : new LinkedHashSet<>(imageIds)) {
+            CarImage image = byId.get(id);
+            if (image == null) {
+                throw new BadRequestException("Photo " + id + " is not a photo of car " + carId);
+            }
+            out.add(read(image));
+        }
+        return out;
+    }
+
+    private Photo read(CarImage image) {
+        String path = image.storagePath();
+        String ext = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+        return new Photo(storage.read(path), ext);
+    }
+
     private List<Photo> photos(long carId, int limit) {
         List<Photo> out = new ArrayList<>();
         for (CarImage image : images.findByCarId(carId)) {
             if (out.size() >= limit) {
                 break;
             }
-            String path = image.storagePath();
-            String ext = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-            out.add(new Photo(storage.read(path), ext));
+            out.add(read(image));
         }
         return out;
     }

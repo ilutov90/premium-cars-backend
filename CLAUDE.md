@@ -54,7 +54,7 @@ Always run `mvn test` before finishing a change.
 | `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser`, `AutowiniSourceAdapter` |
 | `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
-| `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post` |
+| `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post`, `post_template` (text templates per network, filled in by the admin panel) |
 | `auth` | admin login: `AdminAuthService` (bcrypt, lock), `AdminAuthController` (login/logout/me/password), `RateLimitFilter`, `admin_user` |
 | `inquiry` | customer inquiries |
 | `config`, `common` | security, CORS, properties, errors, paging |
