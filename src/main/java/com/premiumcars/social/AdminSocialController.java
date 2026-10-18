@@ -43,10 +43,24 @@ public class AdminSocialController {
 
     private final SocialPublisher publisher;
     private final PostTemplateRepository templates;
+    private final PostSettingsRepository settings;
 
-    public AdminSocialController(SocialPublisher publisher, PostTemplateRepository templates) {
+    public AdminSocialController(SocialPublisher publisher, PostTemplateRepository templates,
+                                 PostSettingsRepository settings) {
         this.publisher = publisher;
         this.templates = templates;
+        this.settings = settings;
+    }
+
+    /** Phone, Viber channel link and office for the templates; null fields = the admin panel's defaults. */
+    @GetMapping("/post-settings")
+    public PostSettings settings() {
+        return settings.find();
+    }
+
+    @PutMapping("/post-settings")
+    public PostSettings saveSettings(@Valid @RequestBody PostSettings request) {
+        return settings.save(request);
     }
 
     /** The saved templates; a network without one uses the admin panel's default. */

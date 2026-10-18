@@ -105,7 +105,9 @@ Posts are recorded in `social_post` (link, date, number of photos); the editor a
 The texts for Facebook, Instagram and Viber come from templates, one per network, edited in the admin panel
 ("Шаблони") and stored in `post_template` (no row = the admin panel's default). Placeholders such as
 `{{price}}`, `{{year}}`, `{{mileage}}`, `{{battery}}` are filled in by the admin panel from the car; a line whose
-placeholder is empty for the car (e.g. the battery of a diesel) is left out.
+placeholder is empty for the car (e.g. the battery of a diesel) is left out. The phone, the Viber channel link and
+the office (`{{phone}}`, `{{viber_link}}`, `{{office}}`) are shared by all cars: `post_setting`, edited on the
+same page (`GET/PUT /api/admin/post-settings`; empty = the admin panel's default).
 
 Publishing always goes through a confirmation step in the admin panel: the filled-in text (editable) and the car's
 photos to pick from (1 to 10, sent in gallery order). `POST /api/admin/cars/{id}/social-posts` takes
