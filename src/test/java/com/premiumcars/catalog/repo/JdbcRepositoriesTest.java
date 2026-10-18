@@ -39,6 +39,7 @@ import com.premiumcars.social.PostSettings;
 import com.premiumcars.social.PostSettingsRepository;
 import com.premiumcars.social.PostTemplate;
 import com.premiumcars.social.PostTemplateRepository;
+import com.premiumcars.social.PublicContactController;
 import com.premiumcars.social.SocialNetwork;
 import com.premiumcars.social.SocialPost;
 import com.premiumcars.social.SocialPostRepository;
@@ -75,6 +76,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     PostSettingsRepository postSettings;
+
+    @Autowired
+    PublicContactController publicContact;
 
     @Test
     void publicCatalogSortsWithNullsLast() {
@@ -289,6 +293,8 @@ class JdbcRepositoriesTest {
         PostSettings back = postSettings.save(new PostSettings("0888123456", "  ", null));
         assertThat(back).isEqualTo(new PostSettings("0888123456", null, null));
         assertThat(postSettings.find()).isEqualTo(back);
+
+        assertThat(publicContact.contact()).isEqualTo(back); // the public site shows the same details
 
         postSettings.save(new PostSettings(null, null, null));
         assertThat(postSettings.find()).isEqualTo(new PostSettings(null, null, null));
