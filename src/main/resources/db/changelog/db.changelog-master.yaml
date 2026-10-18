@@ -17,3 +17,5 @@ databaseChangeLog:
       file: db/changelog/changes/008-manual-price.sql
   - include:
       file: db/changelog/changes/009-post-templates.sql
+  - include:
+      file: db/changelog/changes/010-post-settings.sql

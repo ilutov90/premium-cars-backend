@@ -35,6 +35,8 @@ import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.inquiry.Inquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 import com.premiumcars.inquiry.InquiryService;
+import com.premiumcars.social.PostSettings;
+import com.premiumcars.social.PostSettingsRepository;
 import com.premiumcars.social.PostTemplate;
 import com.premiumcars.social.PostTemplateRepository;
 import com.premiumcars.social.SocialNetwork;
@@ -70,6 +72,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     PostTemplateRepository templates;
+
+    @Autowired
+    PostSettingsRepository postSettings;
 
     @Test
     void publicCatalogSortsWithNullsLast() {
@@ -274,6 +279,19 @@ class JdbcRepositoriesTest {
         templates.delete(SocialNetwork.FACEBOOK);
         assertThat(templates.findAll()).extracting(PostTemplate::network)
                 .doesNotContain(SocialNetwork.VIBER, SocialNetwork.FACEBOOK);
+    }
+
+    @Test
+    void postSettingsAreSavedAndBlankMeansDefault() {
+        assertThat(postSettings.save(new PostSettings(" 0888123456 ", "https://invite.viber.com/x", "Пловдив")))
+                .isEqualTo(new PostSettings("0888123456", "https://invite.viber.com/x", "Пловдив"));
+
+        PostSettings back = postSettings.save(new PostSettings("0888123456", "  ", null));
+        assertThat(back).isEqualTo(new PostSettings("0888123456", null, null));
+        assertThat(postSettings.find()).isEqualTo(back);
+
+        postSettings.save(new PostSettings(null, null, null));
+        assertThat(postSettings.find()).isEqualTo(new PostSettings(null, null, null));
     }
 
     @Test
