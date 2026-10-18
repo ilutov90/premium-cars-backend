@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -21,8 +23,12 @@ import jakarta.validation.constraints.Size;
 @RequestMapping("/api/admin")
 public class AdminSocialController {
 
-    /** @param text the post text, as shown (and possibly edited) in the admin panel */
-    public record PublishRequest(@NotNull SocialNetwork network, @NotBlank @Size(max = 5000) String text) {
+    /**
+     * @param text       the post text, as shown (and possibly edited) in the admin panel
+     * @param photoCount Viber only: how many photos to post (null = the configured default)
+     */
+    public record PublishRequest(@NotNull SocialNetwork network, @NotBlank @Size(max = 7000) String text,
+                                 @Min(1) @Max(SocialPublisher.VIBER_PHOTOS_LIMIT) Integer photoCount) {
     }
 
     /** @param siteUrl the site's public https:// address, e.g. a temporary tunnel while testing locally */
@@ -58,6 +64,6 @@ public class AdminSocialController {
     @PostMapping("/cars/{id}/social-posts")
     @ResponseStatus(HttpStatus.CREATED)
     public SocialPost publish(@PathVariable long id, @Valid @RequestBody PublishRequest request) {
-        return publisher.publish(id, request.network(), request.text());
+        return publisher.publish(id, request.network(), request.text(), request.photoCount());
     }
 }

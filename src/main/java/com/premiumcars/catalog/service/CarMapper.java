@@ -68,13 +68,13 @@ public class CarMapper {
                 c.createdAt(), c.updatedAt(), c.publishedAt());
     }
 
-    /** Price breakdown from the current profile; null when the source price or the profile is unknown. */
+    /** Price breakdown from the current profile and the car's corrections; null when there is no price at all. */
     public PriceBreakdown breakdown(PricingInputs p) {
         PricingProfile profile = p.profile() == null ? null : profiles.find(p.profile()).orElse(null);
         return breakdown(p, profile);
     }
 
     public PriceBreakdown breakdown(PricingInputs p, PricingProfile profile) {
-        return priceCalculator.calculate(p.sourcePrice(), p.sourceCurrency(), profile);
+        return priceCalculator.calculate(p.sourcePrice(), p.sourceCurrency(), profile, p.profitEur(), p.fixedTotalEur());
     }
 }

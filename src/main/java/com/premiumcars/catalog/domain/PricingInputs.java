@@ -14,14 +14,18 @@ import jakarta.validation.constraints.Size;
  * @param sourcePrice     price on the source site, in {@code sourceCurrency}
  * @param sourceCurrency  ISO code (USD, CNY, KRW, EUR)
  * @param profile         price formula; null = the formula of the car's source site
+ * @param profitEur       profit for this car instead of the formula's; null = the formula's
+ * @param fixedTotalEur   final price set by hand, replacing the calculation; null = calculated
  */
 public record PricingInputs(
         @DecimalMin("0") BigDecimal sourcePrice,
         @Size(min = 3, max = 3) String sourceCurrency,
-        PriceProfile profile
+        PriceProfile profile,
+        @DecimalMin("0") BigDecimal profitEur,
+        @DecimalMin("0") BigDecimal fixedTotalEur
 ) {
 
-    public static final PricingInputs EMPTY = new PricingInputs(null, null, null);
+    public static final PricingInputs EMPTY = new PricingInputs(null, null, null, null, null);
 
     public PricingInputs {
         sourceCurrency = sourceCurrency == null || sourceCurrency.isBlank()
@@ -29,10 +33,10 @@ public record PricingInputs(
     }
 
     public PricingInputs withSourcePrice(BigDecimal price, String currency) {
-        return new PricingInputs(price, currency, profile);
+        return new PricingInputs(price, currency, profile, profitEur, fixedTotalEur);
     }
 
     public PricingInputs withProfile(PriceProfile value) {
-        return new PricingInputs(sourcePrice, sourceCurrency, value);
+        return new PricingInputs(sourcePrice, sourceCurrency, value, profitEur, fixedTotalEur);
     }
 }
