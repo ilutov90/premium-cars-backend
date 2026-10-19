@@ -142,7 +142,8 @@ channel's superadmin (`get_account_info`). The token travels in the `X-Viber-Aut
 ## Inquiry e-mails
 
 Every new inquiry is e-mailed to `APP_NOTIFY_TO` through Resend (resend.com): name, phone, e-mail (as reply-to),
-the car with its link, the message and a link to the admin panel. The mail goes out after the inquiry is saved
+the car with its link, the message and a link to the admin panel. The form must send `privacyAccepted: true`
+(the customer ticked the privacy policy checkbox), otherwise HTTP 400. The mail goes out after the inquiry is saved
 and on another thread (`InquiryNotifier`), so a failing mail service never loses an inquiry; failures are logged.
 Off while `RESEND_API_KEY` (Vault) or `APP_NOTIFY_TO` is empty, e.g. locally. The sender address
 (`APP_NOTIFY_FROM`, default `noreply@premiumcarsimport.bg`) must be on a domain verified in Resend.
@@ -168,13 +169,19 @@ environment variable (or a git-ignored `.env` next to `pom.xml`, see `.env.examp
 | Database URL | `DB_URL` | `jdbc:postgresql://localhost:5433/premiumcars` |
 | Secure cookies (HTTPS) | `APP_SECURE_COOKIES` | `false` (set `true` in production) |
 | Swagger / API docs | `APP_API_DOCS` | `true` (set `false` in production) |
-| Exchange rates | `app.pricing.exchange-rates` | approximate, **update them** |
+| Daily ECB exchange rates | `APP_ECB_RATES` | `true` (`false` = only the configured rates) |
+| Fallback exchange rates | `app.pricing.exchange-rates` | approximate; used until the ECB answers and for currencies the ECB lacks |
 | Max photos per import | `app.importer.max-images` | 30 |
 | Headless browser | `APP_IMPORTER_BROWSER_ENABLED` | `true` |
 | Demo cars on an empty DB | `LIQUIBASE_CONTEXTS` | `demo` (`none` = no demo data) |
 
-Prices are recalculated on every start; after changing exchange rates without a restart:
-`POST /api/admin/cars/recalculate-prices` (from Swagger).
+Exchange rates: on start and every hour the backend reads the ECB daily reference rates
+(`eurofxref-daily.xml`, published around 16:00 CET on working days). When a new day appears, all prices are
+recalculated. If the ECB cannot be reached, the last rates (or the configured ones) stay in use. The admin panel
+("Цени") shows the rates in use, their source and date (`GET /api/admin/pricing-profiles/exchange-rates`).
+
+Prices are recalculated on every start; to recalculate by hand: `POST /api/admin/cars/recalculate-prices`
+(from Swagger).
 
 ## Pricing
 

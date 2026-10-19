@@ -41,6 +41,7 @@ import com.premiumcars.common.NotFoundException;
 import com.premiumcars.common.PageResponse;
 import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.media.ImageStorage;
+import com.premiumcars.pricing.EcbExchangeRateProvider;
 import com.premiumcars.pricing.PriceBreakdown;
 import com.premiumcars.pricing.PriceProfile;
 import com.premiumcars.pricing.PricingProfile;
@@ -48,6 +49,8 @@ import com.premiumcars.pricing.PricingProfileRepository;
 
 @Service
 public class CarService {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CarService.class);
 
     /** Statuses visible on the public site. */
     public static final Set<CarStatus> PUBLIC_STATUSES = EnumSet.of(CarStatus.PUBLISHED, CarStatus.RESERVED);
@@ -84,10 +87,17 @@ public class CarService {
         return profiles.find(id).orElseThrow();
     }
 
-    /** Exchange rates live in configuration, so prices are refreshed on every start. */
+    /** Prices follow the exchange rates and the formulas: recalculated on every start. */
     @EventListener(ApplicationReadyEvent.class)
     public void recalculatePricesOnStartup() {
         recalculateAllPrices();
+    }
+
+    /** The ECB rates of a new day (or the first ones after a start) reprice every car. */
+    @EventListener
+    public void onExchangeRatesUpdated(EcbExchangeRateProvider.ExchangeRatesUpdated event) {
+        int n = recalculateAllPrices();
+        log.info("Repriced {} cars with the exchange rates of {}", n, event.date());
     }
 
     // ---------------------------------------------------------------- public

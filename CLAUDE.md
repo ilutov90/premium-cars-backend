@@ -54,7 +54,7 @@ Always run `mvn test` before finishing a change.
 | `importing.browser` | `PageRenderer` / `PlaywrightPageRenderer`: headless Chromium for JS-rendered pages (`app.importer.browser.enabled`) |
 | `importing.source.autohome` | global.autohome.com.cn: `AutohomePageParser`, `AutohomeSourceAdapter` (renders when photos/EV data are missing) |
 | `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser`, `AutowiniSourceAdapter` |
-| `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` |
+| `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` (`EcbExchangeRateProvider`: daily ECB rates, configured ones as fallback) |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
 | `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post`, `post_template` (text templates per network, filled in by the admin panel), `post_setting` (phone, Viber link, office for the templates) |
 | `auth` | admin login: `AdminAuthService` (bcrypt, lock), `AdminAuthController` (login/logout/me/password), `RateLimitFilter`, `admin_user` |
@@ -62,7 +62,7 @@ Always run `mvn test` before finishing a change.
 | `config`, `common` | security, CORS, properties, errors, paging |
 
 Extension points (add a class, no other changes): new source site -> `SourceAdapter`; cloud photo storage ->
-`ImageStorage`; daily ECB rates -> `ExchangeRateProvider`; more inquiry notifications -> another `InquiryCreatedEvent` listener.
+`ImageStorage`; another rate source -> `ExchangeRateProvider`; more inquiry notifications -> another `InquiryCreatedEvent` listener.
 
 ## API contract
 

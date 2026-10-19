@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.premiumcars.catalog.service.CarService;
+import com.premiumcars.pricing.EcbExchangeRateProvider;
 import com.premiumcars.pricing.PriceProfile;
 import com.premiumcars.pricing.PricingProfile;
 
@@ -21,9 +22,17 @@ import jakarta.validation.Valid;
 public class AdminPricingController {
 
     private final CarService carService;
+    private final EcbExchangeRateProvider rates;
 
-    public AdminPricingController(CarService carService) {
+    public AdminPricingController(CarService carService, EcbExchangeRateProvider rates) {
         this.carService = carService;
+        this.rates = rates;
+    }
+
+    /** The exchange rates in use (source ECB with its date, or CONFIG until the ECB answers). */
+    @GetMapping("/exchange-rates")
+    public EcbExchangeRateProvider.Rates exchangeRates() {
+        return rates.current();
     }
 
     @GetMapping

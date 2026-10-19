@@ -181,7 +181,7 @@ class JdbcRepositoriesTest {
         assertThat(carService.changeStatus(draft.id(), CarStatus.RESERVED).publishedAt())
                 .isEqualTo(published.publishedAt());
 
-        var inquiry = inquiryService.create(new InquiryRequest("Ivan", "0888123456", null, "Hello", draft.id(), null));
+        var inquiry = inquiryService.create(new InquiryRequest("Ivan", "0888123456", null, "Hello", draft.id(), null, true));
         assertThat(inquiry.id()).isNotNull();
         var list = inquiryService.list(Inquiry.Status.NEW, 0, 50);
         assertThat(list.items()).anySatisfy(i -> assertThat(i.carTitle()).isEqualTo("BMW X3 xDrive30i M Sport"));

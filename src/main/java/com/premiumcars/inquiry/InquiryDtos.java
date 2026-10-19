@@ -2,6 +2,7 @@ package com.premiumcars.inquiry;
 
 import java.time.Instant;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -13,7 +14,8 @@ public final class InquiryDtos {
     }
 
     /**
-     * @param website honeypot field: hidden in the form, real people leave it empty, bots fill it in
+     * @param website         honeypot field: hidden in the form, real people leave it empty, bots fill it in
+     * @param privacyAccepted the customer ticked "I have read the privacy policy"; required (must be true)
      */
     public record InquiryRequest(
             @NotBlank @Size(max = 100) String name,
@@ -21,7 +23,8 @@ public final class InquiryDtos {
             @Email @Size(max = 200) String email,
             @Size(max = 4000) String message,
             Long carId,
-            String website
+            String website,
+            @NotNull @AssertTrue Boolean privacyAccepted
     ) {
     }
 
