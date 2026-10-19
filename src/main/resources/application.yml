@@ -97,6 +97,12 @@ app:
       # Same variable names as autowini_poster.py's .env, so one file can serve both.
       username: ${AUTOWINI_USER:}
       password: ${AUTOWINI_PASS:}
+  notify:
+    # E-mail to the admin for every new inquiry, through Resend. Off while the key or the address is empty.
+    resend-api-key: ${RESEND_API_KEY:}           # secret: from Vault
+    to: ${APP_NOTIFY_TO:}                        # e.g. office@premiumcarsimport.bg (comma-separated for more)
+    from: ${APP_NOTIFY_FROM:Premium Cars Import <noreply@premiumcarsimport.bg>}
+    site-url: ${APP_SITE_URL:http://localhost:3000}
   social:
     # Publishing to Facebook/Instagram from the admin panel. Same names as the posting script's .env;
     # leave empty to hide that network. See README "Facebook and Instagram".

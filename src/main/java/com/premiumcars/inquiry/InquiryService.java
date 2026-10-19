@@ -2,6 +2,7 @@ package com.premiumcars.inquiry;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,10 +22,12 @@ public class InquiryService {
 
     private final InquiryRepository repo;
     private final CarRepository carRepo;
+    private final ApplicationEventPublisher events;
 
-    public InquiryService(InquiryRepository repo, CarRepository carRepo) {
+    public InquiryService(InquiryRepository repo, CarRepository carRepo, ApplicationEventPublisher events) {
         this.repo = repo;
         this.carRepo = carRepo;
+        this.events = events;
     }
 
     @Transactional
@@ -36,15 +39,19 @@ public class InquiryService {
         if (isBlank(r.phone()) && isBlank(r.email())) {
             throw new BadRequestException("Please enter a phone number or an e-mail");
         }
+        Car car = null;
         if (r.carId() != null) {
-            carRepo.findById(r.carId())
+            car = carRepo.findById(r.carId())
                     .filter(Car::isPubliclyVisible)
                     .orElseThrow(() -> new NotFoundException("Car not found: " + r.carId()));
         }
         long id = repo.insert(r.carId(), r.name().trim(), trimToNull(r.phone()), trimToNull(r.email()),
                 trimToNull(r.message()));
-        // Extension point: send an e-mail / Viber / Telegram notification here.
         log.info("New inquiry #{} for car {}", id, r.carId());
+        // InquiryNotifier e-mails the admin after the commit, outside this transaction
+        events.publishEvent(new InquiryCreatedEvent(id, r.name().trim(), trimToNull(r.phone()),
+                trimToNull(r.email()), trimToNull(r.message()), car == null ? null : car.specs().title(),
+                car == null ? null : car.slug()));
         return new InquiryCreated(id);
     }
 

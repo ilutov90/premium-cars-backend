@@ -34,13 +34,15 @@ Always run `mvn test` before finishing a change.
 - Network calls (page/photo download) happen outside DB transactions (`ImportService` is not `@Transactional`).
 - The source site URL, source id and dealer are admin-only; never return them from `/api/public/**`.
 - Customers see only the final price (`priceEur` / `totalPriceEur`); purchase price, costs and profit are admin-only.
-- Secrets (DB password, autowini login, Meta token, Viber channel token, imgbb key, first admin password) come only from Vault
+- Secrets (DB password, autowini login, Meta token, Viber channel token, imgbb key, Resend key, first admin password) come only from Vault
   (`secret/premium-cars/backend`, keys = the `${...}` placeholder names in `application.yml`). No defaults for
   secrets in `application.yml`, `.env`, tests or git; tests use dummy values in `src/test/resources`. Tokens go in
   headers, never URLs. CI runs gitleaks.
 - Admin auth: session cookie + CSRF (`auth` package). Never re-introduce HTTP Basic, passwords in the browser or
   CORS for the API; the browser reaches the API through the frontend (same origin).
 - Code, comments, identifiers and docs (README, CLAUDE.md) in English; user-facing texts live in the frontend (Bulgarian).
+  Exception: the inquiry e-mail to the business (`InquiryNotifier`) is Bulgarian.
+- `Dockerfile` is the production image (CI pushes it to GHCR); local development never needs it.
 
 ## Layout (`com.premiumcars`)
 
@@ -56,11 +58,11 @@ Always run `mvn test` before finishing a change.
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
 | `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post`, `post_template` (text templates per network, filled in by the admin panel), `post_setting` (phone, Viber link, office for the templates) |
 | `auth` | admin login: `AdminAuthService` (bcrypt, lock), `AdminAuthController` (login/logout/me/password), `RateLimitFilter`, `admin_user` |
-| `inquiry` | customer inquiries |
+| `inquiry` | customer inquiries; `InquiryNotifier` e-mails the admin through Resend after the commit (async) |
 | `config`, `common` | security, CORS, properties, errors, paging |
 
 Extension points (add a class, no other changes): new source site -> `SourceAdapter`; cloud photo storage ->
-`ImageStorage`; daily ECB rates -> `ExchangeRateProvider`; inquiry notifications -> `InquiryService.create`.
+`ImageStorage`; daily ECB rates -> `ExchangeRateProvider`; more inquiry notifications -> another `InquiryCreatedEvent` listener.
 
 ## API contract
 
