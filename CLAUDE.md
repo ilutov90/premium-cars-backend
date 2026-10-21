@@ -56,8 +56,8 @@ Always run `mvn test` before finishing a change.
 | `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser`, `AutowiniSourceAdapter` |
 | `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` (`EcbExchangeRateProvider`: daily ECB rates, configured ones as fallback) |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
-| `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post`, `post_template` (text templates per network, filled in by the admin panel), `post_setting` (phone, Viber link, office for the templates) |
-| `auth` | admin login: `AdminAuthService` (bcrypt, lock), `AdminAuthController` (login/logout/me/password), `RateLimitFilter`, `admin_user` |
+| `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post`, `post_template` (text templates per network, filled in by the admin panel), `post_setting` (phone, Viber link, office for the templates), `scheduled_post` + `ScheduledPostService` (posts planned for later, published every 30 s, never retried) |
+| `auth` | admin login: `AdminAuthService` (bcrypt, lock, admins managing admins), `AdminAuthController` (login/logout/me/password), `AdminUserController` (`/api/admin/users`, one-time passwords), `AdminSessionFilter` (ends sessions of deleted users / changed passwords), `RateLimitFilter`, `admin_user` |
 | `inquiry` | customer inquiries; `InquiryNotifier` e-mails the admin through Resend after the commit (async) |
 | `config`, `common` | security, CORS, properties, errors, paging |
 

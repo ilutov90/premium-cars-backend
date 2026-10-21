@@ -111,6 +111,66 @@ public class SocialPublisher {
         return posts.findByCarId(carId);
     }
 
+    /**
+     * The checks {@link #publish} makes before any network call: the car, the network's configuration, the text
+     * length and the chosen photos. Used when a post is scheduled, so mistakes show up right away.
+     */
+    public void validate(long carId, SocialNetwork network, String text, List<Long> imageIds) {
+        requireCar(carId);
+        requireConfigured(network);
+        requireTextFits(network, text);
+        if (imageIds != null) {
+            if (imageIds.isEmpty() || imageIds.size() > MAX_SELECTED_PHOTOS) {
+                throw new BadRequestException("Pick 1 to " + MAX_SELECTED_PHOTOS + " photos");
+            }
+            var ids = images.findByCarId(carId).stream().map(CarImage::id).toList();
+            for (Long id : imageIds) {
+                if (!ids.contains(id)) {
+                    throw new BadRequestException("Photo " + id + " is not a photo of car " + carId);
+                }
+            }
+        } else if (images.findByCarId(carId).isEmpty()) {
+            throw new BadRequestException("The car has no photos to publish");
+        }
+    }
+
+    private void requireConfigured(SocialNetwork network) {
+        switch (network) {
+            case FACEBOOK -> {
+                if (!cfg.facebookConfigured()) {
+                    throw new BadRequestException("Facebook is not configured: set FB_PAGE_ID and FB_ACCESS_TOKEN");
+                }
+            }
+            case INSTAGRAM -> {
+                if (!cfg.instagramConfigured()) {
+                    throw new BadRequestException(
+                            "Instagram is not configured: set IG_USER_ID, FB_ACCESS_TOKEN and IMGBB_API_KEY");
+                }
+            }
+            case VIBER -> {
+                if (!cfg.viberConfigured()) {
+                    throw new BadRequestException("Viber is not configured: set VIBER_CHANNEL_TOKEN and IMGBB_API_KEY");
+                }
+            }
+        }
+    }
+
+    private static void requireTextFits(SocialNetwork network, String text) {
+        int max = switch (network) {
+            case INSTAGRAM -> INSTAGRAM_CAPTION_MAX;
+            case VIBER -> VIBER_TEXT_MAX;
+            case FACEBOOK -> Integer.MAX_VALUE;
+        };
+        if (text == null || text.isBlank()) {
+            throw new BadRequestException("The post text is empty");
+        }
+        if (text.length() > max) {
+            String name = network == SocialNetwork.INSTAGRAM ? "Instagram captions" : "Viber messages";
+            throw new BadRequestException(name + " are limited to " + max + " characters (this one has "
+                    + text.length() + ")");
+        }
+    }
+
     public SocialPost publish(long carId, SocialNetwork network, String text) {
         return publish(carId, network, text, null);
     }

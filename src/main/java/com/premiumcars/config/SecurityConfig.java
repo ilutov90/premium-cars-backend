@@ -14,6 +14,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -23,6 +24,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.premiumcars.auth.AdminSessionFilter;
+import com.premiumcars.auth.AdminUserRepository;
 import com.premiumcars.auth.SpaCsrfTokenRequestHandler;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -37,7 +40,8 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, CsrfTokenRepository csrfTokens,
-                                            SecurityContextRepository contextRepository) throws Exception {
+                                            SecurityContextRepository contextRepository,
+                                            AdminUserRepository adminUsers) throws Exception {
         return http
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokens)
@@ -52,6 +56,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/admin/login").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())
+                // deleted users and changed passwords end sessions; one-time passwords must be replaced first
+                .addFilterAfter(new AdminSessionFilter(adminUsers), AuthorizationFilter.class)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)

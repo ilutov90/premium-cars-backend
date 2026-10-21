@@ -42,7 +42,8 @@ public class AdminAuthController {
     public record PasswordChangeRequest(@NotBlank String currentPassword, @NotBlank @Size(max = 200) String newPassword) {
     }
 
-    public record Me(String username) {
+    /** @param mustChangePassword the user logged in with a one-time password and must choose an own one first */
+    public record Me(String username, boolean mustChangePassword) {
     }
 
     private final AdminAuthService auth;
@@ -81,10 +82,11 @@ public class AdminAuthController {
         context.setAuthentication(authentication);
         holder.setContext(context);
         contextRepository.saveContext(context, httpRequest, httpResponse);
+        AdminSessionFilter.remember(httpRequest.getSession(), user.passwordChangedAt());
 
         // New CSRF token for the logged-in session (overwrites the cookie: one Set-Cookie, no delete first)
         csrfTokens.saveToken(csrfTokens.generateToken(httpRequest), httpRequest, httpResponse);
-        return new Me(user.username());
+        return new Me(user.username(), user.mustChangePassword());
     }
 
     @PostMapping("/logout")
@@ -100,12 +102,16 @@ public class AdminAuthController {
 
     @GetMapping("/me")
     public Me me(Principal principal) {
-        return new Me(principal.getName());
+        return new Me(principal.getName(), auth.find(principal.getName()).map(AdminUser::mustChangePassword).orElse(false));
     }
 
     @PostMapping("/password")
-    public Map<String, Boolean> changePassword(@Valid @RequestBody PasswordChangeRequest request, Principal principal) {
+    public Map<String, Boolean> changePassword(@Valid @RequestBody PasswordChangeRequest request, Principal principal,
+                                               HttpServletRequest httpRequest) {
         auth.changePassword(principal.getName(), request.currentPassword(), request.newPassword());
+        // this session stays logged in; the user's other sessions end (AdminSessionFilter)
+        auth.find(principal.getName())
+                .ifPresent(u -> AdminSessionFilter.remember(httpRequest.getSession(), u.passwordChangedAt()));
         return Map.of("changed", true);
     }
 
