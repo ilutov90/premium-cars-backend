@@ -51,12 +51,17 @@ public final class AutowiniPageParser {
     private static final Pattern MONEY = Pattern.compile("(US\\$|USD|\\$|€|EUR)\\s*([\\d][\\d,]*(?:\\.\\d+)?)",
             Pattern.CASE_INSENSITIVE);
 
+    /** Hidden fields of autowini's own discounts on the BIS price (USD). */
+    private static final List<String> DISCOUNT_FIELDS =
+            List.of("i_iBisDiscount", "i_iBisDiscountByEvent", "i_iBisDiscountByMembership");
+
     /**
      * @param price    price shown on the page (only for members who may see prices), null otherwise
      * @param currency currency of {@code price}
+     * @param discount autowini's discount on that price (USD), when it shows one; null otherwise
      */
     public record ParsedPage(String itemId, Map<String, String> fields, BigDecimal price, String currency,
-                             List<String> images) {
+                             BigDecimal discount, List<String> images) {
     }
 
     private AutowiniPageParser() {
@@ -79,21 +84,38 @@ public final class AutowiniPageParser {
         Document doc = Jsoup.parse(html);
         Map<String, String> fields = new LinkedHashMap<>();
         for (Element dt : doc.select("dt")) {
+            // the site menu repeats the labels ("Make", "Fuel Type", "Location") with lists of links as values
+            if (inSiteChrome(dt)) {
+                continue;
+            }
             String label = dt.text().trim().toLowerCase(Locale.ROOT).replaceAll("\\.$", "");
             String key = LABELS.get(label);
             if (key == null || fields.containsKey(key)) {
                 continue;
             }
             Element dd = dt.nextElementSibling();
-            if (dd != null && "dd".equals(dd.tagName())) {
-                fields.put(key, dd.text().replaceAll("\\s+", " ").trim());
+            if (dd != null && "dd".equals(dd.tagName()) && dd.select("li").isEmpty()) {
+                // without the "!" tooltips: the odometer's says "...real kilometer(mileage)..." (read as miles)
+                Element value = dd.clone();
+                value.select(".btnTip, .popTip").remove();
+                fields.put(key, value.text().replace('\u00a0', ' ').replaceAll("\\s+", " ").trim());
             }
         }
 
-        BigDecimal price = null;
-        String currency = null;
+        // The desktop page fills its price box with JavaScript from hidden fields: i_iBisPrice is the price shown
+        // to buyers ("FOB, Incheon"), in USD: the seller's price (i_iPrice) plus autowini's BIS fee and expenses.
+        // Members who may not see prices get no value there.
+        BigDecimal price = positive(hidden(doc, "i_iBisPrice"));
+        String currency = price == null ? null : "USD";
+        BigDecimal discount = null;
+        for (String field : DISCOUNT_FIELDS) {
+            BigDecimal d = positive(hidden(doc, field));
+            if (d != null) {
+                discount = discount == null ? d : discount.add(d);
+            }
+        }
         String priceText = fields.get("price");
-        if (priceText != null) {
+        if (price == null && priceText != null) {
             Matcher m = MONEY.matcher(priceText);
             if (m.find()) {
                 price = ValueParsers.parseNumber(m.group(2));
@@ -101,7 +123,27 @@ public final class AutowiniPageParser {
             }
         }
         String id = fields.getOrDefault("item_no", itemId);
-        return new ParsedPage(id, fields, price, currency, images(doc));
+        return new ParsedPage(id, fields, price, currency, price == null ? null : discount, images(doc));
+    }
+
+    private static boolean inSiteChrome(Element element) {
+        for (Element parent : element.parents()) {
+            String tag = parent.tagName();
+            if (tag.equals("header") || tag.equals("nav") || tag.equals("footer")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String hidden(Document doc, String id) {
+        Element input = doc.getElementById(id);
+        return input == null ? null : input.attr("value");
+    }
+
+    private static BigDecimal positive(String value) {
+        BigDecimal n = value == null || value.isBlank() ? null : ValueParsers.parseNumber(value);
+        return n != null && n.signum() > 0 ? n : null;
     }
 
     public static CarSpecs toSpecs(ParsedPage page) {
