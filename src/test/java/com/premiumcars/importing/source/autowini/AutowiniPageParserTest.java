@@ -57,6 +57,61 @@ class AutowiniPageParserTest {
                 .last().asString().endsWith("5361c6c9-3d70-4fd6-ab28-62a77e0c647f.jpg");
     }
 
+    /** A real page (fragments, see the file): the site menu repeats the labels before the listing's own. */
+    @Test
+    void readsTheRealDesktopPageWithItsHiddenPrice() throws IOException {
+        ParsedPage page = AutowiniPageParser.parse(page("autowini-IC5354760.html"), "IC5354760");
+        CarSpecs specs = AutowiniPageParser.toSpecs(page);
+
+        assertThat(page.itemId()).isEqualTo("IC5354760");
+        // the listing's values, not the menu's lists
+        assertThat(page.fields()).containsEntry("make", "Hyundai")
+                .containsEntry("fuel", "Gasoline")
+                .containsEntry("vehicle_type", "SUV")
+                .containsEntry("location", "S.Korea")
+                // without the tooltip, whose "mileage" would turn the kilometres into miles
+                .containsEntry("km", "116,710Km (Actual)");
+        assertThat(specs.title()).isEqualTo("Hyundai SantaFe (MX5) Gasoline 2.5T 2WD Prestige");
+        assertThat(specs.model()).isEqualTo("SantaFe");
+        assertThat(specs.year()).isEqualTo(2024);
+        assertThat(specs.mileageKm()).isEqualTo(116_710);
+        assertThat(specs.engineCc()).isEqualTo(2497);
+        assertThat(specs.fuelType()).isEqualTo(FuelType.PETROL);
+        assertThat(specs.transmission()).isEqualTo(Transmission.AUTOMATIC);
+        assertThat(specs.color()).isEqualTo("Black");
+
+        // the BIS price autowini shows buyers: seller's 18,244 + BIS fee 912 + expenses 75 (USD, FOB Incheon)
+        assertThat(page.price()).isEqualByComparingTo("19231");
+        assertThat(page.currency()).isEqualTo("USD");
+        assertThat(page.discount()).isNull();
+    }
+
+    @Test
+    void hiddenPriceAndDiscounts() {
+        String html = """
+                <ul class="infoTbl"><li><dl><dt>Item No.</dt><dd>IC1</dd></dl></li></ul>
+                <input type="hidden" id="i_iPrice" value="10000">
+                <input type="hidden" id="i_iBisPrice" value="10,575">
+                <input type="hidden" id="i_iBisDiscount" value="0">
+                <input type="hidden" id="i_iBisDiscountByEvent" value="200">
+                <input type="hidden" id="i_iBisDiscountByMembership" value="50">
+                """;
+        ParsedPage page = AutowiniPageParser.parse(html, "IC1");
+        assertThat(page.price()).isEqualByComparingTo("10575");
+        assertThat(page.discount()).isEqualByComparingTo("250");
+
+        // a member who may not see prices: empty or zero, then nothing (the admin enters the price)
+        ParsedPage hidden = AutowiniPageParser.parse("""
+                <dl><dt>Item No.</dt><dd>IC2</dd></dl>
+                <input type="hidden" id="i_iBisPrice" value="">
+                <input type="hidden" id="i_iBisDiscountByEvent" value="200">
+                """, "IC2");
+        assertThat(hidden.price()).isNull();
+        assertThat(hidden.discount()).isNull();
+        ParsedPage zero = AutowiniPageParser.parse("<input type=\"hidden\" id=\"i_iBisPrice\" value=\"0\">", "IC3");
+        assertThat(zero.price()).isNull();
+    }
+
     @Test
     void urls() {
         assertThat(AutowiniPageParser.itemId("https://www.autowini.com/Cars/ic4960158/cars-detail")).isEqualTo("IC4960158");

@@ -31,7 +31,8 @@ import com.premiumcars.media.ImageDownloader.DownloadedImage;
 
 /**
  * autowini.com (South Korea). Pages are read with a logged-in session ({@link AutowiniClient}).
- * Prices are shown only to some members, so the admin usually enters the price on import.
+ * Prices are shown only to some members: when the logged-in account may see it, the price is the one autowini
+ * shows buyers (BIS price, USD, FOB Incheon); otherwise the admin enters it on import.
  */
 @Component
 @Order(20)
@@ -148,6 +149,10 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         List<String> warnings = new ArrayList<>();
         if (specs.fuelType() != null && specs.fuelType().hasTractionBattery()) {
             warnings.add("autowini does not list battery capacity or electric range: enter them manually.");
+        }
+        if (page.discount() != null) {
+            warnings.add("autowini shows a discount of USD " + page.discount().toPlainString()
+                    + " on this car; the price above is without it.");
         }
         return new ImportedCar(page.itemId(), page.fields().get("location"), specs, page.price(), page.currency(),
                 page.images(), warnings);
