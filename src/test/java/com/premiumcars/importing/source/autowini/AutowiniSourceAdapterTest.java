@@ -8,16 +8,12 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Random;
-import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.Test;
 
-import com.premiumcars.config.AppProperties;
-import com.premiumcars.importing.browser.PageRenderer;
 import com.premiumcars.importing.source.autowini.AutowiniPageParser.ParsedPage;
 
 import com.premiumcars.importing.browser.PageRenderer.CapturedImage;
@@ -55,72 +51,25 @@ class AutowiniSourceAdapterTest {
         assertThat(out.get(2).bytes()).isEqualTo(big); // p2
     }
 
-    /** A browser that returns the given desktop page (or nothing). */
-    private static PageRenderer browser(String html, boolean enabled) {
-        return new PageRenderer() {
-            @Override
-            public Optional<RenderedPage> render(String url, List<Pattern> clickTexts, Pattern responseHint) {
-                return Optional.empty();
-            }
-
-            @Override
-            public BrowserImages loadImages(String pageUrl, List<List<String>> candidates, List<BrowserCookie> cookies,
-                                            Pattern pageImageFilter) {
-                return BrowserImages.NONE;
-            }
-
-            @Override
-            public Optional<String> pageHtml(String url, List<BrowserCookie> cookies) {
-                return Optional.ofNullable(html);
-            }
-
-            @Override
-            public boolean enabled() {
-                return enabled;
-            }
-        };
-    }
-
-    private static String fixture() throws IOException {
-        try (var in = AutowiniSourceAdapterTest.class.getResourceAsStream("/pages/autowini-IC5354760.html")) {
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        }
-    }
-
-    /** Not logged in: browserCookies() is empty, nothing goes over the network. */
-    private static AutowiniClient client() {
-        return new AutowiniClient(new AppProperties(null, null, null, null,
-                new AppProperties.Importer("test-agent", 5, 10, new AppProperties.Browser(false, 5),
-                        new AppProperties.Autowini("user", "pass")), null));
-    }
-
-    private static final ParsedPage MOBILE = new ParsedPage("IC5354760", Map.of("item_no", "IC5354760"), null, null,
+    private static final ParsedPage MOBILE = new ParsedPage("IC5341711", Map.of("item_no", "IC5341711"), null, null,
             null, List.of(DIR + "m1_1024.jpg"));
 
     @Test
-    void whenTheDesktopPageIsRefusedTheBrowserBringsItsPrice() throws IOException {
-        var client = client();
-        var adapter = new AutowiniSourceAdapter(client, browser(fixture(), true));
-
-        ParsedPage page = adapter.desktopPageFromBrowser("https://www.autowini.com/Cars/IC5354760/cars-detail",
-                "IC5354760", MOBILE);
-
-        assertThat(page.price()).isEqualByComparingTo("19231");
+    void theApiPriceGoesIntoTheMobilePage() {
+        ParsedPage page = AutowiniSourceAdapter.withPrice(MOBILE,
+                new AutowiniClient.ApiPrices(new java.math.BigDecimal("16377"), null));
+        assertThat(page.price()).isEqualByComparingTo("16377");
         assertThat(page.currency()).isEqualTo("USD");
-        assertThat(page.fields()).containsEntry("make", "Hyundai").containsEntry("km", "116,710Km (Actual)");
-        assertThat(page.images()).containsExactly(DIR + "m1_1024.jpg"); // the mobile page's photos stay
-    }
+        assertThat(page.discount()).isNull();
+        assertThat(page.images()).isEqualTo(MOBILE.images());
+        assertThat(page.fields()).isEqualTo(MOBILE.fields());
 
-    @Test
-    void withoutTheBrowserTheMobilePageStays() throws IOException {
-        var client = client();
-        assertThat(new AutowiniSourceAdapter(client, browser(fixture(), false))
-                .desktopPageFromBrowser("u", "IC5354760", MOBILE)).isSameAs(MOBILE);
-        // the browser was refused too, or got a page that is not the listing (login, error)
-        assertThat(new AutowiniSourceAdapter(client, browser(null, true))
-                .desktopPageFromBrowser("u", "IC5354760", MOBILE)).isSameAs(MOBILE);
-        assertThat(new AutowiniSourceAdapter(client, browser("<html>Access denied</html>", true))
-                .desktopPageFromBrowser("u", "IC5354760", MOBILE)).isSameAs(MOBILE);
+        ParsedPage event = AutowiniSourceAdapter.withPrice(MOBILE,
+                new AutowiniClient.ApiPrices(new java.math.BigDecimal("16377"), new java.math.BigDecimal("15877")));
+        assertThat(event.price()).isEqualByComparingTo("16377");
+        assertThat(event.discount()).isEqualByComparingTo("500");
+
+        assertThat(AutowiniSourceAdapter.withPrice(MOBILE, null)).isSameAs(MOBILE);
     }
 
     /** Random pixels, so the JPEG is large like a real photo. */

@@ -176,39 +176,6 @@ public class PlaywrightPageRenderer implements PageRenderer {
         return new BrowserImages(got, pageImages);
     }
 
-    @Override
-    public synchronized Optional<String> pageHtml(String url, List<BrowserCookie> cookies) {
-        if (!enabled()) {
-            return Optional.empty();
-        }
-        double timeoutMs = props.importer().browser().timeoutSeconds() * 1000.0;
-        long started = System.currentTimeMillis();
-        try (Playwright playwright = Playwright.create()) {
-            Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
-            BrowserContext context = browser.newContext(new Browser.NewContextOptions()
-                    .setUserAgent(props.importer().userAgent())
-                    .setLocale("en-US"));
-            if (!cookies.isEmpty()) {
-                context.addCookies(cookies.stream()
-                        .map(c -> new Cookie(c.name(), c.value()).setDomain(c.domain()).setPath(c.path()))
-                        .toList());
-            }
-            Page page = context.newPage();
-            page.setDefaultTimeout(timeoutMs);
-            Response main = page.navigate(url, new Page.NavigateOptions()
-                    .setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(timeoutMs));
-            int status = main == null ? 0 : main.status();
-            String html = page.content();
-            browser.close();
-            log.info("Browser page {}: HTTP {}, {} characters, {} ms", url, status, html.length(),
-                    System.currentTimeMillis() - started);
-            return status == 200 ? Optional.of(html) : Optional.empty();
-        } catch (PlaywrightException e) {
-            log.warn("Browser could not open {}: {}", url, e.getMessage());
-            return Optional.empty();
-        }
-    }
-
     /** Images the page loaded (status 200, image type) whose URL matches the filter, without duplicates. */
     private static List<CapturedImage> capture(List<Response> responses, Pattern filter) {
         List<CapturedImage> out = new ArrayList<>();

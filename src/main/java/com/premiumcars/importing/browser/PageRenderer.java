@@ -58,15 +58,5 @@ public interface PageRenderer {
     BrowserImages loadImages(String pageUrl, List<List<String>> candidates, List<BrowserCookie> cookies,
                              Pattern pageImageFilter);
 
-    /**
-     * The HTML of a page as the browser received it (DOM after DOMContentLoaded), with these cookies, for sites
-     * that refuse plain HTTP clients but serve a browser (autowini answers 403 to the backend's own client).
-     *
-     * @return empty when rendering is disabled, failed or the page did not answer HTTP 200
-     */
-    default Optional<String> pageHtml(String url, List<BrowserCookie> cookies) {
-        return Optional.empty();
-    }
-
     boolean enabled();
 }
