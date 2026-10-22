@@ -1,6 +1,7 @@
 package com.premiumcars.catalog.repo;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Component;
@@ -16,6 +17,9 @@ public class JsonColumns {
     private static final TypeReference<LinkedHashMap<String, String>> STRING_MAP = new TypeReference<>() {
     };
 
+    private static final TypeReference<List<Long>> LONG_LIST = new TypeReference<>() {
+    };
+
     private final ObjectMapper mapper;
 
     public JsonColumns(ObjectMapper mapper) {
@@ -28,6 +32,17 @@ public class JsonColumns {
         }
         try {
             return mapper.readValue(json, STRING_MAP);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Invalid JSON in database column: " + e.getMessage(), e);
+        }
+    }
+
+    public List<Long> readLongList(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return mapper.readValue(json, LONG_LIST);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Invalid JSON in database column: " + e.getMessage(), e);
         }

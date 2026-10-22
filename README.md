@@ -57,8 +57,14 @@ password. Changing requests need the CSRF token: the frontend reads the `XSRF-TO
   (Профил); the value in Vault is not used again.
 - 5 wrong passwords lock the user for 15 minutes; an unknown user gets the same answer as a wrong password.
 - Rate limits per client IP: login 10 / 5 min, public inquiry form 5 / 10 min (HTTP 429).
-- Forgotten password: `DELETE FROM admin_user;` in the database, then restart: the user is created again from
-  `ADMIN_INITIAL_PASSWORD` (change it in Vault first).
+- More admins ("Потребители" in the admin panel, `/api/admin/users`): every admin has the same rights and can
+  create, reset and delete the others (not themselves, not the last one). A new or reset user gets a one-time
+  password (shown once to the admin who made it) and must choose an own one at the first login; until then only
+  `/me`, `/password` and `/logout` work (HTTP 403 otherwise).
+- Sessions end when the user is deleted or the password changes (a reset, or a change in another browser):
+  `AdminSessionFilter` compares the session with `admin_user` on every admin request.
+- Forgotten password: another admin resets it. If nobody can log in: `DELETE FROM admin_user;` in the database,
+  then restart: user `admin` is created again from `ADMIN_INITIAL_PASSWORD` (change it in Vault first).
 
 ## Importing cars
 
@@ -114,6 +120,20 @@ same details in its footer (`GET /api/public/contact`).
 Publishing always goes through a confirmation step in the admin panel: the filled-in text (editable) and the car's
 photos to pick from (1 to 10, sent in gallery order). `POST /api/admin/cars/{id}/social-posts` takes
 `{network, text, imageIds}`; the ids must be photos of that car.
+
+### Scheduled posts
+
+The same dialog can schedule the post instead (1 minute to 90 days ahead): `POST /api/admin/cars/{id}/scheduled-posts`
+with `{network, text, imageIds, publishAt}` (ISO instant). The text and photos are checked right away, like for
+publishing now, and fixed. `ScheduledPostService` checks every 30 seconds and publishes the due posts for all three
+networks (Instagram's API cannot schedule, so Facebook's own scheduling is not used either: one mechanism, visible
+and cancellable in the admin panel). `GET /api/admin/scheduled-posts` lists the waiting ones and those of the last 7
+days ("Насрочени"); `DELETE /api/admin/scheduled-posts/{id}` cancels a waiting one.
+
+- A failed post is **not** retried: a network can fail half-way (Viber photos out, the text not), and a retry would
+  post twice. It becomes FAILED with the reason; publish it again by hand.
+- A restart while a post is being published leaves it FAILED ("interrupted") for the same reason.
+- Sold or archived cars are not posted (FAILED with the reason).
 
 ## Viber channel
 
@@ -223,7 +243,8 @@ No ORM. Each repository holds the SQL for its table:
 | `PricingProfileRepository` | `pricing_profile` | one row per source site |
 | `SocialPostRepository` | `social_post` | posts published to Facebook / Instagram |
 | `InquiryRepository` | `inquiry` | `LEFT JOIN car` for the car title |
-| `AdminUserRepository` | `admin_user` | bcrypt hashes, failed attempts, lock |
+| `AdminUserRepository` | `admin_user` | bcrypt hashes, failed attempts, lock, one-time password flag |
+| `ScheduledPostRepository` | `scheduled_post` | posts planned for later; `claimDue` takes due ones with `FOR UPDATE SKIP LOCKED` |
 
 Schema change: a new file `src/main/resources/db/changelog/changes/00N-....sql` and a line in `db.changelog-master.yaml`.
 Never edit a changeset that has already run.

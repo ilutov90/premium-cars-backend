@@ -1,8 +1,13 @@
 package com.premiumcars.auth;
 
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,11 +17,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.premiumcars.common.BadRequestException;
+import com.premiumcars.common.NotFoundException;
 import com.premiumcars.config.AppProperties;
 
 /**
  * Admin login: bcrypt password hashes in {@code admin_user}, a lock after {@link #MAX_FAILED_ATTEMPTS} wrong
- * passwords, and the first admin created from ADMIN_INITIAL_PASSWORD (Vault) when there is none.
+ * passwords, and the first admin created from ADMIN_INITIAL_PASSWORD (Vault) when there is none. Admins create
+ * and remove other admins (all with the same rights); a new or reset user gets a one-time password and must choose
+ * an own one at the first login.
  */
 @Service
 public class AdminAuthService implements ApplicationRunner {
@@ -27,6 +35,15 @@ public class AdminAuthService implements ApplicationRunner {
     static final Duration LOCK_DURATION = Duration.ofMinutes(15);
     static final int MIN_PASSWORD_LENGTH = 12;
     static final String INITIAL_USERNAME = "admin";
+    static final Pattern USERNAME = Pattern.compile("[a-z0-9][a-z0-9._-]{2,49}");
+    /** No look-alike characters (0/O, 1/l/I): the one-time password is read out or typed by hand. */
+    private static final String ONE_TIME_ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final int ONE_TIME_LENGTH = 16;
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    /** A user created or reset by another admin, with the password to hand over (shown once, never stored). */
+    public record OneTimePassword(AdminUser user, String password) {
+    }
 
     /** Thrown for any failed login; the message never says whether the user exists. */
     public static class LoginFailedException extends RuntimeException {
@@ -86,6 +103,62 @@ public class AdminAuthService implements ApplicationRunner {
         }
         users.updatePassword(user.id(), encoder.encode(newPassword));
         log.info("Admin '{}' changed the password", username);
+    }
+
+    public Optional<AdminUser> find(String username) {
+        return users.findByUsername(username);
+    }
+
+    public List<AdminUser> list() {
+        return users.findAll();
+    }
+
+    /** A new admin with a one-time password; the creator hands it over and the new admin replaces it. */
+    public OneTimePassword create(String actor, String username) {
+        String name = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+        if (!USERNAME.matcher(name).matches()) {
+            throw new BadRequestException("Username: 3-50 characters, lowercase letters, digits, '.', '_' or '-'");
+        }
+        if (users.findByUsername(name).isPresent()) {
+            throw new BadRequestException("The username is taken");
+        }
+        String password = oneTimePassword();
+        long id = users.insert(name, encoder.encode(password), true);
+        log.info("Admin '{}' created admin '{}'", actor, name);
+        return new OneTimePassword(users.findById(id).orElseThrow(), password);
+    }
+
+    /** A new one-time password for another admin (forgotten password or locked user); their sessions end. */
+    public OneTimePassword resetPassword(String actor, long id) {
+        AdminUser user = users.findById(id).orElseThrow(() -> new NotFoundException("Admin user not found: " + id));
+        if (user.username().equals(actor)) {
+            throw new BadRequestException("Change your own password under Profile");
+        }
+        String password = oneTimePassword();
+        users.resetPassword(id, encoder.encode(password));
+        log.info("Admin '{}' reset the password of '{}'", actor, user.username());
+        return new OneTimePassword(users.findById(id).orElseThrow(), password);
+    }
+
+    /** Removes another admin; their sessions end at their next request. The last admin cannot be removed. */
+    public void delete(String actor, long id) {
+        AdminUser user = users.findById(id).orElseThrow(() -> new NotFoundException("Admin user not found: " + id));
+        if (user.username().equals(actor)) {
+            throw new BadRequestException("You cannot delete yourself");
+        }
+        if (users.count() <= 1) {
+            throw new BadRequestException("The last admin cannot be deleted");
+        }
+        users.delete(id);
+        log.info("Admin '{}' deleted admin '{}'", actor, user.username());
+    }
+
+    static String oneTimePassword() {
+        StringBuilder sb = new StringBuilder(ONE_TIME_LENGTH);
+        for (int i = 0; i < ONE_TIME_LENGTH; i++) {
+            sb.append(ONE_TIME_ALPHABET.charAt(RANDOM.nextInt(ONE_TIME_ALPHABET.length())));
+        }
+        return sb.toString();
     }
 
     /** Creates the first admin at startup when there is none. */

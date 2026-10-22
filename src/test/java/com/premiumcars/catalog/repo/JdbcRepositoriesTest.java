@@ -40,6 +40,8 @@ import com.premiumcars.social.PostSettingsRepository;
 import com.premiumcars.social.PostTemplate;
 import com.premiumcars.social.PostTemplateRepository;
 import com.premiumcars.social.PublicContactController;
+import com.premiumcars.social.ScheduledPost;
+import com.premiumcars.social.ScheduledPostRepository;
 import com.premiumcars.social.SocialNetwork;
 import com.premiumcars.social.SocialPost;
 import com.premiumcars.social.SocialPostRepository;
@@ -70,6 +72,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     SocialPublisher socialPublisher;
+
+    @Autowired
+    ScheduledPostRepository scheduledPosts;
 
     @Autowired
     PostTemplateRepository templates;
@@ -268,6 +273,56 @@ class JdbcRepositoriesTest {
 
         carService.delete(car.id());
         assertThat(socialPosts.findByCarId(car.id())).isEmpty();
+    }
+
+    @Test
+    void scheduledPostsAreClaimedOnceAndGoWithTheCar() {
+        String url = "https://www.autowini.com/test/" + UUID.randomUUID();
+        var imported = new ImportedCar("IC3", null, CarSpecs.builder().title("Hyundai Santa Fe 2021").build(),
+                new BigDecimal("15526"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
+        var now = java.time.Instant.now();
+
+        ScheduledPost due = scheduledPosts.insert(car.id(), SocialNetwork.VIBER, "Viber text", List.of(3L, 1L, 2L),
+                now.minusSeconds(5), "admin");
+        ScheduledPost later = scheduledPosts.insert(car.id(), SocialNetwork.FACEBOOK, "FB text", null,
+                now.plusSeconds(3600), "admin");
+        assertThat(due.imageIds()).containsExactly(3L, 1L, 2L);
+        assertThat(due.carTitle()).isEqualTo("Hyundai Santa Fe 2021");
+        assertThat(later.imageIds()).isEmpty();
+        assertThat(due.status()).isEqualTo(ScheduledPost.Status.SCHEDULED);
+
+        // only the due one is taken, and only once
+        List<ScheduledPost> claimed = scheduledPosts.claimDue(5);
+        assertThat(claimed).extracting(ScheduledPost::id).containsExactly(due.id());
+        assertThat(claimed.getFirst().status()).isEqualTo(ScheduledPost.Status.PUBLISHING);
+        assertThat(claimed.getFirst().attempts()).isEqualTo(1);
+        assertThat(scheduledPosts.claimDue(5)).isEmpty();
+
+        // a post being published cannot be cancelled; a waiting one can
+        assertThat(scheduledPosts.cancel(due.id())).isFalse();
+        assertThat(scheduledPosts.cancel(later.id())).isTrue();
+        assertThat(scheduledPosts.cancel(later.id())).isFalse();
+
+        SocialPost posted = socialPosts.insert(car.id(), SocialNetwork.VIBER, "5492", null, 3);
+        scheduledPosts.markPublished(due.id(), posted.id());
+        assertThat(scheduledPosts.findById(due.id()).orElseThrow())
+                .extracting(ScheduledPost::status, ScheduledPost::socialPostId)
+                .containsExactly(ScheduledPost.Status.PUBLISHED, posted.id());
+        assertThat(scheduledPosts.findByCarId(car.id())).hasSize(2);
+        assertThat(scheduledPosts.findUpcomingAndRecent(now.minusSeconds(3600)))
+                .extracting(ScheduledPost::id).contains(due.id(), later.id());
+
+        // a post left PUBLISHING by a restart becomes FAILED, not published twice
+        ScheduledPost interrupted = scheduledPosts.insert(car.id(), SocialNetwork.INSTAGRAM, "IG", null,
+                now.minusSeconds(5), "admin");
+        assertThat(scheduledPosts.claimDue(5)).extracting(ScheduledPost::id).containsExactly(interrupted.id());
+        assertThat(scheduledPosts.failInterrupted(java.time.Instant.now().plusSeconds(1))).isEqualTo(1);
+        assertThat(scheduledPosts.findById(interrupted.id()).orElseThrow().status())
+                .isEqualTo(ScheduledPost.Status.FAILED);
+
+        carService.delete(car.id());
+        assertThat(scheduledPosts.findByCarId(car.id())).isEmpty();
     }
 
     @Test
