@@ -84,7 +84,13 @@ public class AdminCarController {
         return carService.makeCover(id, imageId);
     }
 
-    /** Run after changing exchange rates or pricing settings in application.yml. */
+    /** One car's price with today's exchange rate and its formula as it is now (prices are kept otherwise). */
+    @PostMapping("/cars/{id}/recalculate-price")
+    public AdminCar recalculatePrice(@PathVariable long id) {
+        return carService.recalculatePrice(id);
+    }
+
+    /** Every car's price with today's rates and formulas. Changes prices that may be posted already. */
     @PostMapping("/cars/recalculate-prices")
     public Map<String, Integer> recalculatePrices() {
         return Map.of("updated", carService.recalculateAllPrices());

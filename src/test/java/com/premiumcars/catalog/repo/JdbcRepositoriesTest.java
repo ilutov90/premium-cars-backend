@@ -198,13 +198,14 @@ class JdbcRepositoriesTest {
     }
 
     @Test
-    void editingAPriceProfileRepricesItsCars() {
+    void pricesAreKeptUntilTheCarsOwnPriceChanges() {
         String url = "https://www.autowini.com/test/" + UUID.randomUUID();
         var imported = new ImportedCar("IC1", null, CarSpecs.builder().title("Kia K5 2021").build(),
                 new BigDecimal("25000"), "EUR", List.of(), List.of());
         AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
         // 25000 + 5000 + 1.5 * 600 (15000 above 10000) + 2000
         assertThat(car.price().totalEur()).isEqualByComparingTo("32900");
+        assertThat(car.price().eurPerUnit()).isEqualByComparingTo("1");
 
         PricingProfile original = carService.pricingProfiles().stream()
                 .filter(p -> p.id() == PriceProfile.AUTOWINI).findFirst().orElseThrow();
@@ -212,13 +213,27 @@ class JdbcRepositoriesTest {
             carService.updatePricingProfile(PriceProfile.AUTOWINI, new PricingProfile(null,
                     new BigDecimal("5100"), new BigDecimal("10000"), new BigDecimal("10000"), new BigDecimal("600"),
                     new BigDecimal("2500"), null));
-            // 25000 + 5100 + 1.5 * 600 + 2500
-            assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("33500");
+            // a new formula does not touch existing prices (they may be posted already)
+            assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("32900");
+            assertThat(carService.getAdmin(car.id()).price().baseCostsEur()).isEqualByComparingTo("5000");
 
-            // per-car corrections are stored and survive repricing
+            // saving other fields keeps the price, also with amounts written differently (25000 vs 25000.00)
+            var renamed = carService.update(car.id(), new CarUpdateRequest(
+                    car.specs().toBuilder().title("Kia K5 2021 GT").build(),
+                    new PricingInputs(new BigDecimal("25000.0"), "EUR", PriceProfile.AUTOWINI, null, null)));
+            assertThat(renamed.price().totalEur()).isEqualByComparingTo("32900");
+
+            // changing the car's own price fields recalculates it, with today's formula
             var withProfit = carService.update(car.id(), new CarUpdateRequest(car.specs(),
                     new PricingInputs(new BigDecimal("25000"), "EUR", null, new BigDecimal("4000"), null)));
             assertThat(withProfit.price().totalEur()).isEqualByComparingTo("35000"); // 25000 + 5100 + 900 + 4000
+
+            // recalculating by hand: today's rate and formula
+            var back = carService.update(car.id(), new CarUpdateRequest(car.specs(),
+                    new PricingInputs(new BigDecimal("25000"), "EUR", null, null, null)));
+            assertThat(back.price().totalEur()).isEqualByComparingTo("33500"); // 25000 + 5100 + 900 + 2500
+            assertThat(carService.recalculatePrice(car.id()).price().totalEur()).isEqualByComparingTo("33500");
+
             var fixed = carService.update(car.id(), new CarUpdateRequest(car.specs(),
                     new PricingInputs(new BigDecimal("25000"), "EUR", null, null, new BigDecimal("29990"))));
             assertThat(fixed.price().totalEur()).isEqualByComparingTo("29990");

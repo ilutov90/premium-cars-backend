@@ -58,9 +58,10 @@ public class CarMapper {
                 c.totalPriceEur());
     }
 
-    public AdminCar toAdmin(Car c, List<CarImage> images) {
+    /** @param price the breakdown the car's price was calculated from */
+    public AdminCar toAdmin(Car c, List<CarImage> images, PriceBreakdown price) {
         return new AdminCar(c.id(), c.slug(), c.status(), c.source(), c.sourceUrl(), c.sourceRef(),
-                c.sourceLocation(), c.specs(), c.pricing(), breakdown(c.pricing()),
+                c.sourceLocation(), c.specs(), c.pricing(), price,
                 images.stream()
                         .map(i -> new AdminImage(i.id(), storage.publicUrl(i.storagePath()), i.sourceUrl(),
                                 i.position()))
@@ -68,7 +69,10 @@ public class CarMapper {
                 c.createdAt(), c.updatedAt(), c.publishedAt());
     }
 
-    /** Price breakdown from the current profile and the car's corrections; null when there is no price at all. */
+    /**
+     * Price breakdown from today's rates, the current profile and the car's corrections; null when there is no
+     * price at all. Used when a price is (re)calculated; the admin panel shows the kept one.
+     */
     public PriceBreakdown breakdown(PricingInputs p) {
         PricingProfile profile = p.profile() == null ? null : profiles.find(p.profile()).orElse(null);
         return breakdown(p, profile);
