@@ -119,7 +119,11 @@ same details in its footer (`GET /api/public/contact`).
 
 Publishing always goes through a confirmation step in the admin panel: the filled-in text (editable) and the car's
 photos to pick from (1 to 10, sent in gallery order). `POST /api/admin/cars/{id}/social-posts` takes
-`{network, text, imageIds}`; the ids must be photos of that car.
+`{network, text, imageIds}`; the ids must be photos of that car. It checks the request, records the post in
+`scheduled_post` (publish time = now) and answers **202** right away; the post is published on a background
+thread (Facebook and Instagram take 10-60 s), and the admin panel follows it until PUBLISHED or FAILED.
+Photos go up 4 at a time (Facebook uploads, imgbb, Instagram containers and their processing); Viber messages
+stay one after the other, since the channel shows them in arrival order.
 
 ### Scheduled posts
 

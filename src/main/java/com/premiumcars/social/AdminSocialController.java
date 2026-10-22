@@ -1,5 +1,6 @@
 package com.premiumcars.social;
 
+import java.security.Principal;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
@@ -42,12 +43,14 @@ public class AdminSocialController {
     }
 
     private final SocialPublisher publisher;
+    private final ScheduledPostService background;
     private final PostTemplateRepository templates;
     private final PostSettingsRepository settings;
 
-    public AdminSocialController(SocialPublisher publisher, PostTemplateRepository templates,
-                                 PostSettingsRepository settings) {
+    public AdminSocialController(SocialPublisher publisher, ScheduledPostService background,
+                                 PostTemplateRepository templates, PostSettingsRepository settings) {
         this.publisher = publisher;
+        this.background = background;
         this.templates = templates;
         this.settings = settings;
     }
@@ -97,9 +100,14 @@ public class AdminSocialController {
         return publisher.posts(id);
     }
 
+    /**
+     * Publishes in the background (Facebook and Instagram take up to a minute): checks the request, answers 202
+     * with the recorded post, and the admin panel follows it (GET /api/admin/cars/{id}/scheduled-posts) until it is
+     * PUBLISHED (then it is in social-posts too) or FAILED with the reason.
+     */
     @PostMapping("/cars/{id}/social-posts")
-    @ResponseStatus(HttpStatus.CREATED)
-    public SocialPost publish(@PathVariable long id, @Valid @RequestBody PublishRequest request) {
-        return publisher.publish(id, request.network(), request.text(), request.imageIds());
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ScheduledPost publish(@PathVariable long id, @Valid @RequestBody PublishRequest request, Principal principal) {
+        return background.publishNow(id, request.network(), request.text(), request.imageIds(), principal.getName());
     }
 }

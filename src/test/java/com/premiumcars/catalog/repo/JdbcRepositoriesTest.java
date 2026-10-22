@@ -314,6 +314,14 @@ class JdbcRepositoriesTest {
         assertThat(claimed.getFirst().attempts()).isEqualTo(1);
         assertThat(scheduledPosts.claimDue(5)).isEmpty();
 
+        // publishing now: one post is taken by its id, once
+        ScheduledPost now = scheduledPosts.insert(car.id(), SocialNetwork.FACEBOOK, "now", null, java.time.Instant.now(),
+                "admin");
+        assertThat(scheduledPosts.claim(now.id())).get().extracting(ScheduledPost::status)
+                .isEqualTo(ScheduledPost.Status.PUBLISHING);
+        assertThat(scheduledPosts.claim(now.id())).isEmpty();
+        scheduledPosts.markFailed(now.id(), "test");
+
         // a post being published cannot be cancelled; a waiting one can
         assertThat(scheduledPosts.cancel(due.id())).isFalse();
         assertThat(scheduledPosts.cancel(later.id())).isTrue();
