@@ -48,6 +48,18 @@ public class JsonColumns {
         }
     }
 
+    /** @return null for a NULL column */
+    public <T> T read(String json, Class<T> type) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return mapper.readValue(json, type);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Invalid JSON in database column: " + e.getMessage(), e);
+        }
+    }
+
     public String write(Object value) {
         if (value == null) {
             return null;

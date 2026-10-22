@@ -48,10 +48,11 @@ public class PriceCalculator {
             }
             return new PriceBreakdown(profile == null ? null : profile.id(), sourcePrice, sourceCurrency, null, null,
                     null, null, profitOverride == null ? null : round(profitOverride), profitOverride != null, null,
-                    fixed, true);
+                    fixed, true, null);
         }
         String currency = sourceCurrency == null ? "EUR" : sourceCurrency;
-        BigDecimal carPriceEur = round(sourcePrice.multiply(rates.eurPerUnit(currency)));
+        BigDecimal rate = rates.eurPerUnit(currency);
+        BigDecimal carPriceEur = round(sourcePrice.multiply(rate));
         BigDecimal profit = profitOverride == null ? profile.profit() : profitOverride;
 
         BigDecimal above = carPriceEur.subtract(profile.threshold()).max(BigDecimal.ZERO);
@@ -61,7 +62,7 @@ public class PriceCalculator {
 
         return new PriceBreakdown(profile.id(), sourcePrice, currency, carPriceEur, round(profile.baseCosts()),
                 plain(steps), stepCosts, round(profit), profitOverride != null, calculated,
-                fixed == null ? calculated : fixed, fixed != null);
+                fixed == null ? calculated : fixed, fixed != null, rate);
     }
 
     /** Rounded to whole euros, kept with two decimals like the other amounts. */

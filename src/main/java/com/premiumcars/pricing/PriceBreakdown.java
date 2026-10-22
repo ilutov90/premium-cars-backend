@@ -12,6 +12,7 @@ import java.math.BigDecimal;
  * @param calculatedTotalEur what the formula gives (null when it cannot be calculated)
  * @param totalEur           the final price: {@code calculatedTotalEur}, or the price set by hand
  * @param fixedTotal         {@code totalEur} was set by hand
+ * @param eurPerUnit         the exchange rate used: EUR per 1 unit of {@code sourceCurrency} (null when not calculated)
  */
 public record PriceBreakdown(
         PriceProfile profile,
@@ -25,6 +26,7 @@ public record PriceBreakdown(
         boolean profitOverridden,
         BigDecimal calculatedTotalEur,
         BigDecimal totalEur,
-        boolean fixedTotal
+        boolean fixedTotal,
+        BigDecimal eurPerUnit
 ) {
 }

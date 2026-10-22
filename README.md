@@ -196,12 +196,10 @@ environment variable (or a git-ignored `.env` next to `pom.xml`, see `.env.examp
 | Demo cars on an empty DB | `LIQUIBASE_CONTEXTS` | `demo` (`none` = no demo data) |
 
 Exchange rates: on start and every hour the backend reads the ECB daily reference rates
-(`eurofxref-daily.xml`, published around 16:00 CET on working days). When a new day appears, all prices are
-recalculated. If the ECB cannot be reached, the last rates (or the configured ones) stay in use. The admin panel
-("Цени") shows the rates in use, their source and date (`GET /api/admin/pricing-profiles/exchange-rates`).
-
-Prices are recalculated on every start; to recalculate by hand: `POST /api/admin/cars/recalculate-prices`
-(from Swagger).
+(`eurofxref-daily.xml`, published around 16:00 CET on working days); they are used for prices calculated from
+then on (see "Prices are kept" below). If the ECB cannot be reached, the last rates (or the configured ones) stay
+in use. The admin panel ("Цени") shows the rates in use, their source and date
+(`GET /api/admin/pricing-profiles/exchange-rates`).
 
 ## Pricing
 
@@ -219,12 +217,25 @@ final price = car price in € + base costs + step cost × steps above the thres
 | profit | 2000 € | 2000 € |
 
 Above the threshold the step costs are proportional: autohome, car for 25 000 € = 5860 + 2880 (up to 20 000)
-+ 1440 (the 5000 above 20 000) + 2000. The result is rounded to whole euros. Saving a profile reprices every car. Imported cars use their site's profile;
++ 1440 (the 5000 above 20 000) + 2000. The result is rounded to whole euros. Imported cars use their site's profile;
 cars from other sites get one chosen in the editor.
 
 Per car, the editor can correct the result (columns `profit_eur`, `fixed_total_eur`; empty = the formula):
 **profit for this car** replaces the profile's profit in the formula, and **final price by hand** replaces the
-whole result (the calculated price stays visible next to it). Repricing keeps both corrections.
+whole result (the calculated price stays visible next to it). Recalculating keeps both corrections.
+
+### Prices are kept
+
+A car's price is calculated **once**: at import (today's ECB rate and the profile as it is) and stored with its
+breakdown, including the rate used (`car.price_breakdown`, migration 013). Posts on Facebook / Instagram / Viber
+show that price, so nothing changes it automatically: not a new ECB rate, not a changed profile, not a restart,
+not saving the car's other fields. It is recalculated (with today's rate and profile) only when
+
+- the car's own price fields change in the editor (source price, currency, profile, profit, final price by hand), or
+- the admin presses "Преизчисли" on the car (`POST /api/admin/cars/{id}/recalculate-price`).
+
+`POST /api/admin/cars/recalculate-prices` recalculates every car (Swagger only, never automatic). Cars saved
+before migration 013 kept their price; the breakdown stored for them at the first start is today's calculation.
 
 ## Data model
 

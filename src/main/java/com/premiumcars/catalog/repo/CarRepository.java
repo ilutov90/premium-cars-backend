@@ -18,6 +18,7 @@ import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.web.dto.CarFilter;
+import com.premiumcars.pricing.PriceBreakdown;
 
 /** All SQL for the {@code car} table. */
 @Repository
@@ -184,11 +185,26 @@ public class CarRepository {
                 .update();
     }
 
-    public void updateTotalPrice(long id, BigDecimal totalPriceEur) {
-        jdbc.sql("UPDATE car SET total_price_eur = :total WHERE id = :id")
+    /** The price and the breakdown it was calculated from (kept: see 013-frozen-prices.sql). */
+    public void savePrice(long id, BigDecimal totalPriceEur, PriceBreakdown breakdown) {
+        jdbc.sql("UPDATE car SET total_price_eur = :total, price_breakdown = CAST(:breakdown AS jsonb) WHERE id = :id")
                 .param("total", totalPriceEur)
+                .param("breakdown", json.write(breakdown))
                 .param("id", id)
                 .update();
+    }
+
+    public Optional<PriceBreakdown> findPriceBreakdown(long id) {
+        return jdbc.sql("SELECT price_breakdown FROM car WHERE id = :id")
+                .param("id", id)
+                .query((rs, i) -> Optional.ofNullable(json.read(rs.getString(1), PriceBreakdown.class)))
+                .optional()
+                .flatMap(o -> o);
+    }
+
+    /** Cars saved before prices were kept with their breakdown. */
+    public List<Car> findWithoutPriceBreakdown() {
+        return jdbc.sql(SELECT_CAR + "WHERE c.price_breakdown IS NULL ORDER BY c.id").query(carMapper).list();
     }
 
     /** Deletes the car; its images go with it (ON DELETE CASCADE), its inquiries keep a null car_id. */

@@ -41,7 +41,6 @@ import com.premiumcars.common.NotFoundException;
 import com.premiumcars.common.PageResponse;
 import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.media.ImageStorage;
-import com.premiumcars.pricing.EcbExchangeRateProvider;
 import com.premiumcars.pricing.PriceBreakdown;
 import com.premiumcars.pricing.PriceProfile;
 import com.premiumcars.pricing.PricingProfile;
@@ -77,27 +76,38 @@ public class CarService {
         return profiles.findAll();
     }
 
-    /** Saves a site's price formula and reprices every car. */
+    /**
+     * Saves a site's price formula. It applies to cars imported from now on (and to a car whose price fields
+     * change, or that is recalculated by hand); existing prices stay, since they may be posted already.
+     */
     @Transactional
     public PricingProfile updatePricingProfile(PriceProfile id, PricingProfile values) {
         if (!profiles.update(id, values)) {
             throw new NotFoundException("Price profile not found: " + id);
         }
-        recalculateAllPrices();
         return profiles.find(id).orElseThrow();
     }
 
-    /** Prices follow the exchange rates and the formulas: recalculated on every start. */
+    /**
+     * Cars saved before prices were kept with their breakdown: keep their price, store the breakdown of today's
+     * calculation next to it (the price itself does not change).
+     */
     @EventListener(ApplicationReadyEvent.class)
-    public void recalculatePricesOnStartup() {
-        recalculateAllPrices();
-    }
-
-    /** The ECB rates of a new day (or the first ones after a start) reprice every car. */
-    @EventListener
-    public void onExchangeRatesUpdated(EcbExchangeRateProvider.ExchangeRatesUpdated event) {
-        int n = recalculateAllPrices();
-        log.info("Repriced {} cars with the exchange rates of {}", n, event.date());
+    @Transactional
+    public void keepBreakdownsOfOlderCars() {
+        List<Car> older = cars.findWithoutPriceBreakdown();
+        for (Car c : older) {
+            PriceBreakdown b = mapper.breakdown(c.pricing());
+            if (b != null && c.totalPriceEur() != null && b.totalEur().compareTo(c.totalPriceEur()) != 0) {
+                log.info("Car {}: kept price {} € (today's calculation gives {} €)", c.id(), c.totalPriceEur(),
+                        b.totalEur());
+                b = withTotal(b, c.totalPriceEur());
+            }
+            cars.savePrice(c.id(), c.totalPriceEur() != null ? c.totalPriceEur() : b == null ? null : b.totalEur(), b);
+        }
+        if (!older.isEmpty()) {
+            log.info("Stored the price breakdown of {} older car(s); their prices are unchanged", older.size());
+        }
     }
 
     // ---------------------------------------------------------------- public
@@ -141,7 +151,7 @@ public class CarService {
 
     @Transactional(readOnly = true)
     public Optional<AdminCar> findBySourceUrl(String sourceUrl) {
-        return cars.findBySourceUrl(sourceUrl).map(c -> mapper.toAdmin(c, images.findByCarId(c.id())));
+        return cars.findBySourceUrl(sourceUrl).map(this::toAdmin);
     }
 
     /** Creates a DRAFT from imported data. The slug needs the generated id, so it is set right after the insert. */
@@ -150,9 +160,11 @@ public class CarService {
         CarSpecs specs = data.specs().toBuilder().build();
         PricingInputs pricing = PricingInputs.EMPTY.withSourcePrice(data.price(), data.currency())
                 .withProfile(defaultProfile(source));
+        PriceBreakdown price = mapper.breakdown(pricing);
         long id = cars.insert("tmp-" + UUID.randomUUID(), CarStatus.DRAFT, source, sourceUrl,
                 truncate(data.sourceRef(), 255), truncate(data.sourceLocation(), 100), specs, pricing,
-                totalPrice(pricing));
+                price == null ? null : price.totalEur());
+        cars.savePrice(id, price == null ? null : price.totalEur(), price);
         cars.updateSlug(id, slugFor(specs, id));
         return loadAdmin(id);
     }
@@ -170,7 +182,14 @@ public class CarService {
         CarSpecs specs = r.specs().toBuilder().build();
         PricingInputs pricing = r.pricing().profile() != null
                 ? r.pricing() : r.pricing().withProfile(defaultProfile(existing.source()));
-        cars.update(id, specs, pricing, totalPrice(pricing));
+        if (samePricing(pricing, existing.pricing())) {
+            // other fields only: the price stays as it is (it may be posted already)
+            cars.update(id, specs, pricing, existing.totalPriceEur());
+        } else {
+            PriceBreakdown price = mapper.breakdown(pricing);
+            cars.update(id, specs, pricing, price == null ? null : price.totalEur());
+            cars.savePrice(id, price == null ? null : price.totalEur(), price);
+        }
         if (existing.status() == CarStatus.DRAFT) {
             // Keep links of published cars stable (SEO, shared links); drafts may still be renamed.
             cars.updateSlug(id, slugFor(specs, id));
@@ -208,7 +227,20 @@ public class CarService {
         return loadAdmin(carId);
     }
 
-    /** Re-applies current exchange rates and price profiles to every car. Returns the number of cars. */
+    /** One car with today's exchange rate and its formula as it is now (the admin's explicit choice). */
+    @Transactional
+    public AdminCar recalculatePrice(long id) {
+        Car c = find(id);
+        PriceBreakdown b = mapper.breakdown(c.pricing());
+        cars.savePrice(id, b == null ? null : b.totalEur(), b);
+        log.info("Car {} recalculated by hand: {} € (was {} €)", id, b == null ? null : b.totalEur(), c.totalPriceEur());
+        return loadAdmin(id);
+    }
+
+    /**
+     * Every car with today's exchange rates and formulas. Only by hand (POST /api/admin/cars/recalculate-prices):
+     * it changes prices that may be posted already. Returns the number of cars.
+     */
     @Transactional
     public int recalculateAllPrices() {
         Map<PriceProfile, PricingProfile> byId = profiles.findAll().stream()
@@ -217,7 +249,7 @@ public class CarService {
         for (Car c : all) {
             PricingProfile profile = c.pricing().profile() == null ? null : byId.get(c.pricing().profile());
             PriceBreakdown b = mapper.breakdown(c.pricing(), profile);
-            cars.updateTotalPrice(c.id(), b == null ? null : b.totalEur());
+            cars.savePrice(c.id(), b == null ? null : b.totalEur(), b);
         }
         return all.size();
     }
@@ -233,7 +265,32 @@ public class CarService {
     }
 
     private AdminCar loadAdmin(long id) {
-        return mapper.toAdmin(find(id), images.findByCarId(id));
+        return toAdmin(find(id));
+    }
+
+    /** With the breakdown the price was calculated from (today's calculation only for a car without one). */
+    private AdminCar toAdmin(Car c) {
+        PriceBreakdown kept = cars.findPriceBreakdown(c.id()).orElseGet(() -> mapper.breakdown(c.pricing()));
+        return mapper.toAdmin(c, images.findByCarId(c.id()), kept);
+    }
+
+    /** Same values (amounts compared by value: 25000 equals 25000.00 from the database). */
+    static boolean samePricing(PricingInputs a, PricingInputs b) {
+        return sameAmount(a.sourcePrice(), b.sourcePrice())
+                && java.util.Objects.equals(a.sourceCurrency(), b.sourceCurrency())
+                && a.profile() == b.profile()
+                && sameAmount(a.profitEur(), b.profitEur())
+                && sameAmount(a.fixedTotalEur(), b.fixedTotalEur());
+    }
+
+    private static boolean sameAmount(BigDecimal a, BigDecimal b) {
+        return a == null ? b == null : b != null && a.compareTo(b) == 0;
+    }
+
+    private static PriceBreakdown withTotal(PriceBreakdown b, BigDecimal total) {
+        return new PriceBreakdown(b.profile(), b.sourcePrice(), b.sourceCurrency(), b.carPriceEur(), b.baseCostsEur(),
+                b.steps(), b.stepCostsEur(), b.profitEur(), b.profitOverridden(), b.calculatedTotalEur(), total,
+                b.fixedTotal(), b.eurPerUnit());
     }
 
     private Car find(long id) {
@@ -243,11 +300,6 @@ public class CarService {
     private CarImage findImage(long carId, long imageId) {
         return images.find(carId, imageId)
                 .orElseThrow(() -> new NotFoundException("Image not found: " + imageId));
-    }
-
-    private BigDecimal totalPrice(PricingInputs pricing) {
-        PriceBreakdown b = mapper.breakdown(pricing);
-        return b == null ? null : b.totalEur();
     }
 
     /** Imported cars are priced with their site's formula; other cars get one chosen in the editor. */
