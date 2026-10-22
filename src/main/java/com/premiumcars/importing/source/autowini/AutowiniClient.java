@@ -73,13 +73,24 @@ public class AutowiniClient {
                 .build();
     }
 
+    /**
+     * A listing page as fetched.
+     *
+     * @param mobile true when the desktop page was refused (HTTP 403) and this is the mobile site's page, which
+     *               has no price
+     */
+    public record Listing(String html, boolean mobile) {
+    }
+
     /** HTML of a listing page, logged in. Falls back to the mobile site when the desktop one answers 403. */
-    public synchronized String fetchListing(String desktopUrl, String mobileUrl) {
+    public synchronized Listing fetchListing(String desktopUrl, String mobileUrl) {
         ensureLoggedIn();
         Page page = get(desktopUrl);
         log.info("autowini listing {}: HTTP {}", desktopUrl, page.status());
+        boolean mobile = false;
         if (page.status() == 403 && mobileUrl != null) {
             page = get(mobileUrl);
+            mobile = true;
             log.info("autowini mobile listing {}: HTTP {}", mobileUrl, page.status());
         }
         if (looksLikeLogin(page)) {
@@ -87,11 +98,12 @@ public class AutowiniClient {
             loggedIn = false;
             ensureLoggedIn();
             page = get(desktopUrl);
+            mobile = false;
         }
         if (page.status() != 200) {
             throw new BadRequestException("autowini returned HTTP " + page.status() + " for " + desktopUrl);
         }
-        return page.body();
+        return new Listing(page.body(), mobile);
     }
 
     /**
