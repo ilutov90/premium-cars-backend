@@ -32,7 +32,8 @@ import com.premiumcars.media.ImageDownloader.DownloadedImage;
 /**
  * autowini.com (South Korea). Pages are read with a logged-in session ({@link AutowiniClient}).
  * Prices are shown only to some members: when the logged-in account may see it, the price is the one autowini
- * shows buyers (BIS price, USD, FOB Incheon); otherwise the admin enters it on import.
+ * shows buyers (BIS price, USD, FOB Incheon), from the desktop page or (when that is refused) autowini's API;
+ * otherwise the admin enters it on import.
  */
 @Component
 @Order(20)
@@ -130,27 +131,16 @@ public class AutowiniSourceAdapter implements SourceAdapter {
     }
 
     /**
-     * autowini refuses the desktop page to the backend's HTTP client (403), and the mobile page has no price. The
-     * headless browser gets the desktop page (with the session cookies): its hidden price field and its details
-     * are used then. Otherwise (browser off or refused) the mobile page stays, without a price.
+     * autowini refuses the desktop page to the backend's HTTP client (403: the server's IP; a headless browser on
+     * the server is refused too), and the mobile page has no price in its HTML: it reads it from autowini's API,
+     * as {@link AutowiniClient#itemPrices} does. Without an API price the page stays as it is (entered by hand).
      */
-    ParsedPage desktopPageFromBrowser(String desktopUrl, String id, ParsedPage mobilePage) {
-        if (!renderer.enabled()) {
-            return mobilePage;
+    static ParsedPage withPrice(ParsedPage page, AutowiniClient.ApiPrices prices) {
+        if (prices == null) {
+            return page;
         }
-        var desktop = renderer.pageHtml(desktopUrl, client.browserCookies())
-                .map(html -> AutowiniPageParser.parse(html, id))
-                .filter(p -> p.fields().containsKey("item_no"));
-        if (desktop.isEmpty()) {
-            log.info("autowini {}: no desktop page from the browser either; the price must be entered by hand", id);
-            return mobilePage;
-        }
-        ParsedPage d = desktop.get();
-        log.info("autowini {}: desktop page from the browser, price {}", id,
-                d.price() == null ? "not shown" : d.currency() + " " + d.price().toPlainString());
-        // the photos as before (the mobile page lists the listing's own); the desktop ones only when it has none
-        List<String> images = mobilePage.images().isEmpty() ? d.images() : mobilePage.images();
-        return new ParsedPage(d.itemId(), d.fields(), d.price(), d.currency(), d.discount(), images);
+        var discount = prices.discountedPrice() == null ? null : prices.bisPrice().subtract(prices.discountedPrice());
+        return new ParsedPage(page.itemId(), page.fields(), prices.bisPrice(), "USD", discount, page.images());
     }
 
     /** ".../5d6db85f-..._1024.jpg" and ".../5d6db85f-..._320.jpg" are the same photo. */
@@ -170,7 +160,7 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         AutowiniClient.Listing listing = client.fetchListing(desktopUrl, AutowiniPageParser.mobileUrl(id));
         ParsedPage page = AutowiniPageParser.parse(listing.html(), id);
         if (listing.mobile() && page.price() == null) {
-            page = desktopPageFromBrowser(desktopUrl, id, page);
+            page = withPrice(page, client.itemPrices(id));
         }
         CarSpecs specs = AutowiniPageParser.toSpecs(page);
 

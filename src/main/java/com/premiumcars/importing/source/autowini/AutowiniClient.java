@@ -2,6 +2,7 @@ package com.premiumcars.importing.source.autowini;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.HttpCookie;
@@ -34,6 +35,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.config.AppProperties;
 import com.premiumcars.importing.browser.PageRenderer.BrowserCookie;
@@ -55,6 +58,9 @@ public class AutowiniClient {
     static final String LOGIN_URL = "https://www.autowini.com/loginProcess";
     static final String LOGIN_PAGE = "https://www.autowini.com/joinfree/login";
     static final String OAUTH_INIT = "https://www.autowini.com/oauth2/authorization/keycloak";
+    /** autowini's API behind its pages (the mobile listing page reads the price from it). */
+    static final String V2_API = "https://v2api.autowini.com";
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final Pattern LOGIN_ACTION = Pattern.compile("\"loginAction\"\\s*:\\s*\"([^\"]+)\"");
 
     private final AppProperties props;
@@ -104,6 +110,101 @@ public class AutowiniClient {
             throw new BadRequestException("autowini returned HTTP " + page.status() + " for " + desktopUrl);
         }
         return new Listing(page.body(), mobile);
+    }
+
+    /**
+     * A listing's price as autowini's pages show it, from the API the mobile page uses
+     * ({@code GET /detail/v1/items/{id}} with the login's {@code token} cookie as Bearer token).
+     *
+     * @param bisPrice        the price shown to buyers ("FOB, Incheon"), USD
+     * @param discountedPrice the price after an event discount, when autowini shows one; null otherwise
+     */
+    public record ApiPrices(BigDecimal bisPrice, BigDecimal discountedPrice) {
+    }
+
+    /** @return null when the API gives no price (not logged in, no token, refused, price hidden for the member) */
+    public synchronized ApiPrices itemPrices(String listingId) {
+        ensureLoggedIn();
+        String token = cookie("token");
+        if (token == null) {
+            log.info("autowini API: no 'token' cookie after login (cookies: {}); no price", cookieNames());
+            return null;
+        }
+        if (token.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            token = token.substring(7);
+        }
+        HttpRequest request = base(V2_API + "/detail/v1/items/" + enc(listingId))
+                .setHeader("Accept", "application/json")
+                .header("Authorization", "Bearer " + token)
+                .header("Origin", "https://m.autowini.com")
+                .header("Referer", "https://m.autowini.com/")
+                .GET()
+                .build();
+        Page page = send(request);
+        if (page.status() != 200) {
+            log.info("autowini API item {}: HTTP {}", listingId, page.status());
+            return null;
+        }
+        ApiPrices prices = parsePrices(page.body());
+        log.info("autowini API item {}: HTTP 200, price {}", listingId,
+                prices == null ? "not shown" : "USD " + prices.bisPrice().toPlainString());
+        return prices;
+    }
+
+    /** {@code {"data": {"prices": {"bisPrice": 16377, "isEventItem": false, "bisPriceWithDiscount": …}}}} */
+    static ApiPrices parsePrices(String json) {
+        try {
+            JsonNode prices = JSON.readTree(json).path("data").path("prices");
+            BigDecimal bis = positive(prices.path("bisPrice"));
+            if (bis == null) {
+                log.info("autowini API: no bisPrice (price fields: {})", fieldNames(prices));
+                return null;
+            }
+            BigDecimal discounted = prices.path("isEventItem").asBoolean(false)
+                    ? positive(prices.path("bisPriceWithDiscount"))
+                    : null;
+            return new ApiPrices(bis, discounted != null && discounted.compareTo(bis) < 0 ? discounted : null);
+        } catch (IOException e) {
+            log.info("autowini API: unreadable answer ({})", e.getMessage());
+            return null;
+        }
+    }
+
+    private static BigDecimal positive(JsonNode node) {
+        if (node.isNumber()) {
+            BigDecimal n = node.decimalValue();
+            return n.signum() > 0 ? n : null;
+        }
+        if (node.isTextual()) {
+            try {
+                BigDecimal n = new BigDecimal(node.asText().replace(",", "").trim());
+                return n.signum() > 0 ? n : null;
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static List<String> fieldNames(JsonNode node) {
+        List<String> names = new ArrayList<>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
+    }
+
+    private String cookie(String name) {
+        for (HttpCookie c : cookies.getCookieStore().getCookies()) {
+            if (c.getName().equals(name) && c.getValue() != null && !c.getValue().isBlank()
+                    && (c.getDomain() == null || c.getDomain().toLowerCase(Locale.ROOT).contains("autowini"))) {
+                return java.net.URLDecoder.decode(c.getValue(), StandardCharsets.UTF_8);
+            }
+        }
+        return null;
+    }
+
+    /** Names only (no values), to see in the logs what the login left. */
+    private List<String> cookieNames() {
+        return cookies.getCookieStore().getCookies().stream().map(HttpCookie::getName).distinct().toList();
     }
 
     /**

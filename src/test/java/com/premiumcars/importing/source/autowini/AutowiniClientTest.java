@@ -100,4 +100,23 @@ class AutowiniClientTest {
         }
         return out.toByteArray();
     }
+
+    @Test
+    void readsThePriceFromTheApiAnswer() {
+        var plain = AutowiniClient.parsePrices("""
+                {"status":200,"data":{"listingId":"IC5341711","prices":{"bisPrice":16377,"bisPriceBasic":16377,
+                 "isEventItem":false,"bisPriceWithDiscount":16000}}}""");
+        assertThat(plain.bisPrice()).isEqualByComparingTo("16377");
+        assertThat(plain.discountedPrice()).isNull(); // not an event item
+
+        var event = AutowiniClient.parsePrices("""
+                {"data":{"prices":{"bisPrice":"16,377","isEventItem":true,"bisPriceWithDiscount":15877}}}""");
+        assertThat(event.bisPrice()).isEqualByComparingTo("16377");
+        assertThat(event.discountedPrice()).isEqualByComparingTo("15877");
+
+        // hidden for the member, missing, or not JSON: no price
+        assertThat(AutowiniClient.parsePrices("{\"data\":{\"prices\":{\"bisPrice\":null}}}")).isNull();
+        assertThat(AutowiniClient.parsePrices("{\"data\":{}}")).isNull();
+        assertThat(AutowiniClient.parsePrices("<html>error</html>")).isNull();
+    }
 }
