@@ -11,6 +11,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.function.Function;
 
 import javax.imageio.ImageIO;
 
@@ -44,6 +50,9 @@ public class SocialPublisher {
 
     /** Viber shows photos up to 1 MB on every platform; bigger ones are scaled down. */
     static final int VIBER_PHOTO_MAX_BYTES = 1_000_000;
+
+    /** Photos uploaded at the same time (Facebook, imgbb) and Instagram containers prepared at the same time. */
+    static final int PARALLEL_UPLOADS = 4;
 
     /** Most photos the admin may pick for one post (Instagram carousels take at most 10). */
     public static final int MAX_SELECTED_PHOTOS = 10;
@@ -201,10 +210,7 @@ public class SocialPublisher {
         if (!cfg.facebookConfigured()) {
             throw new BadRequestException("Facebook is not configured: set FB_PAGE_ID and FB_ACCESS_TOKEN");
         }
-        List<String> photoIds = new ArrayList<>();
-        for (Photo p : photos) {
-            photoIds.add(graph.uploadUnpublishedPhoto(p.bytes(), p.extension()));
-        }
+        List<String> photoIds = inParallel(photos, p -> graph.uploadUnpublishedPhoto(p.bytes(), p.extension()));
         String postId = graph.createPagePost(text, photoIds);
         String link = graph.facebookPermalink(postId);
         log.info("Published car {} to Facebook: {} ({} photos)", carId, link, photoIds.size());
@@ -220,13 +226,10 @@ public class SocialPublisher {
                     + " characters (this one has " + text.length() + ")");
         }
         // Instagram accepts JPEG only.
-        List<String> urls = new ArrayList<>();
-        for (Photo p : photos) {
+        List<String> urls = inParallel(photos, p -> {
             byte[] jpeg = toJpeg(p);
-            if (jpeg != null) {
-                urls.add(imgbb.upload(jpeg));
-            }
-        }
+            return jpeg == null ? null : imgbb.upload(jpeg);
+        }).stream().filter(Objects::nonNull).toList();
         if (urls.isEmpty()) {
             throw new BadRequestException("None of the photos could be converted to JPEG for Instagram");
         }
@@ -234,13 +237,11 @@ public class SocialPublisher {
         if (urls.size() == 1) {
             container = graph.instagramPhotoContainer(urls.getFirst(), text);
         } else {
-            List<String> children = new ArrayList<>();
-            for (String url : urls) {
-                children.add(graph.instagramPhotoContainer(url, null));
-            }
-            for (String child : children) {
+            List<String> children = inParallel(urls, url -> graph.instagramPhotoContainer(url, null));
+            inParallel(children, child -> {
                 graph.waitUntilReady(child);
-            }
+                return child;
+            });
             container = graph.instagramCarousel(children, text);
         }
         graph.waitUntilReady(container);
@@ -260,22 +261,55 @@ public class SocialPublisher {
                     + " characters (this one has " + text.length() + ")");
         }
         String from = viber.superadminId();
-        List<String> urls = new ArrayList<>();
-        for (Photo p : photos) {
+        List<String> urls = inParallel(photos, p -> {
             byte[] jpeg = toJpeg(p);
-            if (jpeg != null) {
-                urls.add(imgbb.upload(fitWithin(jpeg, VIBER_PHOTO_MAX_BYTES)));
-            }
-        }
+            return jpeg == null ? null : imgbb.upload(fitWithin(jpeg, VIBER_PHOTO_MAX_BYTES));
+        }).stream().filter(Objects::nonNull).toList();
         if (urls.isEmpty()) {
             throw new BadRequestException("None of the photos could be converted to JPEG for Viber");
         }
+        // the channel shows the messages in the order they arrive: one after the other
         for (String url : urls) {
             viber.postPicture(from, url);
         }
         String messageToken = viber.postText(from, text);
         log.info("Published car {} to Viber ({} photos)", carId, urls.size());
         return posts.insert(carId, SocialNetwork.VIBER, messageToken, null, urls.size());
+    }
+
+    /**
+     * {@code work} for every item, {@link #PARALLEL_UPLOADS} at a time; the results in the items' order (nulls
+     * kept). The first failure is thrown after the running ones finish.
+     */
+    static <T, R> List<R> inParallel(List<T> items, Function<T, R> work) {
+        if (items.size() <= 1) {
+            List<R> out = new ArrayList<>();
+            items.forEach(i -> out.add(work.apply(i)));
+            return out;
+        }
+        try (ExecutorService pool = Executors.newFixedThreadPool(Math.min(PARALLEL_UPLOADS, items.size()))) {
+            List<Future<R>> futures = new ArrayList<>();
+            for (T item : items) {
+                futures.add(pool.submit(() -> work.apply(item)));
+            }
+            List<R> out = new ArrayList<>();
+            for (Future<R> f : futures) {
+                try {
+                    out.add(f.get());
+                } catch (ExecutionException e) {
+                    futures.forEach(other -> other.cancel(true));
+                    if (e.getCause() instanceof RuntimeException re) {
+                        throw re;
+                    }
+                    throw new BadRequestException("Publishing failed: " + e.getCause(), e.getCause());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    futures.forEach(other -> other.cancel(true));
+                    throw new BadRequestException("Publishing interrupted", e);
+                }
+            }
+            return out;
+        }
     }
 
     /** The chosen photos in the chosen order; each must belong to the car. */

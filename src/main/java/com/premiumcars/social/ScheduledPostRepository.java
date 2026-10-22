@@ -89,6 +89,18 @@ public class ScheduledPostRepository {
         return ids.stream().map(this::findById).flatMap(Optional::stream).toList();
     }
 
+    /** Takes one post for publishing now (SCHEDULED -> PUBLISHING); empty when it was taken or cancelled already. */
+    public Optional<ScheduledPost> claim(long id) {
+        Optional<Long> claimed = jdbc.sql("""
+                        UPDATE scheduled_post SET status = 'PUBLISHING', attempts = attempts + 1, updated_at = now()
+                        WHERE id = :id AND status = 'SCHEDULED'
+                        RETURNING id""")
+                .param("id", id)
+                .query(Long.class)
+                .optional();
+        return claimed.flatMap(this::findById);
+    }
+
     public void markPublished(long id, long socialPostId) {
         jdbc.sql("""
                         UPDATE scheduled_post SET status = 'PUBLISHED', social_post_id = :postId, error = NULL,

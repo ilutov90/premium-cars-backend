@@ -1,5 +1,6 @@
 package com.premiumcars.social;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -36,8 +37,9 @@ class ScheduledPostServiceTest {
     private final ScheduledPostRepository repo = mock(ScheduledPostRepository.class);
     private final SocialPublisher publisher = mock(SocialPublisher.class);
     private final CarRepository cars = mock(CarRepository.class);
+    /** Runs the background work right away, on the test's thread. */
     private final ScheduledPostService service =
-            new ScheduledPostService(repo, publisher, cars, Clock.fixed(NOW, ZoneOffset.UTC));
+            new ScheduledPostService(repo, publisher, cars, Clock.fixed(NOW, ZoneOffset.UTC), Runnable::run);
 
     private static Car car(CarStatus status) {
         return new Car(7, "kia-7", status, CarSource.AUTOWINI, null, null, null,
@@ -69,6 +71,33 @@ class ScheduledPostServiceTest {
 
         service.schedule(7, SocialNetwork.VIBER, "ok", List.of(1L), NOW.plusSeconds(3600), "admin");
         verify(repo).insert(7, SocialNetwork.VIBER, "ok", List.of(1L), NOW.plusSeconds(3600), "admin");
+    }
+
+    @Test
+    void publishNowRecordsThePostAndPublishesItInTheBackground() {
+        ScheduledPost recorded = new ScheduledPost(9, 7, "Kia", SocialNetwork.INSTAGRAM, "text", List.of(3L), NOW,
+                ScheduledPost.Status.SCHEDULED, 0, null, null, "admin", NOW, NOW);
+        when(repo.insert(7, SocialNetwork.INSTAGRAM, "text", List.of(3L), NOW, "admin")).thenReturn(recorded);
+        ScheduledPost claimed = new ScheduledPost(9, 7, "Kia", SocialNetwork.INSTAGRAM, "text", List.of(3L), NOW,
+                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW);
+        when(repo.claim(9)).thenReturn(Optional.of(claimed));
+        when(cars.findById(7)).thenReturn(Optional.of(car(CarStatus.PUBLISHED)));
+        when(publisher.publish(7, SocialNetwork.INSTAGRAM, "text", List.of(3L)))
+                .thenReturn(new SocialPost(70, 7, SocialNetwork.INSTAGRAM, "media", null, 1, NOW));
+
+        assertThat(service.publishNow(7, SocialNetwork.INSTAGRAM, "text", List.of(3L), "admin")).isSameAs(recorded);
+
+        verify(publisher).validate(7, SocialNetwork.INSTAGRAM, "text", List.of(3L));
+        verify(repo).markPublished(9, 70);
+    }
+
+    @Test
+    void publishNowChecksFirst() {
+        doThrow(new BadRequestException("Instagram is not configured")).when(publisher)
+                .validate(7, SocialNetwork.INSTAGRAM, "text", null);
+        assertThatThrownBy(() -> service.publishNow(7, SocialNetwork.INSTAGRAM, "text", null, "admin"))
+                .hasMessageContaining("not configured");
+        verify(repo, never()).insert(anyLong(), any(), any(), any(), any(), any());
     }
 
     @Test

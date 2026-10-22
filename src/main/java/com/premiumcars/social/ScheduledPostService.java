@@ -7,8 +7,10 @@ import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -19,7 +21,9 @@ import com.premiumcars.common.BadRequestException;
 import com.premiumcars.common.NotFoundException;
 
 /**
- * Posts planned for later, for all three networks (Instagram's API cannot schedule, so the backend does it for
+ * Posts published in the background, now or later, for all three networks. "Publish now" records the post and
+ * publishes it right away on another thread, so the admin panel does not wait for Facebook / Instagram (which
+ * take up to a minute). Posts planned for later, for all three networks (Instagram's API cannot schedule, so the backend does it for
  * every network the same way): every 30 seconds the due posts are published through {@link SocialPublisher}.
  * A failed post is not retried automatically: a network can fail half-way (Viber photos sent, the text not; a
  * Facebook post created, its link not read), and a retry would post twice. It is marked FAILED with the reason,
@@ -39,13 +43,30 @@ public class ScheduledPostService {
     private final SocialPublisher publisher;
     private final CarRepository cars;
     private final Clock clock;
+    private final TaskExecutor executor;
 
     public ScheduledPostService(ScheduledPostRepository scheduled, SocialPublisher publisher, CarRepository cars,
-                                Clock clock) {
+                                Clock clock, @Qualifier("applicationTaskExecutor") TaskExecutor executor) {
         this.scheduled = scheduled;
         this.publisher = publisher;
         this.cars = cars;
         this.clock = clock;
+        this.executor = executor;
+    }
+
+    /**
+     * Checks the post like publishing always did, records it and publishes it in the background right away.
+     *
+     * @return the post as recorded (SCHEDULED, or PUBLISHING if the background thread was faster); the admin
+     *         panel follows it until PUBLISHED or FAILED
+     */
+    public ScheduledPost publishNow(long carId, SocialNetwork network, String text, List<Long> imageIds,
+                                    String createdBy) {
+        publisher.validate(carId, network, text, imageIds);
+        ScheduledPost post = scheduled.insert(carId, network, text, imageIds, clock.instant(), createdBy);
+        log.info("Admin '{}' publishes car {} to {} (in the background)", createdBy, carId, network);
+        executor.execute(() -> scheduled.claim(post.id()).ifPresent(this::publish));
+        return post;
     }
 
     public ScheduledPost schedule(long carId, SocialNetwork network, String text, List<Long> imageIds,

@@ -48,4 +48,26 @@ class SocialPublisherPhotoTest {
         ImageIO.write(image, "jpg", out);
         return out.toByteArray();
     }
+
+    @org.junit.jupiter.api.Test
+    void parallelWorkKeepsTheOrderAndPassesFailuresOn() {
+        java.util.List<Integer> items = java.util.stream.IntStream.range(0, 10).boxed().toList();
+        java.util.List<String> out = SocialPublisher.inParallel(items, i -> {
+            try {
+                Thread.sleep((10 - i) * 5L); // later items finish first
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return i % 3 == 0 ? null : "p" + i;
+        });
+        org.assertj.core.api.Assertions.assertThat(out)
+                .containsExactly(null, "p1", "p2", null, "p4", "p5", null, "p7", "p8", null);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> SocialPublisher.inParallel(items, i -> {
+            if (i == 4) {
+                throw new com.premiumcars.common.BadRequestException("imgbb upload failed: 500");
+            }
+            return i;
+        })).isInstanceOf(com.premiumcars.common.BadRequestException.class).hasMessageContaining("imgbb");
+    }
 }
