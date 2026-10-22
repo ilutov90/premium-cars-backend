@@ -77,7 +77,7 @@ Optionally enter the price and currency yourself (useful when the site hides the
 | Site | How |
 |---|---|
 | global.autohome.com.cn (China) | page HTML first; if photos or EV data (battery, range, motor) are missing, the page is rendered in headless Chromium and the "More", "Electric Motor" and "Battery && Charging" tabs are opened |
-| autowini.com (South Korea) | logs in with your autowini account (Keycloak), then reads the listing; specs and photos also work without login, the price only with it: the hidden field `i_iBisPrice` (USD, FOB Incheon: the seller's price + autowini's BIS fee and expenses, what autowini shows buyers). Labels in the site menu (`header`) and "!" tooltips are ignored. A discount shown by autowini is reported as a warning, not deducted |
+| autowini.com (South Korea) | logs in with your autowini account (Keycloak), then reads the listing; specs and photos also work without login, the price only with it: the hidden field `i_iBisPrice` (USD, FOB Incheon: the seller's price + autowini's BIS fee and expenses, what autowini shows buyers). Labels in the site menu (`header`) and "!" tooltips are ignored. A discount shown by autowini is reported as a warning, not deducted. autowini answers 403 to the backend's own HTTP client for the desktop page (the mobile page it falls back to has no price), so then the desktop page is opened in the headless browser with the session cookies and its details and price are used |
 | anything else | generic extractor: JSON-LD → `__NEXT_DATA__` → Open Graph → page text |
 
 The autowini login comes from Vault (`AUTOWINI_USER`, `AUTOWINI_PASS`).

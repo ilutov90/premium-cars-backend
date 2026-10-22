@@ -129,6 +129,30 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         }
     }
 
+    /**
+     * autowini refuses the desktop page to the backend's HTTP client (403), and the mobile page has no price. The
+     * headless browser gets the desktop page (with the session cookies): its hidden price field and its details
+     * are used then. Otherwise (browser off or refused) the mobile page stays, without a price.
+     */
+    ParsedPage desktopPageFromBrowser(String desktopUrl, String id, ParsedPage mobilePage) {
+        if (!renderer.enabled()) {
+            return mobilePage;
+        }
+        var desktop = renderer.pageHtml(desktopUrl, client.browserCookies())
+                .map(html -> AutowiniPageParser.parse(html, id))
+                .filter(p -> p.fields().containsKey("item_no"));
+        if (desktop.isEmpty()) {
+            log.info("autowini {}: no desktop page from the browser either; the price must be entered by hand", id);
+            return mobilePage;
+        }
+        ParsedPage d = desktop.get();
+        log.info("autowini {}: desktop page from the browser, price {}", id,
+                d.price() == null ? "not shown" : d.currency() + " " + d.price().toPlainString());
+        // the photos as before (the mobile page lists the listing's own); the desktop ones only when it has none
+        List<String> images = mobilePage.images().isEmpty() ? d.images() : mobilePage.images();
+        return new ParsedPage(d.itemId(), d.fields(), d.price(), d.currency(), d.discount(), images);
+    }
+
     /** ".../5d6db85f-..._1024.jpg" and ".../5d6db85f-..._320.jpg" are the same photo. */
     static String photoKey(String url) {
         String path = url.replaceAll("[?#].*$", "");
@@ -142,8 +166,12 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         if (id == null) {
             throw new BadRequestException("Not an autowini listing link (expected .../Cars/IC1234567/...)");
         }
-        String html = client.fetchListing(AutowiniPageParser.desktopUrl(id), AutowiniPageParser.mobileUrl(id));
-        ParsedPage page = AutowiniPageParser.parse(html, id);
+        String desktopUrl = AutowiniPageParser.desktopUrl(id);
+        AutowiniClient.Listing listing = client.fetchListing(desktopUrl, AutowiniPageParser.mobileUrl(id));
+        ParsedPage page = AutowiniPageParser.parse(listing.html(), id);
+        if (listing.mobile() && page.price() == null) {
+            page = desktopPageFromBrowser(desktopUrl, id, page);
+        }
         CarSpecs specs = AutowiniPageParser.toSpecs(page);
 
         List<String> warnings = new ArrayList<>();
