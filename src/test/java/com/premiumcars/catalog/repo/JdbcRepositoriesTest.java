@@ -315,12 +315,12 @@ class JdbcRepositoriesTest {
         assertThat(scheduledPosts.claimDue(5)).isEmpty();
 
         // publishing now: one post is taken by its id, once
-        ScheduledPost now = scheduledPosts.insert(car.id(), SocialNetwork.FACEBOOK, "now", null, java.time.Instant.now(),
-                "admin");
-        assertThat(scheduledPosts.claim(now.id())).get().extracting(ScheduledPost::status)
+        ScheduledPost immediate = scheduledPosts.insert(car.id(), SocialNetwork.FACEBOOK, "now", null,
+                java.time.Instant.now(), "admin");
+        assertThat(scheduledPosts.claim(immediate.id())).get().extracting(ScheduledPost::status)
                 .isEqualTo(ScheduledPost.Status.PUBLISHING);
-        assertThat(scheduledPosts.claim(now.id())).isEmpty();
-        scheduledPosts.markFailed(now.id(), "test");
+        assertThat(scheduledPosts.claim(immediate.id())).isEmpty();
+        scheduledPosts.markFailed(immediate.id(), "test");
 
         // a post being published cannot be cancelled; a waiting one can
         assertThat(scheduledPosts.cancel(due.id())).isFalse();
@@ -332,7 +332,7 @@ class JdbcRepositoriesTest {
         assertThat(scheduledPosts.findById(due.id()).orElseThrow())
                 .extracting(ScheduledPost::status, ScheduledPost::socialPostId)
                 .containsExactly(ScheduledPost.Status.PUBLISHED, posted.id());
-        assertThat(scheduledPosts.findByCarId(car.id())).hasSize(2);
+        assertThat(scheduledPosts.findByCarId(car.id())).hasSize(3);
         assertThat(scheduledPosts.findUpcomingAndRecent(now.minusSeconds(3600)))
                 .extracting(ScheduledPost::id).contains(due.id(), later.id());
 
