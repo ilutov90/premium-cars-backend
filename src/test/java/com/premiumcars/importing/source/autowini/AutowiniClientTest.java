@@ -119,4 +119,17 @@ class AutowiniClientTest {
         assertThat(AutowiniClient.parsePrices("{\"data\":{}}")).isNull();
         assertThat(AutowiniClient.parsePrices("<html>error</html>")).isNull();
     }
+
+    @Test
+    void countryOfTheCountryInfoCookie() {
+        assertThat(AutowiniClient.countrySubCode(
+                "{\"country_code\":\"BG\",\"country_nm\":\"Bulgaria\",\"country_subCode\":\"C0280\"}"))
+                .isEqualTo("C0280");
+        // as the browser stores it: the JSON as a quoted, escaped string
+        assertThat(AutowiniClient.countrySubCode(
+                "\"{\\\"country_code\\\":\\\"BG\\\",\\\"country_subCode\\\":\\\"C0280\\\"}\""))
+                .isEqualTo("C0280");
+        assertThat(AutowiniClient.countrySubCode("{\"country_code\":\"BG\"}")).isNull();
+        assertThat(AutowiniClient.countrySubCode(null)).isNull();
+    }
 }

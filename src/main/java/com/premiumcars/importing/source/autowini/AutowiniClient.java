@@ -122,33 +122,51 @@ public class AutowiniClient {
     public record ApiPrices(BigDecimal bisPrice, BigDecimal discountedPrice) {
     }
 
-    /** @return null when the API gives no price (not logged in, no token, refused, price hidden for the member) */
+    /**
+     * The mobile page's script sends {@code Authorization: Bearer <cookie token>} only when that cookie exists (it
+     * does not for this account: the API answers without it) and the selected country from {@code COUNTRY_INFO}.
+     *
+     * @return null when the API gives no price (refused, price hidden for the member, unexpected answer)
+     */
     public synchronized ApiPrices itemPrices(String listingId) {
         ensureLoggedIn();
-        String token = cookie("token");
-        if (token == null) {
-            log.info("autowini API: no 'token' cookie after login (cookies: {}); no price", cookieNames());
-            return null;
-        }
-        if (token.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            token = token.substring(7);
-        }
-        HttpRequest request = base(V2_API + "/detail/v1/items/" + enc(listingId))
+        HttpRequest.Builder request = base(V2_API + "/detail/v1/items/" + enc(listingId))
                 .setHeader("Accept", "application/json")
-                .header("Authorization", "Bearer " + token)
                 .header("Origin", "https://m.autowini.com")
-                .header("Referer", "https://m.autowini.com/")
-                .GET()
-                .build();
-        Page page = send(request);
+                .header("Referer", "https://m.autowini.com/");
+        String token = cookie("token");
+        if (token != null) {
+            request.header("Authorization", "Bearer " + (token.regionMatches(true, 0, "Bearer ", 0, 7)
+                    ? token.substring(7) : token));
+        }
+        String country = countrySubCode(cookie("COUNTRY_INFO"));
+        if (country != null) {
+            request.header("wini-code-select-country", country);
+        }
+        Page page = send(request.GET().build());
         if (page.status() != 200) {
-            log.info("autowini API item {}: HTTP {}", listingId, page.status());
+            log.info("autowini API item {}: HTTP {} (token: {}, country: {}): {}", listingId, page.status(),
+                    token != null, country, snippet(page.body()));
             return null;
         }
         ApiPrices prices = parsePrices(page.body());
-        log.info("autowini API item {}: HTTP 200, price {}", listingId,
-                prices == null ? "not shown" : "USD " + prices.bisPrice().toPlainString());
+        log.info("autowini API item {}: HTTP 200 (token: {}, country: {}), price {}", listingId, token != null,
+                country, prices == null ? "not shown" : "USD " + prices.bisPrice().toPlainString());
         return prices;
+    }
+
+    /** {@code {"country_code":"BG","country_subCode":"C0280",...}} -> C0280 (the cookie may be URL-encoded) */
+    static String countrySubCode(String countryInfo) {
+        if (countryInfo == null) {
+            return null;
+        }
+        Matcher m = Pattern.compile("\\\\?\"country_subCode\\\\?\"\\s*:\\s*\\\\?\"([A-Za-z0-9]+)").matcher(countryInfo);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String snippet(String body) {
+        String s = body == null ? "" : body.replaceAll("\\s+", " ").trim();
+        return s.length() > 300 ? s.substring(0, 300) + "…" : s;
     }
 
     /** {@code {"data": {"prices": {"bisPrice": 16377, "isEventItem": false, "bisPriceWithDiscount": …}}}} */
@@ -157,7 +175,7 @@ public class AutowiniClient {
             JsonNode prices = JSON.readTree(json).path("data").path("prices");
             BigDecimal bis = positive(prices.path("bisPrice"));
             if (bis == null) {
-                log.info("autowini API: no bisPrice (price fields: {})", fieldNames(prices));
+                log.info("autowini API: no bisPrice (price fields: {}; answer: {})", fieldNames(prices), snippet(json));
                 return null;
             }
             BigDecimal discounted = prices.path("isEventItem").asBoolean(false)
