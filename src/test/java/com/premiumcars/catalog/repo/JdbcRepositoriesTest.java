@@ -37,6 +37,9 @@ import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.inquiry.Inquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 import com.premiumcars.inquiry.InquiryService;
+import com.premiumcars.mobilebg.MobileBgCatalog;
+import com.premiumcars.mobilebg.MobileBgListing;
+import com.premiumcars.mobilebg.MobileBgRepository;
 import com.premiumcars.social.PostSettings;
 import com.premiumcars.social.PostSettingsRepository;
 import com.premiumcars.social.PostTemplate;
@@ -49,6 +52,7 @@ import com.premiumcars.social.SocialNetwork;
 import com.premiumcars.social.SocialPost;
 import com.premiumcars.social.SocialPostRepository;
 import com.premiumcars.social.SocialPublisher;
+import com.premiumcars.social.TemplateKey;
 import com.premiumcars.pricing.PriceProfile;
 import com.premiumcars.pricing.PricingProfile;
 
@@ -81,6 +85,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     PostTemplateRepository templates;
+
+    @Autowired
+    MobileBgRepository mobileBg;
 
     @Autowired
     PostSettingsRepository postSettings;
@@ -389,18 +396,52 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void mobileBgListsAndListings() {
+        assertThat(mobileBg.catalog()).isNotNull();
+        var brands = List.of(new MobileBgCatalog.Brand("Hyundai", List.of("Santa Fe", "Tucson")),
+                new MobileBgCatalog.Brand("Mercedes-Benz", List.of("E 300")));
+        var catalog = new MobileBgCatalog(brands, Map.of("f17", List.of(new MobileBgCatalog.Option("Сив", "Сив"))),
+                List.of(new MobileBgCatalog.Extra("f70", "Климатик")), java.time.Instant.parse("2026-10-24T10:00:00Z"));
+        mobileBg.saveCatalog(catalog, "admin");
+        MobileBgCatalog read = mobileBg.catalog();
+        assertThat(read.brands()).extracting(MobileBgCatalog.Brand::name).containsExactly("Hyundai", "Mercedes-Benz");
+        assertThat(read.brands().getFirst().models()).containsExactly("Santa Fe", "Tucson");
+        assertThat(read.options("f17")).containsExactly(new MobileBgCatalog.Option("Сив", "Сив"));
+        assertThat(read.extras()).containsExactly(new MobileBgCatalog.Extra("f70", "Климатик"));
+        assertThat(read.capturedAt()).isEqualTo(java.time.Instant.parse("2026-10-24T10:00:00Z"));
+
+        String url = "https://www.autowini.com/test/" + UUID.randomUUID();
+        var imported = new ImportedCar("IC9", null, CarSpecs.builder().title("Hyundai Santa Fe 2021").make("Hyundai")
+                .model("SantaFe").year(2021).build(), new BigDecimal("18594"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
+        assertThat(mobileBg.listing(car.id())).isEmpty();
+        mobileBg.saveListing(car.id(), "11792827040577366", "https://www.mobile.bg/obiava-11792827040577366-x",
+                java.time.Instant.parse("2026-10-24T11:00:00Z"), "admin");
+        MobileBgListing listing = mobileBg.saveListing(car.id(), "2", null,
+                java.time.Instant.parse("2026-10-24T12:00:00Z"), "maria"); // posted again: the last one wins
+        assertThat(listing.listingId()).isEqualTo("2");
+        assertThat(listing.url()).isNull();
+        assertThat(listing.publishedBy()).isEqualTo("maria");
+        carService.delete(car.id());
+        assertThat(mobileBg.listing(car.id())).isEmpty(); // goes with the car
+    }
+
+    @Test
     void postTemplatesAreSavedPerNetworkAndReset() {
-        templates.save(SocialNetwork.VIBER, "🎯{{title}}\n🔹Година: {{year}}");
-        templates.save(SocialNetwork.VIBER, "🎯{{title}}");
-        templates.save(SocialNetwork.FACEBOOK, "{{title}} {{price}}");
+        templates.save(TemplateKey.VIBER, "🎯{{title}}\n🔹Година: {{year}}");
+        templates.save(TemplateKey.VIBER, "🎯{{title}}");
+        templates.save(TemplateKey.FACEBOOK, "{{title}} {{price}}");
+        templates.save(TemplateKey.MOBILE_BG, "{{model}}, {{year}}");
 
         assertThat(templates.findAll()).extracting(PostTemplate::network, PostTemplate::body)
-                .contains(tuple(SocialNetwork.VIBER, "🎯{{title}}"), tuple(SocialNetwork.FACEBOOK, "{{title}} {{price}}"));
+                .contains(tuple(TemplateKey.VIBER, "🎯{{title}}"), tuple(TemplateKey.FACEBOOK, "{{title}} {{price}}"),
+                        tuple(TemplateKey.MOBILE_BG, "{{model}}, {{year}}"));
 
-        templates.delete(SocialNetwork.VIBER);
-        templates.delete(SocialNetwork.FACEBOOK);
+        templates.delete(TemplateKey.VIBER);
+        templates.delete(TemplateKey.FACEBOOK);
+        templates.delete(TemplateKey.MOBILE_BG);
         assertThat(templates.findAll()).extracting(PostTemplate::network)
-                .doesNotContain(SocialNetwork.VIBER, SocialNetwork.FACEBOOK);
+                .doesNotContain(TemplateKey.VIBER, TemplateKey.FACEBOOK, TemplateKey.MOBILE_BG);
     }
 
     @Test

@@ -143,6 +143,27 @@ days ("Насрочени"); `DELETE /api/admin/scheduled-posts/{id}` cancels a 
 - A restart while a post is being published leaves it FAILED ("interrupted") for the same reason.
 - Sold or archived cars are not posted (FAILED with the reason).
 
+## mobile.bg
+
+Publishing on mobile.bg happens in the admin's own browser (logged in as the dealer), never from the server:
+
+1. The car editor's **"Качи в mobile.bg"** opens a module that shows mobile.bg's "Добави обява" form filled in from
+   the car (`GET /api/admin/cars/{id}/mobile-bg`: `MobileBgMapper` gives mobile.bg's values: engine, gearbox,
+   category, colour, production month/year from the first registration, final price with VAT in EUR, Sofia, EV
+   range/battery, extras as mobile.bg's checkbox values; brand/model matched against mobile.bg's lists; what does not
+   match comes back as a warning code). Everything is editable; up to 17 photos are picked. The description comes from
+   the `MOBILE_BG` template.
+2. The browser extension (frontend repo, `extension/mobile-bg`, downloaded from the module) opens mobile.bg, fills
+   in step 1 (the region first: mobile.bg reloads the form when it changes), uploads the photos on step 2 and stops:
+   for a dealer the "ПРОДЪЛЖИ" of step 2 publishes, so the admin presses it. Step 3 (promotion) is not touched.
+3. The extension sees the published listing and the admin panel records it (`POST /api/admin/cars/{id}/mobile-bg/listing`,
+   `mobile_bg_listing`): the editor shows the link and asks to take the listing down when the car is sold or archived.
+   Listings are not updated from here.
+
+The extension also reads mobile.bg's lists from the form (brands/models from the page's `cmm`, the selects, the
+extras) and the admin panel stores them (`PUT /api/admin/mobile-bg/catalog`, `mobile_bg_catalog`), so the module offers
+mobile.bg's own values. No mobile.bg credentials are stored anywhere.
+
 ## Viber channel
 
 Publishing to Viber posts the car to the Viber channel through the Viber Channels Post API:

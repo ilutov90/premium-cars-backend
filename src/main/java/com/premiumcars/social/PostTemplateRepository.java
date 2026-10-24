@@ -12,7 +12,7 @@ import org.springframework.stereotype.Repository;
 public class PostTemplateRepository {
 
     private static final RowMapper<PostTemplate> MAPPER = (rs, i) -> new PostTemplate(
-            SocialNetwork.valueOf(rs.getString("network")),
+            TemplateKey.valueOf(rs.getString("network")),
             rs.getString("body"),
             rs.getObject("updated_at", OffsetDateTime.class).toInstant());
 
@@ -28,7 +28,7 @@ public class PostTemplateRepository {
                 .list();
     }
 
-    public PostTemplate save(SocialNetwork network, String body) {
+    public PostTemplate save(TemplateKey network, String body) {
         return jdbc.sql("""
                         INSERT INTO post_template (network, body, updated_at) VALUES (:network, :body, now())
                         ON CONFLICT (network) DO UPDATE SET body = EXCLUDED.body, updated_at = now()
@@ -40,7 +40,7 @@ public class PostTemplateRepository {
     }
 
     /** Back to the default template. */
-    public void delete(SocialNetwork network) {
+    public void delete(TemplateKey network) {
         jdbc.sql("DELETE FROM post_template WHERE network = :network")
                 .param("network", network.name())
                 .update();
