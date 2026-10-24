@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
 
+import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.Transmission;
@@ -79,11 +80,27 @@ class AutowiniPageParserTest {
         assertThat(specs.fuelType()).isEqualTo(FuelType.PETROL);
         assertThat(specs.transmission()).isEqualTo(Transmission.AUTOMATIC);
         assertThat(specs.color()).isEqualTo("Black");
+        assertThat(specs.firstRegistration()).isEqualTo("2023-09"); // "19th Sep. 2023", without the tooltip
+
+        // the seller's options, as mobile.bg extras (LHD: no "Десен волан")
+        assertThat(page.options()).containsExactly("Park Assist Sensor", "Full Auto Air Conditioner", "Heating Seat",
+                "Power Seat", "Cooling Seat", "Cruise Control");
+        assertThat(specs.features()).containsExactly(CarFeature.PARKING_SENSORS, CarFeature.VENTILATED_SEATS,
+                CarFeature.POWER_SEATS, CarFeature.CLIMATE_CONTROL, CarFeature.HEATED_SEATS,
+                CarFeature.CRUISE_CONTROL);
 
         // the BIS price autowini shows buyers: seller's 18,244 + BIS fee 912 + expenses 75 (USD, FOB Incheon)
         assertThat(page.price()).isEqualByComparingTo("19231");
         assertThat(page.currency()).isEqualTo("USD");
         assertThat(page.discount()).isNull();
+    }
+
+    @Test
+    void firstRegistrationDates() {
+        assertThat(AutowiniPageParser.yearMonth("19th Sep. 2023")).isEqualTo("2023-09");
+        assertThat(AutowiniPageParser.yearMonth("1st January 2020")).isEqualTo("2020-01");
+        assertThat(AutowiniPageParser.yearMonth("2021")).isEqualTo("2021");
+        assertThat(AutowiniPageParser.yearMonth(" ")).isNull();
     }
 
     @Test

@@ -140,7 +140,8 @@ public class AutowiniSourceAdapter implements SourceAdapter {
             return page;
         }
         var discount = prices.discountedPrice() == null ? null : prices.bisPrice().subtract(prices.discountedPrice());
-        return new ParsedPage(page.itemId(), page.fields(), prices.bisPrice(), "USD", discount, page.images());
+        return new ParsedPage(page.itemId(), page.fields(), prices.bisPrice(), "USD", discount, page.images(),
+                page.options());
     }
 
     /** ".../5d6db85f-..._1024.jpg" and ".../5d6db85f-..._320.jpg" are the same photo. */

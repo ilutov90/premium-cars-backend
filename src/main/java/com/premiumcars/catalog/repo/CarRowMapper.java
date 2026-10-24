@@ -4,10 +4,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Objects;
 
 import org.springframework.jdbc.core.RowMapper;
 
 import com.premiumcars.catalog.domain.Car;
+import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
@@ -46,6 +48,7 @@ final class CarRowMapper implements RowMapper<Car> {
                 .electricRangeKm(rs.getObject("electric_range_km", Integer.class))
                 .rangeStandard(rs.getString("range_standard"))
                 .motorPowerKw(rs.getObject("motor_power_kw", Integer.class))
+                .euroStandard(rs.getObject("euro_standard", Integer.class))
                 .bodyType(rs.getString("body_type"))
                 .seats(rs.getObject("seats", Integer.class))
                 .doors(rs.getObject("doors", Integer.class))
@@ -54,6 +57,10 @@ final class CarRowMapper implements RowMapper<Car> {
                 .dimensions(rs.getString("dimensions"))
                 .description(rs.getString("description"))
                 .extraSpecs(json.readStringMap(rs.getString("specs")))
+                .features(json.readStringList(rs.getString("features")).stream()
+                        .map(CarFeature::byName) // unknown names are dropped
+                        .filter(Objects::nonNull)
+                        .toList())
                 .build();
         var pricing = new PricingInputs(
                 rs.getBigDecimal("source_price"),

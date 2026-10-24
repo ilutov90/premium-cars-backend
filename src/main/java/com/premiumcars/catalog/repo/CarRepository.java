@@ -120,16 +120,18 @@ public class CarRepository {
                                          title, make, model, trim_level, model_year, first_registration, mileage_km,
                                          fuel_type, transmission, drivetrain, engine_cc, engine, power_hp,
                                          battery_kwh, electric_range_km, range_standard, motor_power_kw,
+                                         euro_standard,
                                          body_type, seats, doors, color, curb_weight_kg, dimensions,
-                                         description, specs,
+                                         description, specs, features,
                                          source_price, source_currency, price_profile, profit_eur, fixed_total_eur,
                                          total_price_eur, created_at, updated_at)
                         VALUES (:slug, :status, :source, :sourceUrl, :sourceRef, :sourceLocation,
                                 :title, :make, :model, :trim, :year, :firstRegistration, :mileageKm,
                                 :fuelType, :transmission, :drivetrain, :engineCc, :engine, :powerHp,
                                 :batteryKwh, :electricRangeKm, :rangeStandard, :motorPowerKw,
+                                :euroStandard,
                                 :bodyType, :seats, :doors, :color, :curbWeightKg, :dimensions,
-                                :description, CAST(:specs AS jsonb),
+                                :description, CAST(:specs AS jsonb), CAST(:features AS jsonb),
                                 :sourcePrice, :sourceCurrency, :priceProfile, :profitEur, :fixedTotalEur,
                                 :totalPriceEur, now(), now())
                         RETURNING id""")
@@ -151,9 +153,11 @@ public class CarRepository {
                             engine_cc = :engineCc, engine = :engine, power_hp = :powerHp,
                             battery_kwh = :batteryKwh, electric_range_km = :electricRangeKm,
                             range_standard = :rangeStandard, motor_power_kw = :motorPowerKw,
+                            euro_standard = :euroStandard,
                             body_type = :bodyType, seats = :seats, doors = :doors, color = :color,
                             curb_weight_kg = :curbWeightKg, dimensions = :dimensions,
                             description = :description, specs = CAST(:specs AS jsonb),
+                            features = CAST(:features AS jsonb),
                             source_price = :sourcePrice, source_currency = :sourceCurrency,
                             price_profile = :priceProfile, profit_eur = :profitEur,
                             fixed_total_eur = :fixedTotalEur,
@@ -234,6 +238,7 @@ public class CarRepository {
         p.put("electricRangeKm", d.electricRangeKm());
         p.put("rangeStandard", d.rangeStandard());
         p.put("motorPowerKw", d.motorPowerKw());
+        p.put("euroStandard", d.euroStandard());
         p.put("bodyType", d.bodyType());
         p.put("seats", d.seats());
         p.put("doors", d.doors());
@@ -242,6 +247,7 @@ public class CarRepository {
         p.put("dimensions", d.dimensions());
         p.put("description", d.description());
         p.put("specs", json.write(d.extraSpecs()));
+        p.put("features", json.write(d.features().stream().map(Enum::name).toList()));
         p.put("sourcePrice", pricing.sourcePrice());
         p.put("sourceCurrency", pricing.sourceCurrency());
         p.put("priceProfile", name(pricing.profile()));
