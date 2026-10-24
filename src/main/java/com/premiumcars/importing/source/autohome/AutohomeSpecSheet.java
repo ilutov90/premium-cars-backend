@@ -14,6 +14,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import com.premiumcars.catalog.domain.SpecGroup;
+
 /**
  * The "Specifications" table of an autohome listing: the parameters of the model version (engine, body, chassis
  * ...) and its equipment (safety, comfort, lights, seats ...).
@@ -28,10 +30,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *                (e.g. "maximum horsepower (ps)" -> "300", "emission standard" -> "China VI")
  * @param phrases standard equipment as {@code "item"} / {@code "item: detail"} for {@code FeatureMapper}, plus
  *                {@code "parameter: value"} lines (e.g. "Power Steering Type: Electric power steering")
+ * @param groups  the whole table for the car page, in the page's order: every parameter with its value and every
+ *                piece of standard equipment (value "" when it is just fitted, else its details, e.g. "Front
+ *                Seat Features" -> "Heating, Ventilation"); missing and optional ("○") equipment is left out
  */
-public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases) {
+public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases, List<SpecGroup> groups) {
 
-    public static final AutohomeSpecSheet EMPTY = new AutohomeSpecSheet(Map.of(), List.of());
+    public static final AutohomeSpecSheet EMPTY = new AutohomeSpecSheet(Map.of(), List.of(), List.of());
+    /** Rows not shown on the car page: China's list price would confuse customers, the model name repeats the title. */
+    private static final Set<String> NOT_SHOWN = Set.of("model name", "manufacturer suggested retail price (¥)");
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String PUSH = "self.__next_f.push(";
@@ -42,6 +49,7 @@ public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases
     public AutohomeSpecSheet {
         params = Map.copyOf(params);
         phrases = List.copyOf(phrases);
+        groups = List.copyOf(groups);
     }
 
     public String param(String name) {
@@ -61,7 +69,9 @@ public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases
         }
         Map<String, String> params = new LinkedHashMap<>();
         List<String> phrases = new ArrayList<>();
+        List<SpecGroup> groups = new ArrayList<>();
         for (JsonNode group : iterable(paramGroups)) {
+            List<SpecGroup.Item> rows = new ArrayList<>();
             for (JsonNode item : iterable(group.get("paramitems"))) {
                 String name = text(item, "name");
                 String value = paramValue(item);
@@ -69,18 +79,28 @@ public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases
                     continue;
                 }
                 String key = name.toLowerCase(Locale.ROOT);
-                params.putIfAbsent(key, value);
+                // some parameters repeat in several groups (energy type, emission standard): shown once
+                if (params.putIfAbsent(key, value) == null && !NOT_SHOWN.contains(key)) {
+                    rows.add(new SpecGroup.Item(name, value));
+                }
                 if (!NOT_PHRASES.contains(key)) {
                     phrases.add(name + ": " + value);
                 }
             }
+            groups.add(new SpecGroup(text(group, "name"), rows));
         }
         for (JsonNode group : iterable(configGroups)) {
+            List<SpecGroup.Item> rows = new ArrayList<>();
             for (JsonNode item : iterable(group.get("configitems"))) {
                 configPhrases(item, phrases);
+                SpecGroup.Item row = configRow(item);
+                if (row != null) {
+                    rows.add(row);
+                }
             }
+            groups.add(new SpecGroup(text(group, "name"), rows));
         }
-        return new AutohomeSpecSheet(params, phrases);
+        return new AutohomeSpecSheet(params, phrases, SpecGroup.clean(groups));
     }
 
     /** "1997", or the variants of a "--" value joined: "Front Engine, All-Wheel Drive". */
@@ -97,6 +117,51 @@ public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases
             }
         }
         return parts.isEmpty() ? null : String.join(", ", parts);
+    }
+
+    /**
+     * An equipment row for the car page when the model version has it as standard: "" for "●", the standard
+     * variants ("Heating, Ventilation") or parts ("Front") otherwise, or a plain value ("12.3-inch"); null when
+     * the car does not have it as standard.
+     */
+    static SpecGroup.Item configRow(JsonNode item) {
+        String name = text(item, "name");
+        JsonNode values = item.path("valueitems");
+        if (name.isEmpty() || !values.isArray() || values.isEmpty()) {
+            return null;
+        }
+        JsonNode v = values.get(0);
+        JsonNode sublist = v.path("sublist");
+        if (sublist.isArray() && !sublist.isEmpty()) {
+            List<String> standard = new ArrayList<>();
+            for (JsonNode sub : sublist) {
+                String sn = text(sub, "subname");
+                if (sub.path("subvalue").asInt(0) == 1 && !sn.isEmpty()) {
+                    standard.add(sn);
+                }
+            }
+            return standard.isEmpty() ? null : new SpecGroup.Item(name, String.join(", ", standard));
+        }
+        String value = text(v, "value");
+        if (value.equals("●")) {
+            return new SpecGroup.Item(name, "");
+        }
+        if (value.contains("●")) {
+            List<String> parts = new ArrayList<>();
+            for (String part : value.split("/")) {
+                if (part.contains("●")) {
+                    String label = part.replace("●", "").trim();
+                    if (!label.isEmpty()) {
+                        parts.add(label);
+                    }
+                }
+            }
+            return new SpecGroup.Item(name, String.join(", ", parts));
+        }
+        if (EMPTY_VALUES.contains(value) || value.contains("○")) {
+            return null;
+        }
+        return new SpecGroup.Item(name, value);
     }
 
     private static void configPhrases(JsonNode item, List<String> out) {

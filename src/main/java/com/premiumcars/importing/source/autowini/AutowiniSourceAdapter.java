@@ -1,5 +1,7 @@
 package com.premiumcars.importing.source.autowini;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.ArrayList;
@@ -141,7 +143,24 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         }
         var discount = prices.discountedPrice() == null ? null : prices.bisPrice().subtract(prices.discountedPrice());
         return new ParsedPage(page.itemId(), page.fields(), prices.bisPrice(), "USD", discount, page.images(),
-                page.options());
+                page.optionGroups());
+    }
+
+    /**
+     * The price in euro as autowini shows it: the USD price times autowini's own rate, rounded to whole euro (the
+     * discount too). Unchanged when the price is not in USD or there is no rate.
+     */
+    static ParsedPage inEuro(ParsedPage page, BigDecimal usdToEur) {
+        if (page.price() == null || !"USD".equals(page.currency()) || usdToEur == null) {
+            return page;
+        }
+        BigDecimal discount = page.discount() == null ? null : euro(page.discount(), usdToEur);
+        return new ParsedPage(page.itemId(), page.fields(), euro(page.price(), usdToEur), "EUR", discount,
+                page.images(), page.optionGroups());
+    }
+
+    private static BigDecimal euro(BigDecimal usd, BigDecimal rate) {
+        return usd.multiply(rate).setScale(0, RoundingMode.HALF_UP);
     }
 
     /** ".../5d6db85f-..._1024.jpg" and ".../5d6db85f-..._320.jpg" are the same photo. */
@@ -163,14 +182,27 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         if (listing.mobile() && page.price() == null) {
             page = withPrice(page, client.itemPrices(id));
         }
+        List<String> warnings = new ArrayList<>();
+        if (page.price() != null && "USD".equals(page.currency())) {
+            BigDecimal usd = page.price();
+            BigDecimal rate = client.usdToEurRate();
+            page = inEuro(page, rate);
+            if (rate == null) {
+                warnings.add("autowini's euro rate could not be read: the price stays USD " + usd.toPlainString()
+                        + " and is converted at the ECB rate, which is lower than the euro price autowini shows."
+                        + " Check the price.");
+            } else {
+                warnings.add("Price: USD " + usd.toPlainString() + " × autowini's rate " + rate.stripTrailingZeros()
+                        .toPlainString() + " = EUR " + page.price().toPlainString() + ", as autowini shows it in euro.");
+            }
+        }
         CarSpecs specs = AutowiniPageParser.toSpecs(page);
 
-        List<String> warnings = new ArrayList<>();
         if (specs.fuelType() != null && specs.fuelType().hasTractionBattery()) {
             warnings.add("autowini does not list battery capacity or electric range: enter them manually.");
         }
         if (page.discount() != null) {
-            warnings.add("autowini shows a discount of USD " + page.discount().toPlainString()
+            warnings.add("autowini shows a discount of " + page.currency() + " " + page.discount().toPlainString()
                     + " on this car; the price above is without it.");
         }
         return new ImportedCar(page.itemId(), page.fields().get("location"), specs, page.price(), page.currency(),

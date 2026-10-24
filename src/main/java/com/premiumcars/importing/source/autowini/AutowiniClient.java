@@ -155,6 +155,49 @@ public class AutowiniClient {
         return prices;
     }
 
+    /**
+     * autowini's own USD to EUR rate: its pages show euro prices as the USD price times this rate (their script
+     * {@code currency-ui.js} asks {@code POST /exchanges/current-rate?from=USD&to=EUR}). It is not the ECB rate:
+     * it is what autowini charges in euro, so a car's euro price is taken from it.
+     *
+     * @return null when autowini does not answer with a usable rate
+     */
+    public synchronized BigDecimal usdToEurRate() {
+        HttpRequest request = base(V2_API + "/exchanges/current-rate?from=USD&to=EUR")
+                .setHeader("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("Origin", "https://www.autowini.com")
+                .header("Referer", "https://www.autowini.com/")
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+        Page page;
+        try {
+            page = send(request);
+        } catch (BadRequestException e) {
+            log.info("autowini exchange rate: {}", e.getMessage());
+            return null;
+        }
+        BigDecimal rate = page.status() == 200 ? parseRate(page.body()) : null;
+        log.info("autowini exchange rate USD->EUR: HTTP {}, rate {}{}", page.status(), rate,
+                rate == null ? " (answer: " + snippet(page.body()) + ")" : "");
+        return rate;
+    }
+
+    /** {@code {"data": {"updateDate": "...", "rate": 0.9520, "ttl": 3600}}}; null unless a plausible rate. */
+    static BigDecimal parseRate(String json) {
+        try {
+            JsonNode data = JSON.readTree(json).path("data");
+            BigDecimal rate = positive(data.isNumber() || data.isTextual() ? data : data.path("rate"));
+            // a USD -> EUR rate is around 0.8-1.0; anything far off is not this rate
+            if (rate == null || rate.compareTo(new BigDecimal("0.5")) < 0 || rate.compareTo(new BigDecimal("1.5")) > 0) {
+                return null;
+            }
+            return rate;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     /** {@code {"country_code":"BG","country_subCode":"C0280",...}} -> C0280 (the cookie may be URL-encoded) */
     static String countrySubCode(String countryInfo) {
         if (countryInfo == null) {

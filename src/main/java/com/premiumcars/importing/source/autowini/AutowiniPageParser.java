@@ -18,6 +18,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
 import com.premiumcars.catalog.domain.CarFeature;
+import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.Transmission;
@@ -68,13 +69,20 @@ public final class AutowiniPageParser {
      * @param price    price shown on the page (only for members who may see prices), null otherwise
      * @param currency currency of {@code price}
      * @param discount autowini's discount on that price (USD), when it shows one; null otherwise
-     * @param options  the seller's "Options" of this car (e.g. "Heating Seat"), empty when the page has none
+     * @param optionGroups the seller's "Options" of this car by group (e.g. "Interior Option": "Heating Seat"),
+     *                     empty when the page has none
      */
     public record ParsedPage(String itemId, Map<String, String> fields, BigDecimal price, String currency,
-                             BigDecimal discount, List<String> images, List<String> options) {
+                             BigDecimal discount, List<String> images, List<SpecGroup> optionGroups) {
 
         public ParsedPage {
-            options = options == null ? List.of() : List.copyOf(options);
+            optionGroups = optionGroups == null ? List.of() : List.copyOf(optionGroups);
+        }
+
+        /** All options, without their groups, e.g. "Heating Seat". */
+        public List<String> options() {
+            return optionGroups.stream().flatMap(g -> g.items().stream()).map(SpecGroup.Item::name).distinct()
+                    .toList();
         }
     }
 
@@ -138,7 +146,7 @@ public final class AutowiniPageParser {
         }
         String id = fields.getOrDefault("item_no", itemId);
         return new ParsedPage(id, fields, price, currency, price == null ? null : discount, images(doc),
-                options(doc));
+                optionGroups(doc));
     }
 
     private static boolean inSiteChrome(Element element) {
@@ -198,19 +206,39 @@ public final class AutowiniPageParser {
                 .bodyType(bodyType)
                 .color(f.get("color"))
                 .features(features)
+                .sheet(page.optionGroups())
                 .build();
     }
 
-    /** The "Options" block: {@code .optionInfo li > h3} (group) with {@code .list span} items. */
-    static List<String> options(Document doc) {
-        List<String> out = new ArrayList<>();
-        for (Element span : doc.select(".optionInfo .list span")) {
-            String text = span.text().replace('\u00a0', ' ').replaceAll("\\s+", " ").trim();
-            if (!text.isEmpty() && !out.contains(text)) {
-                out.add(text);
+    /**
+     * The "Options" block by group. Desktop page: {@code .optionInfo li} with an {@code h3} (group) and
+     * {@code .list span} items; mobile page (what the server gets): {@code .boxOptions [id^=carOptionList]} with an
+     * {@code h3} and {@code li} items.
+     */
+    static List<SpecGroup> optionGroups(Document doc) {
+        Map<String, List<SpecGroup.Item>> groups = new LinkedHashMap<>();
+        for (Element li : doc.select(".optionInfo > ul > li")) {
+            addOptions(groups, li.selectFirst("h3"), li.select(".list span"));
+        }
+        for (Element box : doc.select(".boxOptions [id^=carOptionList]")) {
+            addOptions(groups, box.selectFirst("h3"), box.select("li"));
+        }
+        return groups.entrySet().stream().map(e -> new SpecGroup(e.getKey(), e.getValue())).toList();
+    }
+
+    private static void addOptions(Map<String, List<SpecGroup.Item>> groups, Element heading, List<Element> items) {
+        String group = heading == null ? "Options" : clean(heading.text());
+        List<SpecGroup.Item> rows = groups.computeIfAbsent(group.isEmpty() ? "Options" : group, g -> new ArrayList<>());
+        for (Element item : items) {
+            String text = clean(item.text());
+            if (!text.isEmpty() && rows.stream().noneMatch(r -> r.name().equals(text))) {
+                rows.add(new SpecGroup.Item(text, ""));
             }
         }
-        return out;
+    }
+
+    private static String clean(String text) {
+        return text.replace('\u00a0', ' ').replaceAll("\\s+", " ").trim();
     }
 
     /** "19th Sep. 2023" -> "2023-09"; the text as it is when it has another shape; null when empty. */

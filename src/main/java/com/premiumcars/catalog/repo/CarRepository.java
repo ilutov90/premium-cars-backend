@@ -122,7 +122,7 @@ public class CarRepository {
                                          battery_kwh, electric_range_km, range_standard, motor_power_kw,
                                          euro_standard,
                                          body_type, seats, doors, color, curb_weight_kg, dimensions,
-                                         description, specs, features,
+                                         description, specs, features, spec_sheet,
                                          source_price, source_currency, price_profile, profit_eur, fixed_total_eur,
                                          total_price_eur, created_at, updated_at)
                         VALUES (:slug, :status, :source, :sourceUrl, :sourceRef, :sourceLocation,
@@ -132,6 +132,7 @@ public class CarRepository {
                                 :euroStandard,
                                 :bodyType, :seats, :doors, :color, :curbWeightKg, :dimensions,
                                 :description, CAST(:specs AS jsonb), CAST(:features AS jsonb),
+                                CAST(:sheet AS jsonb),
                                 :sourcePrice, :sourceCurrency, :priceProfile, :profitEur, :fixedTotalEur,
                                 :totalPriceEur, now(), now())
                         RETURNING id""")
@@ -140,7 +141,10 @@ public class CarRepository {
                 .single();
     }
 
-    /** Replaces all editable fields of a car. Returns false when the car does not exist. */
+    /**
+     * Replaces all editable fields of a car (not the imported spec sheet, which stays as it was). Returns false
+     * when the car does not exist.
+     */
     public boolean update(long id, CarSpecs specs, PricingInputs pricing, BigDecimal totalPriceEur) {
         Map<String, Object> p = specParams(specs, pricing);
         p.put("id", id);
@@ -248,6 +252,7 @@ public class CarRepository {
         p.put("description", d.description());
         p.put("specs", json.write(d.extraSpecs()));
         p.put("features", json.write(d.features().stream().map(Enum::name).toList()));
+        p.put("sheet", json.write(d.sheet()));
         p.put("sourcePrice", pricing.sourcePrice());
         p.put("sourceCurrency", pricing.sourceCurrency());
         p.put("priceProfile", name(pricing.profile()));

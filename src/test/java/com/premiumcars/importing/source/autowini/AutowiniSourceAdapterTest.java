@@ -72,6 +72,21 @@ class AutowiniSourceAdapterTest {
         assertThat(AutowiniSourceAdapter.withPrice(MOBILE, null)).isSameAs(MOBILE);
     }
 
+    @Test
+    void usdPricesBecomeEuroAtAutowinisRate() {
+        // IC5354760: autowini shows USD 19,531 as EUR 18,594
+        ParsedPage usd = AutowiniSourceAdapter.withPrice(MOBILE,
+                new AutowiniClient.ApiPrices(new java.math.BigDecimal("19531"), new java.math.BigDecimal("19031")));
+        ParsedPage eur = AutowiniSourceAdapter.inEuro(usd, new java.math.BigDecimal("0.95203"));
+        assertThat(eur.price()).isEqualByComparingTo("18594");
+        assertThat(eur.currency()).isEqualTo("EUR");
+        assertThat(eur.discount()).isEqualByComparingTo("476");
+
+        assertThat(AutowiniSourceAdapter.inEuro(usd, null)).isSameAs(usd);
+        assertThat(AutowiniSourceAdapter.inEuro(eur, new java.math.BigDecimal("0.95"))).isSameAs(eur);
+        assertThat(AutowiniSourceAdapter.inEuro(MOBILE, new java.math.BigDecimal("0.95"))).isSameAs(MOBILE);
+    }
+
     /** Random pixels, so the JPEG is large like a real photo. */
     private static byte[] jpeg(int w, int h) {
         try {

@@ -61,6 +61,7 @@ final class CarRowMapper implements RowMapper<Car> {
                         .map(CarFeature::byName) // unknown names are dropped
                         .filter(Objects::nonNull)
                         .toList())
+                .sheet(json.readSpecSheet(rs.getString("spec_sheet")))
                 .build();
         var pricing = new PricingInputs(
                 rs.getBigDecimal("source_price"),
