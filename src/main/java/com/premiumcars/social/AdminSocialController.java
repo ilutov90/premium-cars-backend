@@ -1,9 +1,11 @@
 package com.premiumcars.social;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,8 +16,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.premiumcars.common.BadRequestException;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -24,12 +29,20 @@ import jakarta.validation.constraints.Size;
 @RequestMapping("/api/admin")
 public class AdminSocialController {
 
+    /** @param text the post text of the network, as confirmed (and possibly edited) in the admin panel */
+    public record PostText(@NotNull SocialNetwork network, @NotBlank @Size(max = 7000) String text) {
+    }
+
     /**
-     * @param text     the post text, as confirmed (and possibly edited) in the admin panel
-     * @param imageIds the car's photos to post, in this order (1 to 10); null = the first ones of the gallery
+     * One publication to one or more networks with the same photos.
+     *
+     * @param posts     one text per network (Facebook and Instagram usually get the same one)
+     * @param imageIds  the car's photos to post, in this order (1 to 10); null = the first ones of the gallery
+     * @param publishAt when to publish (ISO-8601 instant, e.g. 2026-10-25T07:30:00Z); null = now
      */
-    public record PublishRequest(@NotNull SocialNetwork network, @NotBlank @Size(max = 7000) String text,
-                                 @Size(min = 1, max = SocialPublisher.MAX_SELECTED_PHOTOS) List<@NotNull Long> imageIds) {
+    public record PublishRequest(@NotEmpty @Size(max = 3) List<@Valid @NotNull PostText> posts,
+                                 @Size(min = 1, max = SocialPublisher.MAX_SELECTED_PHOTOS) List<@NotNull Long> imageIds,
+                                 Instant publishAt) {
     }
 
     public record TemplateRequest(@NotBlank @Size(max = 7000) String body) {
@@ -66,7 +79,10 @@ public class AdminSocialController {
         return settings.save(request);
     }
 
-    /** The saved templates; a network without one uses the admin panel's default. */
+    /**
+     * The saved templates; one without a row uses the admin panel's default. Facebook and Instagram share one
+     * template, stored as FACEBOOK; Viber has its own.
+     */
     @GetMapping("/post-templates")
     public List<PostTemplate> templates() {
         return templates.findAll();
@@ -74,13 +90,20 @@ public class AdminSocialController {
 
     @PutMapping("/post-templates/{network}")
     public PostTemplate saveTemplate(@PathVariable SocialNetwork network, @Valid @RequestBody TemplateRequest request) {
-        return templates.save(network, request.body());
+        return templates.save(templateOf(network), request.body());
     }
 
     @DeleteMapping("/post-templates/{network}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void resetTemplate(@PathVariable SocialNetwork network) {
-        templates.delete(network);
+        templates.delete(templateOf(network));
+    }
+
+    private static SocialNetwork templateOf(SocialNetwork network) {
+        if (network == SocialNetwork.INSTAGRAM) {
+            throw new BadRequestException("Facebook and Instagram share one template: use FACEBOOK");
+        }
+        return network;
     }
 
     /** Which networks are configured (the admin panel hides the others' publish buttons). */
@@ -101,13 +124,20 @@ public class AdminSocialController {
     }
 
     /**
-     * Publishes in the background (Facebook and Instagram take up to a minute): checks the request, answers 202
-     * with the recorded post, and the admin panel follows it (GET /api/admin/cars/{id}/scheduled-posts) until it is
+     * Publishes the car to the chosen networks at the same time, in the background (Facebook and Instagram take up
+     * to a minute), or schedules it for {@code publishAt}. Checks every post first, answers 202 with one recorded
+     * post per network, and the admin panel follows them (GET /api/admin/cars/{id}/scheduled-posts) until each is
      * PUBLISHED (then it is in social-posts too) or FAILED with the reason.
      */
-    @PostMapping("/cars/{id}/social-posts")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    public ScheduledPost publish(@PathVariable long id, @Valid @RequestBody PublishRequest request, Principal principal) {
-        return background.publishNow(id, request.network(), request.text(), request.imageIds(), principal.getName());
+    @PostMapping("/cars/{id}/publications")
+    public ResponseEntity<List<ScheduledPost>> publish(@PathVariable long id, @Valid @RequestBody PublishRequest request,
+                                                       Principal principal) {
+        List<ScheduledPostService.Draft> drafts = request.posts().stream()
+                .map(p -> new ScheduledPostService.Draft(p.network(), p.text()))
+                .toList();
+        List<ScheduledPost> posts = background.publish(id, drafts, request.imageIds(), request.publishAt(),
+                principal.getName());
+        return ResponseEntity.status(request.publishAt() == null ? HttpStatus.ACCEPTED : HttpStatus.CREATED)
+                .body(posts);
     }
 }

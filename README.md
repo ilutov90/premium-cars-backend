@@ -89,9 +89,9 @@ reuse it. To turn rendering off (pages are then read from HTML only): `APP_IMPOR
 
 ## Facebook and Instagram
 
-The car editor in the admin panel shows the post text (the posting script's format, editable) with
-**Publish to Facebook** / **Publish to Instagram** buttons, the list of earlier posts, and "share with photos"
-(the phone's or Windows share sheet, e.g. to the Instagram app) / "download photos".
+The car editor in the admin panel has one **Publish** button for Facebook, Instagram and Viber together (see
+"Post templates and publishing"), the list of earlier posts, and "share with photos" (the phone's or Windows share
+sheet, e.g. to the Instagram app) / "download photos".
 
 Publishing uses the Meta Graph API like the posting script: Facebook gets an album post with up to 10 photos;
 Instagram gets a carousel (photos are uploaded to imgbb first, because Instagram needs public photo URLs).
@@ -104,32 +104,36 @@ Settings, in Vault like the other secrets (the same names as the script's `.env`
 | `IG_USER_ID` | the Instagram **business/creator** account linked to the page | Graph API Explorer: `/{FB_PAGE_ID}?fields=instagram_business_account` |
 | `IMGBB_API_KEY` | imgbb API key | api.imgbb.com |
 
-A network whose settings are missing has its button disabled. Restart the backend after changing them in Vault.
+A network whose settings are missing cannot be picked in the publish dialog. Restart the backend after changing them in Vault.
 Posts are recorded in `social_post` (link, date, number of photos); the editor asks before posting a car twice.
 
 ## Post templates and publishing
 
-The texts for Facebook, Instagram and Viber come from templates, one per network, edited in the admin panel
-("Шаблони") and stored in `post_template` (no row = the admin panel's default). Placeholders such as
+The post texts come from two templates, edited in the admin panel ("Шаблони") and stored in `post_template` (no
+row = the admin panel's default): one shared by Facebook and Instagram (stored as `FACEBOOK`; `INSTAGRAM` is
+refused) and one for Viber. Placeholders such as
 `{{price}}`, `{{year}}`, `{{mileage}}`, `{{battery}}` are filled in by the admin panel from the car; a line whose
 placeholder is empty for the car (e.g. the battery of a diesel) is left out. The phone, the Viber channel link and
 the office (`{{phone}}`, `{{viber_link}}`, `{{office}}`) are shared by all cars: `post_setting`, edited on the
 same page (`GET/PUT /api/admin/post-settings`; empty = the admin panel's default). The public site shows the
 same details in its footer (`GET /api/public/contact`).
 
-Publishing always goes through a confirmation step in the admin panel: the filled-in text (editable) and the car's
-photos to pick from (1 to 10, sent in gallery order). `POST /api/admin/cars/{id}/social-posts` takes
-`{network, text, imageIds}`; the ids must be photos of that car. It checks the request, records the post in
-`scheduled_post` (publish time = now) and answers **202** right away; the post is published on a background
-thread (Facebook and Instagram take 10-60 s), and the admin panel follows it until PUBLISHED or FAILED.
+Publishing always goes through one confirmation step in the admin panel for all networks at once: the networks
+(all configured ones ticked), the Facebook/Instagram text and the Viber text (both filled in and editable) and the
+car's photos to pick from (1 to 10, sent in gallery order, the same for every network).
+`POST /api/admin/cars/{id}/publications` takes `{posts: [{network, text}], imageIds, publishAt}`; the ids must be
+photos of that car. Every post is checked first (one wrong post stops the whole publication), then one
+`scheduled_post` row per network is recorded in one transaction. Without `publishAt` it answers **202** right away
+and the networks are published at the same time on background threads (Facebook and Instagram take 10-60 s); the
+admin panel follows each until PUBLISHED or FAILED, so one failing network does not stop the others.
 Photos go up 4 at a time (Facebook uploads, imgbb, Instagram containers and their processing); Viber messages
 stay one after the other, since the channel shows them in arrival order.
 
 ### Scheduled posts
 
-The same dialog can schedule the post instead (1 minute to 90 days ahead): `POST /api/admin/cars/{id}/scheduled-posts`
-with `{network, text, imageIds, publishAt}` (ISO instant). The text and photos are checked right away, like for
-publishing now, and fixed. `ScheduledPostService` checks every 30 seconds and publishes the due posts for all three
+The same dialog can schedule the publication instead (1 minute to 90 days ahead): the same request with
+`publishAt` (ISO instant) answers **201**. The texts and photos are checked right away, like for publishing now,
+and fixed. `ScheduledPostService` checks every 30 seconds and publishes the due posts, in parallel, for all three
 networks (Instagram's API cannot schedule, so Facebook's own scheduling is not used either: one mechanism, visible
 and cancellable in the admin panel). `GET /api/admin/scheduled-posts` lists the waiting ones and those of the last 7
 days ("Насрочени"); `DELETE /api/admin/scheduled-posts/{id}` cancels a waiting one.
@@ -141,7 +145,7 @@ days ("Насрочени"); `DELETE /api/admin/scheduled-posts/{id}` cancels a 
 
 ## Viber channel
 
-The car editor's **Publish to Viber** posts the car to the Viber channel through the Viber Channels Post API:
+Publishing to Viber posts the car to the Viber channel through the Viber Channels Post API:
 each photo is its own message (the photos picked when publishing), then the post text. Photos go
 through imgbb like for Instagram (Viber loads them from public URLs) and are scaled down to 1 MB when bigger.
 Posts are recorded in `social_post` (network `VIBER`, no link: channel messages have none).

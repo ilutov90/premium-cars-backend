@@ -10,6 +10,7 @@ import java.util.Optional;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.premiumcars.catalog.repo.JsonColumns;
 
@@ -45,6 +46,15 @@ public class ScheduledPostRepository {
                 .query(Long.class)
                 .single();
         return findById(id).orElseThrow();
+    }
+
+    /** The posts of one publication (one per network, same photos and time): all of them or none. */
+    @Transactional
+    public List<ScheduledPost> insertAll(long carId, List<ScheduledPostService.Draft> drafts, List<Long> imageIds,
+                                         Instant publishAt, String createdBy) {
+        return drafts.stream()
+                .map(d -> insert(carId, d.network(), d.text(), imageIds, publishAt, createdBy))
+                .toList();
     }
 
     public Optional<ScheduledPost> findById(long id) {

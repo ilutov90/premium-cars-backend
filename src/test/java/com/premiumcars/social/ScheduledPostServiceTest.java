@@ -51,53 +51,79 @@ class ScheduledPostServiceTest {
                 ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW);
     }
 
+    private static final List<ScheduledPostService.Draft> ALL = List.of(
+            new ScheduledPostService.Draft(SocialNetwork.FACEBOOK, "shared"),
+            new ScheduledPostService.Draft(SocialNetwork.INSTAGRAM, "shared"),
+            new ScheduledPostService.Draft(SocialNetwork.VIBER, "viber"));
+
+    private static ScheduledPost recorded(long id, SocialNetwork network, String text, ScheduledPost.Status status) {
+        return new ScheduledPost(id, 7, "Kia", network, text, List.of(3L), NOW, status, 0, null, null, "admin", NOW,
+                NOW);
+    }
+
     @Test
     void theTimeMustBeInTheFutureAndWithin90Days() {
-        assertThatThrownBy(() -> service.schedule(7, SocialNetwork.VIBER, "t", null, NOW, "admin"))
+        assertThatThrownBy(() -> service.publish(7, ALL, null, NOW, "admin"))
                 .isInstanceOf(BadRequestException.class).hasMessageContaining("minute");
-        assertThatThrownBy(() -> service.schedule(7, SocialNetwork.VIBER, "t", null,
-                NOW.plusSeconds(91L * 24 * 3600), "admin"))
+        assertThatThrownBy(() -> service.publish(7, ALL, null, NOW.plusSeconds(91L * 24 * 3600), "admin"))
                 .isInstanceOf(BadRequestException.class).hasMessageContaining("90 days");
-        verify(repo, never()).insert(anyLong(), any(), any(), any(), any(), any());
+        verify(repo, never()).insertAll(anyLong(), any(), any(), any(), any());
     }
 
     @Test
-    void schedulingValidatesLikePublishingNow() {
+    void eachNetworkOnceAndAtLeastOne() {
+        assertThatThrownBy(() -> service.publish(7, List.of(), null, null, "admin"))
+                .hasMessageContaining("at least one");
+        assertThatThrownBy(() -> service.publish(7, List.of(ALL.get(0), ALL.get(0)), null, null, "admin"))
+                .hasMessageContaining("once");
+        verify(repo, never()).insertAll(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void oneWrongPostStopsTheWholePublication() {
         doThrow(new BadRequestException("Instagram captions are limited to 2200 characters"))
-                .when(publisher).validate(7, SocialNetwork.INSTAGRAM, "long", List.of(1L));
-        assertThatThrownBy(() -> service.schedule(7, SocialNetwork.INSTAGRAM, "long", List.of(1L),
-                NOW.plusSeconds(3600), "admin")).hasMessageContaining("2200");
-        verify(repo, never()).insert(anyLong(), any(), any(), any(), any(), any());
-
-        service.schedule(7, SocialNetwork.VIBER, "ok", List.of(1L), NOW.plusSeconds(3600), "admin");
-        verify(repo).insert(7, SocialNetwork.VIBER, "ok", List.of(1L), NOW.plusSeconds(3600), "admin");
+                .when(publisher).validate(7, SocialNetwork.INSTAGRAM, "shared", List.of(1L));
+        assertThatThrownBy(() -> service.publish(7, ALL, List.of(1L), NOW.plusSeconds(3600), "admin"))
+                .hasMessageContaining("2200");
+        assertThatThrownBy(() -> service.publish(7, ALL, List.of(1L), null, "admin"))
+                .hasMessageContaining("2200");
+        verify(repo, never()).insertAll(anyLong(), any(), any(), any(), any());
     }
 
     @Test
-    void publishNowRecordsThePostAndPublishesItInTheBackground() {
-        ScheduledPost recorded = new ScheduledPost(9, 7, "Kia", SocialNetwork.INSTAGRAM, "text", List.of(3L), NOW,
-                ScheduledPost.Status.SCHEDULED, 0, null, null, "admin", NOW, NOW);
-        when(repo.insert(7, SocialNetwork.INSTAGRAM, "text", List.of(3L), NOW, "admin")).thenReturn(recorded);
-        ScheduledPost claimed = new ScheduledPost(9, 7, "Kia", SocialNetwork.INSTAGRAM, "text", List.of(3L), NOW,
-                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW);
-        when(repo.claim(9)).thenReturn(Optional.of(claimed));
+    void schedulingRecordsOnePostPerNetworkForLater() {
+        Instant later = NOW.plusSeconds(3600);
+        service.publish(7, ALL, List.of(1L), later, "admin");
+
+        verify(repo).insertAll(7, ALL, List.of(1L), later, "admin");
+        verify(repo, never()).claim(anyLong());
+        verify(publisher, never()).publish(anyLong(), any(), any(), anyList());
+    }
+
+    @Test
+    void publishingNowRecordsEveryNetworkAndPublishesThemInTheBackground() {
+        List<ScheduledPost> posts = List.of(
+                recorded(9, SocialNetwork.FACEBOOK, "shared", ScheduledPost.Status.SCHEDULED),
+                recorded(10, SocialNetwork.INSTAGRAM, "shared", ScheduledPost.Status.SCHEDULED),
+                recorded(11, SocialNetwork.VIBER, "viber", ScheduledPost.Status.SCHEDULED));
+        when(repo.insertAll(7, ALL, List.of(3L), NOW, "admin")).thenReturn(posts);
+        for (ScheduledPost p : posts) {
+            when(repo.claim(p.id())).thenReturn(Optional.of(
+                    recorded(p.id(), p.network(), p.body(), ScheduledPost.Status.PUBLISHING)));
+        }
         when(cars.findById(7)).thenReturn(Optional.of(car(CarStatus.PUBLISHED)));
-        when(publisher.publish(7, SocialNetwork.INSTAGRAM, "text", List.of(3L)))
-                .thenReturn(new SocialPost(70, 7, SocialNetwork.INSTAGRAM, "media", null, 1, NOW));
+        when(publisher.publish(eq(7L), any(), any(), eq(List.of(3L)))).thenAnswer(inv -> new SocialPost(
+                70 + ((SocialNetwork) inv.getArgument(1)).ordinal(), 7, inv.getArgument(1), "x", null, 1, NOW));
 
-        assertThat(service.publishNow(7, SocialNetwork.INSTAGRAM, "text", List.of(3L), "admin")).isSameAs(recorded);
+        assertThat(service.publish(7, ALL, List.of(3L), null, "admin")).isSameAs(posts);
 
-        verify(publisher).validate(7, SocialNetwork.INSTAGRAM, "text", List.of(3L));
+        verify(publisher).validate(7, SocialNetwork.FACEBOOK, "shared", List.of(3L));
+        verify(publisher).validate(7, SocialNetwork.VIBER, "viber", List.of(3L));
+        verify(publisher).publish(7, SocialNetwork.INSTAGRAM, "shared", List.of(3L));
+        verify(publisher).publish(7, SocialNetwork.VIBER, "viber", List.of(3L));
         verify(repo).markPublished(9, 70);
-    }
-
-    @Test
-    void publishNowChecksFirst() {
-        doThrow(new BadRequestException("Instagram is not configured")).when(publisher)
-                .validate(7, SocialNetwork.INSTAGRAM, "text", null);
-        assertThatThrownBy(() -> service.publishNow(7, SocialNetwork.INSTAGRAM, "text", null, "admin"))
-                .hasMessageContaining("not configured");
-        verify(repo, never()).insert(anyLong(), any(), any(), any(), any(), any());
+        verify(repo).markPublished(10, 71);
+        verify(repo).markPublished(11, 72);
     }
 
     @Test

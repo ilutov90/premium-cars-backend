@@ -21,10 +21,11 @@ import com.premiumcars.common.BadRequestException;
 import com.premiumcars.common.NotFoundException;
 
 /**
- * Posts published in the background, now or later, for all three networks. "Publish now" records the post and
- * publishes it right away on another thread, so the admin panel does not wait for Facebook / Instagram (which
- * take up to a minute). Posts planned for later, for all three networks (Instagram's API cannot schedule, so the backend does it for
- * every network the same way): every 30 seconds the due posts are published through {@link SocialPublisher}.
+ * Posts published in the background, now or later. One publication goes to several networks at once (one post
+ * per network, the same photos): "now" records the posts and publishes them right away, in parallel, on other
+ * threads, so the admin panel does not wait for Facebook / Instagram (which take up to a minute). Posts planned
+ * for later (Instagram's API cannot schedule, so the backend does it for every network the same way): every 30
+ * seconds the due posts are published through {@link SocialPublisher}, also in parallel.
  * A failed post is not retried automatically: a network can fail half-way (Viber photos sent, the text not; a
  * Facebook post created, its link not read), and a retry would post twice. It is marked FAILED with the reason,
  * and the admin publishes it again by hand. Sold or archived cars are not posted.
@@ -54,34 +55,49 @@ public class ScheduledPostService {
         this.executor = executor;
     }
 
-    /**
-     * Checks the post like publishing always did, records it and publishes it in the background right away.
-     *
-     * @return the post as recorded (SCHEDULED, or PUBLISHING if the background thread was faster); the admin
-     *         panel follows it until PUBLISHED or FAILED
-     */
-    public ScheduledPost publishNow(long carId, SocialNetwork network, String text, List<Long> imageIds,
-                                    String createdBy) {
-        publisher.validate(carId, network, text, imageIds);
-        ScheduledPost post = scheduled.insert(carId, network, text, imageIds, clock.instant(), createdBy);
-        log.info("Admin '{}' publishes car {} to {} (in the background)", createdBy, carId, network);
-        executor.execute(() -> scheduled.claim(post.id()).ifPresent(this::publish));
-        return post;
+    /** The text of one network in a publication. */
+    public record Draft(SocialNetwork network, String text) {
     }
 
-    public ScheduledPost schedule(long carId, SocialNetwork network, String text, List<Long> imageIds,
-                                  Instant publishAt, String createdBy) {
+    /**
+     * One publication to several networks at once, with the same photos: checks every post first (nothing is
+     * recorded when one is wrong), records one post per network and publishes them in the background right away,
+     * at the same time ({@code publishAt} null), or at {@code publishAt}.
+     *
+     * @param imageIds the car's photos in posting order; null = the first ones of the gallery
+     * @return the recorded posts, in the order of {@code drafts}; the admin panel follows them until PUBLISHED or
+     *         FAILED
+     */
+    public List<ScheduledPost> publish(long carId, List<Draft> drafts, List<Long> imageIds, Instant publishAt,
+                                       String createdBy) {
+        if (drafts == null || drafts.isEmpty()) {
+            throw new BadRequestException("Pick at least one network");
+        }
+        if (drafts.stream().map(Draft::network).distinct().count() != drafts.size()) {
+            throw new BadRequestException("Each network can be picked once");
+        }
         Instant now = clock.instant();
-        if (publishAt == null || publishAt.isBefore(now.plus(MIN_LEAD).minusSeconds(5))) {
-            throw new BadRequestException("Pick a time at least a minute from now (or publish now)");
+        if (publishAt != null) {
+            if (publishAt.isBefore(now.plus(MIN_LEAD).minusSeconds(5))) {
+                throw new BadRequestException("Pick a time at least a minute from now (or publish now)");
+            }
+            if (publishAt.isAfter(now.plus(MAX_LEAD))) {
+                throw new BadRequestException("Posts can be scheduled at most " + MAX_LEAD.toDays() + " days ahead");
+            }
         }
-        if (publishAt.isAfter(now.plus(MAX_LEAD))) {
-            throw new BadRequestException("Posts can be scheduled at most " + MAX_LEAD.toDays() + " days ahead");
+        for (Draft d : drafts) {
+            publisher.validate(carId, d.network(), d.text(), imageIds);
         }
-        publisher.validate(carId, network, text, imageIds);
-        ScheduledPost post = scheduled.insert(carId, network, text, imageIds, publishAt, createdBy);
-        log.info("Admin '{}' scheduled car {} for {} at {}", createdBy, carId, network, publishAt);
-        return post;
+        List<ScheduledPost> posts = scheduled.insertAll(carId, drafts, imageIds, publishAt == null ? now : publishAt,
+                createdBy);
+        List<SocialNetwork> networks = drafts.stream().map(Draft::network).toList();
+        if (publishAt == null) {
+            log.info("Admin '{}' publishes car {} to {} (in the background)", createdBy, carId, networks);
+            posts.forEach(this::publishInBackground);
+        } else {
+            log.info("Admin '{}' scheduled car {} for {} at {}", createdBy, carId, networks, publishAt);
+        }
+        return posts;
     }
 
     public List<ScheduledPost> forCar(long carId) {
@@ -120,8 +136,13 @@ public class ScheduledPostService {
         List<ScheduledPost> due;
         do {
             due = scheduled.claimDue(BATCH);
-            due.forEach(this::publish);
+            // the networks of one publication go out at the same time
+            due.forEach(post -> executor.execute(() -> publish(post)));
         } while (due.size() == BATCH);
+    }
+
+    private void publishInBackground(ScheduledPost post) {
+        executor.execute(() -> scheduled.claim(post.id()).ifPresent(this::publish));
     }
 
     void publish(ScheduledPost post) {
