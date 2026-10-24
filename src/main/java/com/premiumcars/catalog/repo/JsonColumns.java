@@ -10,6 +10,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import com.premiumcars.catalog.domain.SpecGroup;
+
 /** Converts jsonb columns to and from Java. In SQL, write them with {@code CAST(:param AS jsonb)}. */
 @Component
 public class JsonColumns {
@@ -21,6 +23,9 @@ public class JsonColumns {
     };
 
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {
+    };
+
+    private static final TypeReference<List<SpecGroup>> SPEC_SHEET = new TypeReference<>() {
     };
 
     private final ObjectMapper mapper;
@@ -35,6 +40,18 @@ public class JsonColumns {
         }
         try {
             return mapper.readValue(json, STRING_MAP);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Invalid JSON in database column: " + e.getMessage(), e);
+        }
+    }
+
+    /** {@code [{"name": "Engine", "items": [{"name": "...", "value": "..."}]}]} */
+    public List<SpecGroup> readSpecSheet(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return mapper.readValue(json, SPEC_SHEET);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Invalid JSON in database column: " + e.getMessage(), e);
         }

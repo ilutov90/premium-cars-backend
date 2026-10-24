@@ -132,4 +132,15 @@ class AutowiniClientTest {
         assertThat(AutowiniClient.countrySubCode("{\"country_code\":\"BG\"}")).isNull();
         assertThat(AutowiniClient.countrySubCode(null)).isNull();
     }
+
+    @Test
+    void readsAutowinisEuroRate() {
+        assertThat(AutowiniClient.parseRate("""
+                {"data":{"updateDate":"2026-10-24 09:00","rate":0.952,"ttl":3600}}""")).isEqualByComparingTo("0.952");
+        assertThat(AutowiniClient.parseRate("{\"data\":{\"rate\":\"0.9520\"}}")).isEqualByComparingTo("0.952");
+        assertThat(AutowiniClient.parseRate("{\"data\":0.95}")).isEqualByComparingTo("0.95");
+        assertThat(AutowiniClient.parseRate("{\"data\":{\"rate\":1450.2}}")).isNull(); // not USD -> EUR
+        assertThat(AutowiniClient.parseRate("{\"data\":{}}")).isNull();
+        assertThat(AutowiniClient.parseRate("<html>error</html>")).isNull();
+    }
 }

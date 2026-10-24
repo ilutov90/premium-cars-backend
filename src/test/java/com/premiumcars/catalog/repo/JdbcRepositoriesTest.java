@@ -25,6 +25,7 @@ import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.NewCarImage;
 import com.premiumcars.catalog.domain.PricingInputs;
+import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.catalog.service.CarService;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
@@ -117,6 +118,10 @@ class JdbcRepositoriesTest {
         CarSpecs importedSpecs = CarSpecs.builder()
                 .title("BMW X3 2022 xDrive30i").make("BMW").model("X3").year(2022).mileageKm(30_000)
                 .transmission(Transmission.AUTOMATIC).extraSpecs(Map.of("Drive", "AWD"))
+                .sheet(List.of(new SpecGroup("Engine", List.of(new SpecGroup.Item("Maximum horsepower (Ps)", "292"))),
+                        new SpecGroup("Seat Features", List.of(new SpecGroup.Item("Front Seat Features", "Heating"),
+                                new SpecGroup.Item("Paddle Shifters", null))),
+                        new SpecGroup("Empty", List.of())))
                 .build();
         var imported = new ImportedCar("123456", "xian", importedSpecs, new BigDecimal("20000"), "USD",
                 List.of(), List.of());
@@ -125,6 +130,9 @@ class JdbcRepositoriesTest {
         assertThat(draft.status()).isEqualTo(CarStatus.DRAFT);
         assertThat(draft.slug()).isEqualTo("bmw-x3-2022-" + draft.id());
         assertThat(draft.specs().extraSpecs()).containsEntry("Drive", "AWD");
+        assertThat(draft.specs().sheet()).extracting(SpecGroup::name).containsExactly("Engine", "Seat Features");
+        assertThat(draft.specs().sheet().get(1).items()).containsExactly(
+                new SpecGroup.Item("Front Seat Features", "Heating"), new SpecGroup.Item("Paddle Shifters", ""));
         assertThat(draft.sourceLocation()).isEqualTo("xian");
         // 20000 USD * 0.86 = 17200 EUR; autohome: + 5860 + 2880 * 0.72 (7200 above 10 000) + 2000 = 27133.60
         assertThat(draft.pricing().profile()).isEqualTo(PriceProfile.AUTOHOME);
@@ -155,6 +163,7 @@ class JdbcRepositoriesTest {
                 .firstRegistration("2022-04").color(" ").euroStandard(6)
                 .extraSpecs(Map.of("Drive", "AWD", "Seats", "5"))
                 .features(List.of(CarFeature.NAVIGATION, CarFeature.ABS, CarFeature.NAVIGATION))
+                .sheet(null) // the admin panel does not send the imported sheet
                 .build();
         var update = new CarUpdateRequest(edited,
                 new PricingInputs(new BigDecimal("21000"), "usd", null, null, null));
@@ -179,6 +188,7 @@ class JdbcRepositoriesTest {
         assertThat(saved.extraSpecs()).containsExactly(Map.entry("Drive", "AWD"), Map.entry("Seats", "5"));
         assertThat(saved.euroStandard()).isEqualTo(6);
         assertThat(saved.features()).containsExactly(CarFeature.ABS, CarFeature.NAVIGATION); // form order, no duplicates
+        assertThat(saved.sheet()).isEqualTo(draft.specs().sheet()); // saving keeps the imported sheet
 
         AdminCar published = carService.changeStatus(draft.id(), CarStatus.PUBLISHED);
         assertThat(published.publishedAt()).isNotNull();
@@ -186,6 +196,7 @@ class JdbcRepositoriesTest {
         assertThat(publicCar.imageUrls()).hasSize(2);
         assertThat(publicCar.priceEur()).isEqualByComparingTo("28241");
         assertThat(publicCar.specs().batteryKwh()).isEqualByComparingTo("19.7");
+        assertThat(publicCar.specs().sheet()).hasSize(2);
         assertThat(carService.searchPublic(null, null, 0, 48).items())
                 .anySatisfy(c -> assertThat(c.electricRangeKm()).isEqualTo(88));
         assertThat(carService.changeStatus(draft.id(), CarStatus.RESERVED).publishedAt())

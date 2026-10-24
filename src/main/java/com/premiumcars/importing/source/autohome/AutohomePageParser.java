@@ -197,7 +197,7 @@ public final class AutohomePageParser {
         features.addAll(FeatureMapper.fromPhrases(page.specSheet().phrases()));
         features.addAll(FeatureMapper.fromSpecs(b.drivetrain(), b.seats(), b.doors(),
                 FeatureMapper.rightHandDrive(f.get("steering"))));
-        return b.features(features).build();
+        return b.features(features).sheet(page.specSheet().groups()).build();
     }
 
     /**

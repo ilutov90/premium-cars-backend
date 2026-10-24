@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.FuelType;
+import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.importing.source.autowini.AutowiniClient.Page;
 import com.premiumcars.importing.source.autowini.AutowiniPageParser.ParsedPage;
@@ -88,11 +89,30 @@ class AutowiniPageParserTest {
         assertThat(specs.features()).containsExactly(CarFeature.PARKING_SENSORS, CarFeature.VENTILATED_SEATS,
                 CarFeature.POWER_SEATS, CarFeature.CLIMATE_CONTROL, CarFeature.HEATED_SEATS,
                 CarFeature.CRUISE_CONTROL);
+        assertThat(specs.sheet()).extracting(SpecGroup::name).containsExactly("Safety Device", "Interior Option");
 
         // the BIS price autowini shows buyers: seller's 18,244 + BIS fee 912 + expenses 75 (USD, FOB Incheon)
         assertThat(page.price()).isEqualByComparingTo("19231");
         assertThat(page.currency()).isEqualTo("USD");
         assertThat(page.discount()).isNull();
+    }
+
+    /** The mobile page, what the server gets (autowini refuses it the desktop page): options are a list there. */
+    @Test
+    void readsTheOptionsOfTheMobilePage() throws IOException {
+        ParsedPage page = AutowiniPageParser.parse(page("autowini-mobile-IC5341711.html"), "IC5341711");
+        CarSpecs specs = AutowiniPageParser.toSpecs(page);
+
+        assertThat(page.options()).containsExactly("Park Assist Sensor", "Full Auto Air Conditioner", "Heating Seat",
+                "Memory Seat", "Power Seat", "Cooling Seat", "Cruise Control");
+        assertThat(specs.features()).contains(CarFeature.PARKING_SENSORS, CarFeature.HEATED_SEATS,
+                CarFeature.VENTILATED_SEATS, CarFeature.CRUISE_CONTROL);
+        // the whole options block is kept for the car page, by group
+        assertThat(specs.sheet()).extracting(SpecGroup::name).containsExactly("Safety Device", "Interior Option");
+        assertThat(specs.sheet().get(1).items()).extracting(SpecGroup.Item::name).contains("Memory Seat");
+        assertThat(specs.sheet().get(1).items()).allSatisfy(i -> assertThat(i.value()).isEmpty());
+        assertThat(specs.year()).isEqualTo(2021);
+        assertThat(specs.firstRegistration()).isEqualTo("2020-11");
     }
 
     @Test

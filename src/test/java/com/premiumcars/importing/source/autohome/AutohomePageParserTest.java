@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -13,6 +15,7 @@ import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
+import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.importing.extract.EvSpecsExtractor;
 import com.premiumcars.importing.extract.EvSpecsExtractor.EvSpecs;
@@ -67,6 +70,31 @@ class AutohomePageParserTest {
                 .contains("Front/Rear Side Airbags: Front", "Front Seat Features: Ventilation", "Paddle Shifters")
                 .doesNotContain("Front/Rear Side Airbags: Rear", "Heated Steering Wheel") // "-" and "○"
                 .doesNotContain("Lighting Features: Pixel-style"); // subvalue 2 = optional
+    }
+
+    @Test
+    void keepsTheWholeTableForTheCarPage() throws IOException {
+        ParsedPage page = AutohomePageParser.parse(page("autohome-60286620.html"), "60286620");
+        List<SpecGroup> groups = AutohomePageParser.toSpecs(page, EvSpecs.NONE).sheet();
+
+        assertThat(groups).extracting(SpecGroup::name)
+                .startsWith("Basic Specifications", "Body", "Engine")
+                .contains("Active Safety", "Seat Features");
+        Map<String, String> rows = new LinkedHashMap<>();
+        groups.forEach(g -> g.items().forEach(i -> rows.putIfAbsent(i.name(), i.value())));
+        assertThat(rows)
+                .containsEntry("Maximum horsepower (Ps)", "300")
+                .containsEntry("Wheelbase (mm)", "3100")
+                .containsEntry("Paddle Shifters", "") // "●": fitted, nothing more to say
+                .containsEntry("Front/Rear Side Airbags", "Front") // "Front ●/Rear -"
+                .containsKey("Front Seat Features")
+                .doesNotContainKeys("Heated Steering Wheel", // "○": optional, not fitted as standard
+                        "Model Name", "Manufacturer Suggested Retail Price (¥)"); // not for customers
+        assertThat(rows.get("Front Seat Features")).contains("Ventilation");
+        assertThat(rows).doesNotContainKey("Lighting Features"); // its only variant is optional
+        // a parameter repeated in two groups is shown once
+        assertThat(groups.stream().flatMap(g -> g.items().stream()).filter(i -> i.name().equals("Emission Standard")))
+                .hasSize(1);
     }
 
     @Test

@@ -33,6 +33,8 @@ import jakarta.validation.constraints.Size;
  * @param euroStandard      emission class as a Euro number 1-6 (China VI counts as 6), as mobile.bg asks for it
  * @param extraSpecs        any other label/value pairs found on the source page
  * @param features          extras, one per mobile.bg checkbox, in {@link CarFeature} order without duplicates
+ * @param sheet             the source site's full specification sheet, as imported; read-only (saving a car keeps
+ *                          the stored one)
  */
 public record CarSpecs(
         @NotBlank @Size(max = 255) String title,
@@ -61,12 +63,14 @@ public record CarSpecs(
         @Size(max = 50) String dimensions,
         @Size(max = 20_000) String description,
         Map<String, String> extraSpecs,
-        List<CarFeature> features
+        List<CarFeature> features,
+        List<SpecGroup> sheet
 ) {
 
     public CarSpecs {
         extraSpecs = extraSpecs == null ? Map.of() : extraSpecs;
         features = Builder.cleanFeatures(features);
+        sheet = SpecGroup.clean(sheet);
     }
 
     public static Builder builder() {
@@ -83,7 +87,7 @@ public record CarSpecs(
                 .motorPowerKw(motorPowerKw).euroStandard(euroStandard)
                 .bodyType(bodyType).seats(seats).doors(doors).color(color)
                 .curbWeightKg(curbWeightKg).dimensions(dimensions)
-                .description(description).extraSpecs(extraSpecs).features(features);
+                .description(description).extraSpecs(extraSpecs).features(features).sheet(sheet);
     }
 
     /** Fluent builder; every setter accepts null. */
@@ -115,6 +119,7 @@ public record CarSpecs(
         private String description;
         private Map<String, String> extraSpecs = new LinkedHashMap<>();
         private List<CarFeature> features = List.of();
+        private List<SpecGroup> sheet = List.of();
 
         private Builder() {
         }
@@ -152,6 +157,11 @@ public record CarSpecs(
 
         public Builder features(Collection<CarFeature> v) {
             features = v == null ? List.of() : List.copyOf(v.stream().filter(Objects::nonNull).toList());
+            return this;
+        }
+
+        public Builder sheet(List<SpecGroup> v) {
+            sheet = v == null ? List.of() : List.copyOf(v.stream().filter(Objects::nonNull).toList());
             return this;
         }
 
@@ -197,7 +207,8 @@ public record CarSpecs(
                     clean(dimensions, 50),
                     clean(description, 20_000),
                     cleanSpecs(extraSpecs),
-                    features);
+                    features,
+                    sheet);
         }
 
         /** Enum order (the mobile.bg form's order), no nulls, no duplicates. */

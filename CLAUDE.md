@@ -30,6 +30,9 @@ Always run `mvn test` before finishing a change.
 - Car data is limited to what mobile.bg's "Добави обява" form can take: extras are `CarFeature` (one constant per
   mobile.bg checkbox, `mobileBgLabel()` is the checkbox's exact value, stored by `name()` in `car.features`), plus
   `euroStandard` (1-6). Importers fill what the source shows (`FeatureMapper`), the admins edit the rest.
+  Besides, `specs.sheet` (`SpecGroup` list, `car.spec_sheet`) keeps the source's whole specification sheet as
+  imported (autohome's "Specifications" table: parameters + standard equipment; autowini's "Options" by group),
+  in the source's English, for the car page (the frontend translates it). It is read-only: saving a car keeps it.
 - The car API is nested: `{specs, pricing}` in requests and admin responses, `specs` in public responses.
 - jsonb columns: write with `CAST(:param AS jsonb)`, read/write through `JsonColumns`.
 - Schema changes: add a **new** Liquibase SQL file under `src/main/resources/db/changelog/changes/`
@@ -56,7 +59,7 @@ Always run `mvn test` before finishing a change.
 | `importing.extract` | `GenericPageExtractor` (JSON-LD, `__NEXT_DATA__`, Open Graph, text), `EvSpecsExtractor`, `TitleParser`, `LabelValues`, `FeatureMapper` (equipment text of both sites -> `CarFeature`, Euro class, steering side) |
 | `importing.browser` | `PageRenderer` / `PlaywrightPageRenderer`: headless Chromium for JS-rendered pages (`app.importer.browser.enabled`) |
 | `importing.source.autohome` | global.autohome.com.cn: `AutohomePageParser`, `AutohomeSpecSheet` (the "Specifications" table from the page's Next.js data: parameters + standard equipment, "○" options are not counted), `AutohomeSourceAdapter` (renders when photos/EV data are missing) |
-| `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser` (incl. the seller's "Options"), `AutowiniSourceAdapter` |
+| `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies, the item API for the price, autowini's own USD->EUR rate: euro prices are taken as autowini shows them), `AutowiniPageParser` (incl. the seller's "Options", desktop and mobile page), `AutowiniSourceAdapter` |
 | `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` (`EcbExchangeRateProvider`: daily ECB rates, configured ones as fallback). A car's price is calculated once and kept with its breakdown (`car.price_breakdown`): only its own price fields or an explicit recalculation change it, never rates, profiles or restarts |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
 | `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post`, `post_template` (text templates filled in by the admin panel: one shared by Facebook and Instagram, stored as `FACEBOOK`, one for Viber), `post_setting` (phone, Viber link, office for the templates), `scheduled_post` + `ScheduledPostService` (one publication = one post per network, published at the same time in the background now or later; checked every 30 s, never retried) |
