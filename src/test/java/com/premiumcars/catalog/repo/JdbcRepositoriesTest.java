@@ -42,6 +42,7 @@ import com.premiumcars.social.PostTemplateRepository;
 import com.premiumcars.social.PublicContactController;
 import com.premiumcars.social.ScheduledPost;
 import com.premiumcars.social.ScheduledPostRepository;
+import com.premiumcars.social.ScheduledPostService;
 import com.premiumcars.social.SocialNetwork;
 import com.premiumcars.social.SocialPost;
 import com.premiumcars.social.SocialPostRepository;
@@ -346,6 +347,30 @@ class JdbcRepositoriesTest {
 
         carService.delete(car.id());
         assertThat(scheduledPosts.findByCarId(car.id())).isEmpty();
+    }
+
+    @Test
+    void aPublicationRecordsOnePostPerNetworkInOrder() {
+        String url = "https://www.autowini.com/test/" + UUID.randomUUID();
+        var imported = new ImportedCar("IC4", null, CarSpecs.builder().title("Kia K5 2022").build(),
+                new BigDecimal("14000"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
+        var at = java.time.Instant.now().plusSeconds(600);
+
+        List<ScheduledPost> posts = scheduledPosts.insertAll(car.id(), List.of(
+                        new ScheduledPostService.Draft(SocialNetwork.FACEBOOK, "shared"),
+                        new ScheduledPostService.Draft(SocialNetwork.INSTAGRAM, "shared"),
+                        new ScheduledPostService.Draft(SocialNetwork.VIBER, "viber")),
+                List.of(2L, 1L), at, "admin");
+
+        assertThat(posts).extracting(ScheduledPost::network)
+                .containsExactly(SocialNetwork.FACEBOOK, SocialNetwork.INSTAGRAM, SocialNetwork.VIBER);
+        assertThat(posts).extracting(ScheduledPost::body).containsExactly("shared", "shared", "viber");
+        assertThat(posts).allSatisfy(p -> {
+            assertThat(p.imageIds()).containsExactly(2L, 1L);
+            assertThat(p.status()).isEqualTo(ScheduledPost.Status.SCHEDULED);
+        });
+        assertThat(scheduledPosts.findByCarId(car.id())).hasSize(3);
     }
 
     @Test
