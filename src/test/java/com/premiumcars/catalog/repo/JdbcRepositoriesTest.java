@@ -25,6 +25,7 @@ import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.NewCarImage;
+import com.premiumcars.catalog.domain.Origin;
 import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.Transmission;
@@ -175,7 +176,7 @@ class JdbcRepositoriesTest {
                 .title("BMW X3 xDrive30i M Sport").trim("  M Sport ").mileageKm(31_000)
                 .fuelType(FuelType.PLUGIN_HYBRID).drivetrain(Drivetrain.AWD).engineCc(1998).powerHp(292)
                 .batteryKwh(new BigDecimal("19.7")).electricRangeKm(88).rangeStandard("WLTP").motorPowerKw(80)
-                .bodyType("SUV").seats(5).doors(5).curbWeightKg(2190).dimensions("4708 × 1891 × 1676")
+                .batteryHealthPct(93).bodyType("SUV").seats(5).doors(5).curbWeightKg(2190).dimensions("4708 × 1891 × 1676")
                 .firstRegistration("2022-04").color(" ").euroStandard(6)
                 .extraSpecs(Map.of("Drive", "AWD", "Seats", "5"))
                 .features(List.of(CarFeature.NAVIGATION, CarFeature.ABS, CarFeature.NAVIGATION))
@@ -197,6 +198,7 @@ class JdbcRepositoriesTest {
         assertThat(saved.electricRangeKm()).isEqualTo(88);
         assertThat(saved.rangeStandard()).isEqualTo("WLTP");
         assertThat(saved.motorPowerKw()).isEqualTo(80);
+        assertThat(saved.batteryHealthPct()).isEqualTo(93);
         assertThat(saved.engineCc()).isEqualTo(1998);
         assertThat(saved.seats()).isEqualTo(5);
         assertThat(saved.curbWeightKg()).isEqualTo(2190);
@@ -558,6 +560,26 @@ class JdbcRepositoriesTest {
         assertThat(deliveredCars.get(hidden.id()).carId()).isNull();
         deliveredCars.delete(hidden.id());
         assertThat(deliveredCars.listAdmin()).noneMatch(d -> d.id() == hidden.id());
+    }
+
+    @Test
+    void guaziCarsUseTheAutohomeFormulaAndCountAsChina() {
+        String ref = "gz" + UUID.randomUUID().toString().substring(0, 8);
+        var imported = new ImportedCar(ref, "Shenyang, China", CarSpecs.builder().title("BYD Song MAX 2021")
+                .make("BYD").build(), new BigDecimal("7603"), "USD", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.GUAZI,
+                "https://en.guazi.com/products/byd-song-max-2021-" + ref + ".html");
+        assertThat(car.pricing().profile()).isEqualTo(PriceProfile.AUTOHOME);
+        assertThat(car.price()).isNotNull();
+
+        carService.changeStatus(car.id(), CarStatus.PUBLISHED);
+        var china = new CarFilter(null, null, null, null, Origin.CN, null, null, null, null, null);
+        assertThat(carService.searchPublic(china, null, 0, 48).items())
+                .anySatisfy(c -> {
+                    assertThat(c.id()).isEqualTo(car.id());
+                    assertThat(c.origin()).isEqualTo(Origin.CN);
+                });
+        carService.delete(car.id());
     }
 
     @Test

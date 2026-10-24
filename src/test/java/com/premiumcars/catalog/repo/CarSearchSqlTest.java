@@ -36,14 +36,14 @@ class CarSearchSqlTest {
 
         assertThat(sql.text())
                 .contains("c.title ILIKE :q", "lower(c.make) = :make", "c.fuel_type = :fuelType",
-                        "c.source = :source", "c.model_year >= :yearFrom", "c.total_price_eur <= :priceTo",
+                        "c.source IN (:sources)", "c.model_year >= :yearFrom", "c.total_price_eur <= :priceTo",
                         "c.mileage_km <= :mileageTo", "ORDER BY c.total_price_eur ASC NULLS LAST",
                         "LIMIT :limit OFFSET :offset")
                 .doesNotContain("Tucson", "Hyundai", "30000");
         assertThat(sql.params())
                 .containsEntry("q", "%Tucson%")
                 .containsEntry("make", "hyundai")
-                .containsEntry("source", "AUTOWINI")
+                .containsEntry("sources", List.of("AUTOWINI"))
                 .containsEntry("limit", 12)
                 .containsEntry("offset", 24);
     }

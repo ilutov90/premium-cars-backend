@@ -30,6 +30,7 @@ import jakarta.validation.constraints.Size;
  * @param electricRangeKm   official electric range
  * @param rangeStandard     test cycle of the range: CLTC, NEDC, WLTP, EPA ...
  * @param motorPowerKw      total electric motor power
+ * @param batteryHealthPct  traction battery state of health (SOH) in percent, when the source reports it
  * @param euroStandard      emission class as a Euro number 1-6 (China VI counts as 6), as mobile.bg asks for it
  * @param extraSpecs        any other label/value pairs found on the source page
  * @param features          extras, one per mobile.bg checkbox, in {@link CarFeature} order without duplicates
@@ -54,6 +55,7 @@ public record CarSpecs(
         @Min(0) @Max(3000) Integer electricRangeKm,
         @Size(max = 10) String rangeStandard,
         @Min(0) @Max(3000) Integer motorPowerKw,
+        @Min(0) @Max(100) Integer batteryHealthPct,
         @Min(1) @Max(6) Integer euroStandard,
         @Size(max = 100) String bodyType,
         @Min(1) @Max(20) Integer seats,
@@ -84,7 +86,7 @@ public record CarSpecs(
                 .fuelType(fuelType).transmission(transmission).drivetrain(drivetrain)
                 .engineCc(engineCc).engine(engine).powerHp(powerHp)
                 .batteryKwh(batteryKwh).electricRangeKm(electricRangeKm).rangeStandard(rangeStandard)
-                .motorPowerKw(motorPowerKw).euroStandard(euroStandard)
+                .motorPowerKw(motorPowerKw).batteryHealthPct(batteryHealthPct).euroStandard(euroStandard)
                 .bodyType(bodyType).seats(seats).doors(doors).color(color)
                 .curbWeightKg(curbWeightKg).dimensions(dimensions)
                 .description(description).extraSpecs(extraSpecs).features(features).sheet(sheet);
@@ -109,6 +111,7 @@ public record CarSpecs(
         private Integer electricRangeKm;
         private String rangeStandard;
         private Integer motorPowerKw;
+        private Integer batteryHealthPct;
         private Integer euroStandard;
         private String bodyType;
         private Integer seats;
@@ -141,6 +144,7 @@ public record CarSpecs(
         public Builder electricRangeKm(Integer v) { electricRangeKm = v; return this; }
         public Builder rangeStandard(String v) { rangeStandard = v; return this; }
         public Builder motorPowerKw(Integer v) { motorPowerKw = v; return this; }
+        public Builder batteryHealthPct(Integer v) { batteryHealthPct = v; return this; }
         public Builder euroStandard(Integer v) { euroStandard = v; return this; }
         public Builder bodyType(String v) { bodyType = v; return this; }
         public Builder seats(Integer v) { seats = v; return this; }
@@ -198,6 +202,7 @@ public record CarSpecs(
                     electricRangeKm,
                     clean(rangeStandard, 10),
                     motorPowerKw,
+                    batteryHealthPct,
                     euroStandard,
                     clean(bodyType, 100),
                     seats,

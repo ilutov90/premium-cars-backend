@@ -4,6 +4,8 @@ package com.premiumcars.catalog.domain;
 public enum CarSource {
     AUTOHOME,
     AUTOWINI,
+    /** en.guazi.com (China); priced with the autohome formula. */
+    GUAZI,
     OTHER,
     MANUAL
 }

@@ -29,7 +29,7 @@ Always run `mvn test` before finishing a change.
   and truncates to the column sizes. EV fields (battery, range, motor) are nullable; combustion cars leave them null.
 - Car data is limited to what mobile.bg's "Добави обява" form can take: extras are `CarFeature` (one constant per
   mobile.bg checkbox, `mobileBgLabel()` is the checkbox's exact value, stored by `name()` in `car.features`), plus
-  `euroStandard` (1-6). Importers fill what the source shows (`FeatureMapper`), the admins edit the rest.
+  `euroStandard` (1-6), and `batteryHealthPct` (battery SOH, guazi's "Battery Report"). Importers fill what the source shows (`FeatureMapper`), the admins edit the rest.
   Besides, `specs.sheet` (`SpecGroup` list, `car.spec_sheet`) keeps the source's whole specification sheet as
   imported (autohome's "Specifications" table: parameters + standard equipment; autowini's "Options" by group),
   in the source's English, for the car page (the frontend translates it). It is read-only: saving a car keeps it.
@@ -56,10 +56,11 @@ Always run `mvn test` before finishing a change.
 |---|---|
 | `catalog` | cars and photos: domain records, `CarRepository`, `CarImageRepository`, `CarService`, public + admin controllers |
 | `importing` | import by link: `ImportService`, one `SourceAdapter` per site, `PageFetcher` |
-| `importing.extract` | `GenericPageExtractor` (JSON-LD, `__NEXT_DATA__`, Open Graph, text), `EvSpecsExtractor`, `TitleParser`, `LabelValues`, `FeatureMapper` (equipment text of both sites -> `CarFeature`, Euro class, steering side) |
+| `importing.extract` | `NextFlightData` (the `self.__next_f.push` data of Next.js App Router pages: autohome, guazi), `GenericPageExtractor` (JSON-LD, `__NEXT_DATA__`, Open Graph, text), `EvSpecsExtractor`, `TitleParser`, `LabelValues`, `FeatureMapper` (equipment text of both sites -> `CarFeature`, Euro class, steering side) |
 | `importing.browser` | `PageRenderer` / `PlaywrightPageRenderer`: headless Chromium for JS-rendered pages (`app.importer.browser.enabled`) |
 | `importing.source.autohome` | global.autohome.com.cn: `AutohomePageParser`, `AutohomeSpecSheet` (the "Specifications" table from the page's Next.js data: parameters + standard equipment, "○" options are not counted), `AutohomeSourceAdapter` (renders when photos/EV data are missing) |
 | `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies, the item API for the price, autowini's own USD->EUR rate: euro prices are taken as autowini shows them), `AutowiniPageParser` (incl. the seller's "Options", desktop and mobile page), `AutowiniSourceAdapter` |
+| `importing.source.guazi` | en.guazi.com (China, any language subdomain -> `en.`): `GuaziPageParser` (the whole listing is the `rawData` JSON in the page's Next.js data: Vehicle Details, all Specifications, Features, battery SOH, FOB prices in USD with the default port's current price used, all photos; no browser), `GuaziSourceAdapter`. Priced with the AUTOHOME formula; the inspection summary only goes to the admin as an import warning |
 | `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` (`EcbExchangeRateProvider`: daily ECB rates, configured ones as fallback). A car's price is calculated once and kept with its breakdown (`car.price_breakdown`): only its own price fields or an explicit recalculation change it, never rates, profiles or restarts |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
 | `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post`, `post_template` (text templates filled in by the admin panel, `TemplateKey`: one shared by Facebook and Instagram, stored as `FACEBOOK`, one for Viber, one for mobile.bg's description `MOBILE_BG`), `post_setting` (phone, Viber link, office for the templates; the site's Meta Pixel id, public through `/api/public/contact`), `scheduled_post` + `ScheduledPostService` (one publication = one post per network, published at the same time in the background now or later; checked every 30 s, never retried) |
@@ -80,7 +81,9 @@ DTOs are in `catalog/web/dto/CarDtos.java`, `inquiry/InquiryDtos.java` and `deli
 ## Tests
 
 - `CarSearchSqlTest`, `PriceCalculatorTest`, `GenericPageExtractorTest`, `EvSpecsExtractorTest`, `FeatureMapperTest`,
-  `AutohomePageParserTest`, `AutowiniPageParserTest`: fast, no DB, no network.
+  `AutohomePageParserTest`, `AutowiniPageParserTest`, `GuaziPageParserTest`: fast, no DB, no network
+  (the `guazi-*.html` pages are reduced copies with the real structure; replace them with saved real pages when an
+  import misreads one).
 - `JdbcRepositoriesTest`, `AdminAuthTest`: full Spring context on PostgreSQL 17 in Docker (Testcontainers,
   `@ServiceConnection`); `VaultConfigTest`: real Vault in Docker. `src/test/resources/application.properties`
   turns Vault and rate limits off for the other tests.
