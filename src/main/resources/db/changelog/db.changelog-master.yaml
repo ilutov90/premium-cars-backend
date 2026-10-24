@@ -31,3 +31,5 @@ databaseChangeLog:
       file: db/changelog/changes/015-car-features.sql
   - include:
       file: db/changelog/changes/016-car-spec-sheet.sql
+  - include:
+      file: db/changelog/changes/017-mobile-bg.sql

@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.premiumcars.common.BadRequestException;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -45,7 +44,8 @@ public class AdminSocialController {
                                  Instant publishAt) {
     }
 
-    public record TemplateRequest(@NotBlank @Size(max = 7000) String body) {
+    /** 11 000 = mobile.bg's limit for the description; the networks' own limits are checked when posting */
+    public record TemplateRequest(@NotBlank @Size(max = 11_000) String body) {
     }
 
     /** @param siteUrl the site's public https:// address, e.g. a temporary tunnel while testing locally */
@@ -81,7 +81,7 @@ public class AdminSocialController {
 
     /**
      * The saved templates; one without a row uses the admin panel's default. Facebook and Instagram share one
-     * template, stored as FACEBOOK; Viber has its own.
+     * template ({@code FACEBOOK}); Viber and mobile.bg have their own. {@code INSTAGRAM} is not a template key.
      */
     @GetMapping("/post-templates")
     public List<PostTemplate> templates() {
@@ -89,21 +89,14 @@ public class AdminSocialController {
     }
 
     @PutMapping("/post-templates/{network}")
-    public PostTemplate saveTemplate(@PathVariable SocialNetwork network, @Valid @RequestBody TemplateRequest request) {
-        return templates.save(templateOf(network), request.body());
+    public PostTemplate saveTemplate(@PathVariable TemplateKey network, @Valid @RequestBody TemplateRequest request) {
+        return templates.save(network, request.body());
     }
 
     @DeleteMapping("/post-templates/{network}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void resetTemplate(@PathVariable SocialNetwork network) {
-        templates.delete(templateOf(network));
-    }
-
-    private static SocialNetwork templateOf(SocialNetwork network) {
-        if (network == SocialNetwork.INSTAGRAM) {
-            throw new BadRequestException("Facebook and Instagram share one template: use FACEBOOK");
-        }
-        return network;
+    public void resetTemplate(@PathVariable TemplateKey network) {
+        templates.delete(network);
     }
 
     /** Which networks are configured (the admin panel hides the others' publish buttons). */
