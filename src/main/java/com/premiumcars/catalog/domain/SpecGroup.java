@@ -27,7 +27,7 @@ public record SpecGroup(String name, List<Item> items) {
     public record Item(String name, String value) {
         public Item {
             name = cut(name, 200);
-            value = value == null ? "" : cut(value, 500);
+            value = Objects.requireNonNullElse(cut(value, 500), ""); // "" = fitted, no details
         }
     }
 
