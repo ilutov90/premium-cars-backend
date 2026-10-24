@@ -67,7 +67,7 @@ public class AdminSocialController {
         this.settings = settings;
     }
 
-    /** Phone, Viber channel link and office for the templates; null fields = the admin panel's defaults. */
+    /** Phone, Viber channel link and office for the templates, and the Meta Pixel; null fields = the defaults. */
     @GetMapping("/post-settings")
     public PostSettings settings() {
         return settings.find();

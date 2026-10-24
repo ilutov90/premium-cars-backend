@@ -5,7 +5,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * The business's contact details for the public site (footer): the same phone, Viber channel link and office as in
- * the post templates. Null fields = the frontend's defaults.
+ * the post templates, and the Meta Pixel the site loads after the visitor's consent (null = none). Null fields = the
+ * frontend's defaults.
  */
 @RestController
 public class PublicContactController {

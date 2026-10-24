@@ -56,7 +56,8 @@ class InquiryNotifierTest {
     @Test
     void mailsTheInquiryWithTheCarAndALinkToTheAdminPanel() {
         var e = new InquiryCreatedEvent(12, "Иван", "0888123456", "ivan@example.com", "Има ли сервизна книжка?",
-                "Hyundai Tucson 2023", "hyundai-tucson-2023-7");
+                "Hyundai Tucson 2023", "hyundai-tucson-2023-7", HeardFrom.FACEBOOK,
+                new Attribution("facebook", "social", "car-post", null, "/cars/hyundai-tucson-2023-7", null));
 
         assertThat(notifier("re_test", "office@premiumcarsimport.bg, me@example.com").send(e)).isTrue();
 
@@ -70,13 +71,14 @@ class InquiryNotifierTest {
         assertThat(mail.path("text").asText())
                 .contains("Име: Иван", "Телефон: 0888123456",
                         "Кола: Hyundai Tucson 2023 (https://premiumcarsimport.bg/cars/hyundai-tucson-2023-7)",
-                        "Има ли сервизна книжка?", "https://premiumcarsimport.bg/admin/inquiries")
+                        "Има ли сервизна книжка?", "https://premiumcarsimport.bg/admin/inquiries",
+                        "Откъде е научил: Facebook", "Дошъл от линк: facebook / social / car-post")
                 .doesNotContain("re_test");
     }
 
     @Test
     void offWithoutAKeyOrAnAddress() {
-        var e = new InquiryCreatedEvent(1, "A", "1", null, null, null, null);
+        var e = new InquiryCreatedEvent(1, "A", "1", null, null, null, null, null, null);
 
         assertThat(notifier("", "office@premiumcarsimport.bg").send(e)).isFalse();
         assertThat(notifier("re_test", " ").send(e)).isFalse();
@@ -86,7 +88,7 @@ class InquiryNotifierTest {
     @Test
     void aFailingMailServiceIsOnlyLogged() {
         status = 500;
-        var e = new InquiryCreatedEvent(2, "A", "1", null, null, null, null);
+        var e = new InquiryCreatedEvent(2, "A", "1", null, null, null, null, null, null);
 
         assertThat(notifier("re_test", "office@premiumcarsimport.bg").send(e)).isFalse();
         assertThat(calls).hasSize(1);

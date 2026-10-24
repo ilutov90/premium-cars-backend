@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,8 +33,13 @@ import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
 import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.CarUpdateRequest;
 import com.premiumcars.catalog.web.dto.CarFilter;
+import com.premiumcars.common.BadRequestException;
 import com.premiumcars.common.NotFoundException;
+import com.premiumcars.delivery.DeliveredCarDtos.DeliveredCarRequest;
+import com.premiumcars.delivery.DeliveredCarService;
 import com.premiumcars.importing.ImportedCar;
+import com.premiumcars.inquiry.Attribution;
+import com.premiumcars.inquiry.HeardFrom;
 import com.premiumcars.inquiry.Inquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 import com.premiumcars.inquiry.InquiryService;
@@ -94,6 +100,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     PublicContactController publicContact;
+
+    @Autowired
+    DeliveredCarService deliveredCars;
 
     @Test
     void publicCatalogSortsWithNullsLast() {
@@ -209,7 +218,8 @@ class JdbcRepositoriesTest {
         assertThat(carService.changeStatus(draft.id(), CarStatus.RESERVED).publishedAt())
                 .isEqualTo(published.publishedAt());
 
-        var inquiry = inquiryService.create(new InquiryRequest("Ivan", "0888123456", null, "Hello", draft.id(), null, true));
+        var inquiry = inquiryService.create(new InquiryRequest("Ivan", "0888123456", null, "Hello", draft.id(), null, true,
+                null, null));
         assertThat(inquiry.id()).isNotNull();
         var list = inquiryService.list(Inquiry.Status.NEW, 0, 50);
         assertThat(list.items()).anySatisfy(i -> assertThat(i.carTitle()).isEqualTo("BMW X3 xDrive30i M Sport"));
@@ -446,17 +456,108 @@ class JdbcRepositoriesTest {
 
     @Test
     void postSettingsAreSavedAndBlankMeansDefault() {
-        assertThat(postSettings.save(new PostSettings(" 0888123456 ", "https://invite.viber.com/x", "Пловдив")))
-                .isEqualTo(new PostSettings("0888123456", "https://invite.viber.com/x", "Пловдив"));
+        assertThat(postSettings.save(new PostSettings(" 0888123456 ", "https://invite.viber.com/x", "Пловдив",
+                " 1234567890 "))).isEqualTo(new PostSettings("0888123456", "https://invite.viber.com/x", "Пловдив",
+                "1234567890"));
 
-        PostSettings back = postSettings.save(new PostSettings("0888123456", "  ", null));
-        assertThat(back).isEqualTo(new PostSettings("0888123456", null, null));
+        PostSettings back = postSettings.save(new PostSettings("0888123456", "  ", null, ""));
+        assertThat(back).isEqualTo(new PostSettings("0888123456", null, null, null));
         assertThat(postSettings.find()).isEqualTo(back);
 
         assertThat(publicContact.contact()).isEqualTo(back); // the public site shows the same details
 
-        postSettings.save(new PostSettings(null, null, null));
-        assertThat(postSettings.find()).isEqualTo(new PostSettings(null, null, null));
+        postSettings.save(new PostSettings(null, null, null, null));
+        assertThat(postSettings.find()).isEqualTo(new PostSettings(null, null, null, null));
+    }
+
+    @Test
+    void inquiriesKeepWhereTheyCameFromAndTheReportCountsThem() {
+        String campaign = "test-" + UUID.randomUUID();
+        var withLink = new Attribution(" facebook ", "social", campaign, "reel-1", "/cars/x?utm_source=facebook",
+                "l.facebook.com");
+        inquiryService.create(new InquiryRequest("A", "0888000001", null, null, null, null, true,
+                HeardFrom.FACEBOOK, withLink));
+        inquiryService.create(new InquiryRequest("B", "0888000002", null, null, null, null, true,
+                HeardFrom.FRIEND, withLink));
+        inquiryService.create(new InquiryRequest("C", "0888000003", null, null, null, null, true, null,
+                new Attribution("", " ", null, null, "x".repeat(400), null)));
+
+        var newest = inquiryService.list(Inquiry.Status.NEW, 0, 3).items();
+        assertThat(newest.get(0).heardFrom()).isNull();
+        assertThat(newest.get(0).attribution().utmSource()).isNull();
+        assertThat(newest.get(0).attribution().landingPath()).hasSize(300);
+        assertThat(newest.get(1).heardFrom()).isEqualTo(HeardFrom.FRIEND);
+        assertThat(newest.get(1).attribution()).isEqualTo(new Attribution("facebook", "social", campaign, "reel-1",
+                "/cars/x?utm_source=facebook", "l.facebook.com"));
+
+        var report = inquiryService.report(null, null);
+        assertThat(report.to()).isEqualTo(report.from().plusDays(29));
+        assertThat(report.total()).isGreaterThanOrEqualTo(3);
+        assertThat(report.byUtmCampaign()).anySatisfy(c -> {
+            assertThat(c.key()).isEqualTo(campaign);
+            assertThat(c.count()).isEqualTo(2);
+        });
+        assertThat(report.byHeardFrom()).extracting(c -> c.key()).contains("FACEBOOK", "FRIEND", null);
+        assertThat(report.byUtmSource()).extracting(c -> c.key()).contains("facebook");
+        assertThat(report.byWeek()).isNotEmpty();
+        assertThat(report.byWeek().stream().mapToLong(w -> w.count()).sum()).isEqualTo(report.total());
+        assertThat(report.byCar()).anySatisfy(c -> assertThat(c.carId()).isNull());
+
+        assertThat(inquiryService.report(report.to().plusDays(1), report.to().plusDays(7)).total()).isZero();
+        assertThatThrownBy(() -> inquiryService.report(report.to(), report.from()))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> inquiryService.report(report.to().minusYears(2), report.to()))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void deliveredCarsArePublishedOnlyWithConsent() {
+        String ref = "IC" + UUID.randomUUID().toString().substring(0, 8);
+        AdminCar car = carService.createDraft(new ImportedCar(ref, null,
+                CarSpecs.builder().title("Kia K5 2022").make("Kia").model("K5").build(), new BigDecimal("15000"),
+                "EUR", List.of(), List.of()), CarSource.AUTOWINI,
+                "https://www.autowini.com/goods/detail?listingId=" + ref);
+
+        assertThatThrownBy(() -> deliveredCars.create(new DeliveredCarRequest(null, " ", "Георги", null, null, null,
+                true, true))).isInstanceOf(BadRequestException.class); // no car
+        assertThatThrownBy(() -> deliveredCars.create(new DeliveredCarRequest(null, "Kia K5", "Георги", null, null,
+                null, false, true))).isInstanceOf(BadRequestException.class); // no consent
+
+        var hidden = deliveredCars.create(new DeliveredCarRequest(car.id(), "", " Георги ", "Пловдив",
+                " Доволен съм! ", LocalDate.of(2026, 10, 1), true, false));
+        assertThat(hidden.carTitle()).isEqualTo(car.specs().title()); // taken from the car
+        assertThat(hidden.customerName()).isEqualTo("Георги");
+        assertThat(hidden.quote()).isEqualTo("Доволен съм!");
+        assertThat(deliveredCars.listPublic(50)).noneMatch(d -> d.id() == hidden.id());
+
+        var shown = deliveredCars.update(hidden.id(), new DeliveredCarRequest(car.id(), "Kia K5 2022", "Георги",
+                "Пловдив", "Доволен съм!", LocalDate.of(2026, 10, 1), true, true));
+        assertThat(shown.carTitle()).isEqualTo("Kia K5 2022");
+        assertThat(deliveredCars.listPublic(50)).anySatisfy(d -> {
+            assertThat(d.id()).isEqualTo(hidden.id());
+            assertThat(d.carSlug()).isNull(); // the car is a draft: no link
+            assertThat(d.photoUrl()).isNull();
+        });
+
+        byte[] jpeg = new byte[2048];
+        jpeg[0] = (byte) 0xff;
+        jpeg[1] = (byte) 0xd8;
+        jpeg[2] = (byte) 0xff;
+        jpeg[2046] = (byte) 0xff;
+        jpeg[2047] = (byte) 0xd9;
+        assertThat(deliveredCars.setPhoto(hidden.id(), jpeg).photoUrl()).endsWith(".jpg");
+        assertThatThrownBy(() -> deliveredCars.setPhoto(hidden.id(), new byte[2048]))
+                .isInstanceOf(BadRequestException.class);
+        assertThat(deliveredCars.deletePhoto(hidden.id()).photoUrl()).isNull();
+
+        carService.changeStatus(car.id(), CarStatus.PUBLISHED);
+        assertThat(deliveredCars.listPublic(50)).filteredOn(d -> d.id() == hidden.id())
+                .extracting(d -> d.carSlug()).containsExactly(car.slug());
+
+        carService.delete(car.id()); // the story stays, without the link
+        assertThat(deliveredCars.get(hidden.id()).carId()).isNull();
+        deliveredCars.delete(hidden.id());
+        assertThat(deliveredCars.listAdmin()).noneMatch(d -> d.id() == hidden.id());
     }
 
     @Test

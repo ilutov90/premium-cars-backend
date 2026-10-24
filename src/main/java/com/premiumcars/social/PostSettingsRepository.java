@@ -15,6 +15,7 @@ public class PostSettingsRepository {
     static final String PHONE = "PHONE";
     static final String VIBER_LINK = "VIBER_LINK";
     static final String OFFICE = "OFFICE";
+    static final String META_PIXEL_ID = "META_PIXEL_ID";
 
     private final JdbcClient jdbc;
 
@@ -27,7 +28,7 @@ public class PostSettingsRepository {
         jdbc.sql("SELECT name, value FROM post_setting")
                 .query((rs, i) -> values.put(rs.getString("name"), rs.getString("value")))
                 .list();
-        return new PostSettings(values.get(PHONE), values.get(VIBER_LINK), values.get(OFFICE));
+        return new PostSettings(values.get(PHONE), values.get(VIBER_LINK), values.get(OFFICE), values.get(META_PIXEL_ID));
     }
 
     /** Replaces all details; an empty one goes back to the default. */
@@ -37,6 +38,7 @@ public class PostSettingsRepository {
         values.put(PHONE, settings.phone());
         values.put(VIBER_LINK, settings.viberLink());
         values.put(OFFICE, settings.office());
+        values.put(META_PIXEL_ID, settings.metaPixelId());
         values.forEach((name, value) -> {
             if (value == null) {
                 jdbc.sql("DELETE FROM post_setting WHERE name = :name").param("name", name).update();

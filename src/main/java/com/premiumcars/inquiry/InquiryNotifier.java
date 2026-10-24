@@ -127,6 +127,17 @@ public class InquiryNotifier {
         } else {
             t.append("Кола: общо запитване (\"намери ми кола\")\n");
         }
+        if (e.heardFrom() != null) {
+            t.append("Откъде е научил: ").append(heardFromLabel(e.heardFrom())).append('\n');
+        }
+        Attribution a = e.attribution();
+        if (a != null && (a.utmSource() != null || a.utmCampaign() != null)) {
+            t.append("Дошъл от линк: ").append(String.join(" / ", java.util.stream.Stream
+                    .of(a.utmSource(), a.utmMedium(), a.utmCampaign())
+                    .filter(InquiryNotifier::notBlank).toList())).append('\n');
+        } else if (a != null && a.referrer() != null) {
+            t.append("Дошъл от сайт: ").append(a.referrer()).append('\n');
+        }
         if (notBlank(e.message())) {
             t.append("\nСъобщение:\n").append(e.message()).append('\n');
         }
@@ -134,6 +145,22 @@ public class InquiryNotifier {
             t.append("\nВсички запитвания: ").append(siteUrl).append("/admin/inquiries\n");
         }
         return t.toString();
+    }
+
+    /** The form's wording (the e-mail is the one Bulgarian text of the backend). */
+    static String heardFromLabel(HeardFrom h) {
+        return switch (h) {
+            case FACEBOOK -> "Facebook";
+            case INSTAGRAM -> "Instagram";
+            case GOOGLE -> "Google";
+            case MOBILE_BG -> "mobile.bg";
+            case VIBER -> "Viber";
+            case TIKTOK -> "TikTok";
+            case YOUTUBE -> "YouTube";
+            case FRIEND -> "препоръка от познат";
+            case RETURNING -> "вече е работил с нас";
+            case OTHER -> "друго";
+        };
     }
 
     private static boolean notBlank(String s) {
