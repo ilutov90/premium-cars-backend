@@ -20,6 +20,9 @@ public class JsonColumns {
     private static final TypeReference<List<Long>> LONG_LIST = new TypeReference<>() {
     };
 
+    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {
+    };
+
     private final ObjectMapper mapper;
 
     public JsonColumns(ObjectMapper mapper) {
@@ -43,6 +46,17 @@ public class JsonColumns {
         }
         try {
             return mapper.readValue(json, LONG_LIST);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Invalid JSON in database column: " + e.getMessage(), e);
+        }
+    }
+
+    public List<String> readStringList(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return mapper.readValue(json, STRING_LIST);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Invalid JSON in database column: " + e.getMessage(), e);
         }

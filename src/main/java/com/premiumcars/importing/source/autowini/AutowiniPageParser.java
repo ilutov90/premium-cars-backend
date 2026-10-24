@@ -2,6 +2,7 @@ package com.premiumcars.importing.source.autowini;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -16,9 +17,11 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
+import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.Transmission;
+import com.premiumcars.importing.extract.FeatureMapper;
 import com.premiumcars.importing.extract.ValueParsers;
 
 /**
@@ -39,6 +42,7 @@ public final class AutowiniPageParser {
             Map.entry("transmission", "transmission"),
             Map.entry("steering", "steering"),
             Map.entry("exterior color", "color"),
+            Map.entry("first registration date", "reg_date"),
             Map.entry("location", "location"),
             Map.entry("condition", "condition"),
             Map.entry("vehicle type", "vehicle_type"),
@@ -48,6 +52,11 @@ public final class AutowiniPageParser {
 
     private static final Pattern ITEM_ID = Pattern.compile("(IC\\d+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern SIZED = Pattern.compile("^(.*?)_(?:320|1024)\\.(jpe?g)(\\?.*)?$", Pattern.CASE_INSENSITIVE);
+    /** "19th Sep. 2023", "1st Jan 2020" */
+    private static final Pattern DAY_MONTH_YEAR = Pattern.compile(
+            "(?:\\d{1,2}(?:st|nd|rd|th)?\\s+)?([A-Za-z]{3})[a-z]*\\.?\\s+((?:19|20)\\d{2})");
+    private static final List<String> MONTHS =
+            List.of("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec");
     private static final Pattern MONEY = Pattern.compile("(US\\$|USD|\\$|€|EUR)\\s*([\\d][\\d,]*(?:\\.\\d+)?)",
             Pattern.CASE_INSENSITIVE);
 
@@ -59,9 +68,14 @@ public final class AutowiniPageParser {
      * @param price    price shown on the page (only for members who may see prices), null otherwise
      * @param currency currency of {@code price}
      * @param discount autowini's discount on that price (USD), when it shows one; null otherwise
+     * @param options  the seller's "Options" of this car (e.g. "Heating Seat"), empty when the page has none
      */
     public record ParsedPage(String itemId, Map<String, String> fields, BigDecimal price, String currency,
-                             BigDecimal discount, List<String> images) {
+                             BigDecimal discount, List<String> images, List<String> options) {
+
+        public ParsedPage {
+            options = options == null ? List.of() : List.copyOf(options);
+        }
     }
 
     private AutowiniPageParser() {
@@ -123,7 +137,8 @@ public final class AutowiniPageParser {
             }
         }
         String id = fields.getOrDefault("item_no", itemId);
-        return new ParsedPage(id, fields, price, currency, price == null ? null : discount, images(doc));
+        return new ParsedPage(id, fields, price, currency, price == null ? null : discount, images(doc),
+                options(doc));
     }
 
     private static boolean inSiteChrome(Element element) {
@@ -166,19 +181,51 @@ public final class AutowiniPageParser {
 
         BigDecimal cc = ValueParsers.parseNumber(f.get("engine_cc"));
         String bodyType = f.get("vehicle_type");
+        Set<CarFeature> features = EnumSet.noneOf(CarFeature.class);
+        features.addAll(FeatureMapper.fromPhrases(page.options()));
+        features.addAll(FeatureMapper.fromSpecs(null, null, null, FeatureMapper.rightHandDrive(f.get("steering"))));
         return CarSpecs.builder()
                 .title(title.isBlank() ? null : title)
                 .make(make)
                 .model(model)
                 .trim(trim)
                 .year(ValueParsers.parseYear(f.get("year")))
+                .firstRegistration(yearMonth(f.get("reg_date")))
                 .mileageKm(ValueParsers.parseMileageKm(f.get("km")))
                 .fuelType(FuelType.detect(f.get("fuel")))
                 .transmission(Transmission.detect(f.get("transmission")))
                 .engineCc(cc != null && cc.intValue() > 100 ? cc.intValue() : null)
                 .bodyType(bodyType)
                 .color(f.get("color"))
+                .features(features)
                 .build();
+    }
+
+    /** The "Options" block: {@code .optionInfo li > h3} (group) with {@code .list span} items. */
+    static List<String> options(Document doc) {
+        List<String> out = new ArrayList<>();
+        for (Element span : doc.select(".optionInfo .list span")) {
+            String text = span.text().replace('\u00a0', ' ').replaceAll("\\s+", " ").trim();
+            if (!text.isEmpty() && !out.contains(text)) {
+                out.add(text);
+            }
+        }
+        return out;
+    }
+
+    /** "19th Sep. 2023" -> "2023-09"; the text as it is when it has another shape; null when empty. */
+    static String yearMonth(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        Matcher m = DAY_MONTH_YEAR.matcher(raw);
+        if (m.find()) {
+            int month = MONTHS.indexOf(m.group(1).toLowerCase(Locale.ROOT)) + 1;
+            if (month > 0) {
+                return m.group(2) + "-" + String.format("%02d", month);
+            }
+        }
+        return raw.trim();
     }
 
     /** Photos from imagebox.autowini.com: the 1024 px version of sized photos, new-style URLs as they are. */

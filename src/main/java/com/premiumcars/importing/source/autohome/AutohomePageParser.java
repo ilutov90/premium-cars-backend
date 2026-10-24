@@ -2,6 +2,7 @@ package com.premiumcars.importing.source.autohome;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -16,12 +17,14 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.parser.Parser;
 
+import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.importing.extract.EvSpecsExtractor;
 import com.premiumcars.importing.extract.EvSpecsExtractor.EvSpecs;
+import com.premiumcars.importing.extract.FeatureMapper;
 import com.premiumcars.importing.extract.LabelValues;
 import com.premiumcars.importing.extract.PageText;
 import com.premiumcars.importing.extract.TitleParser;
@@ -81,9 +84,10 @@ public final class AutohomePageParser {
      *
      * @param galleryTotal photo count shown by the gallery ("1/24" -> 24), null when not shown
      * @param tokenLists   visible lines plus JSON tokens of scripts that mention motor/battery data
+     * @param specSheet    the page's "Specifications" table (parameters and equipment of the model version)
      */
     public record ParsedPage(String title, Map<String, String> fields, BigDecimal priceUsd, List<String> images,
-                             Integer galleryTotal, List<List<String>> tokenLists) {
+                             Integer galleryTotal, List<List<String>> tokenLists, AutohomeSpecSheet specSheet) {
 
         public FuelType fuelType() {
             FuelType f = FuelType.detect(fields.get("fuel"));
@@ -137,7 +141,8 @@ public final class AutohomePageParser {
                 images = new ArrayList<>(images.subList(0, total));
             }
         }
-        return new ParsedPage(title, fields, priceUsd(lines, start, doc), images, total, tokenLists);
+        return new ParsedPage(title, fields, priceUsd(lines, start, doc), images, total, tokenLists,
+                AutohomeSpecSheet.parse(doc));
     }
 
     /** Builds our car data from the parsed page and the electric drive data found (possibly with a browser). */
@@ -187,7 +192,50 @@ public final class AutohomePageParser {
                 b.motorPowerKw((int) Math.round(ev.powerHp() / 1.36));
             }
         }
-        return b.build();
+        fromSpecSheet(b, page.specSheet(), fuel);
+        Set<CarFeature> features = EnumSet.noneOf(CarFeature.class);
+        features.addAll(FeatureMapper.fromPhrases(page.specSheet().phrases()));
+        features.addAll(FeatureMapper.fromSpecs(b.drivetrain(), b.seats(), b.doors(),
+                FeatureMapper.rightHandDrive(f.get("steering"))));
+        return b.features(features).build();
+    }
+
+    /**
+     * Fills what the vehicle details left empty from the specifications table: power, displacement, seats,
+     * doors, drive, and the emission class mobile.bg asks for.
+     */
+    private static void fromSpecSheet(CarSpecs.Builder b, AutohomeSpecSheet sheet, FuelType fuel) {
+        if (sheet.isEmpty()) {
+            return;
+        }
+        if (b.powerHp() == null) {
+            boolean combustionOnly = fuel == FuelType.PETROL || fuel == FuelType.DIESEL || fuel == FuelType.LPG;
+            Integer ps = intValue(sheet.param("maximum horsepower (ps)"));
+            Integer kw = intValue(sheet.param("maximum power (kw)")); // the system's total for hybrids
+            if (combustionOnly && ps != null) {
+                b.powerHp(ps);
+            } else if (kw != null) {
+                b.powerHp((int) Math.round(kw * 1.36));
+            } else if (ps != null) {
+                b.powerHp(ps);
+            }
+        }
+        if (b.engineCc() == null) {
+            Integer ml = intValue(sheet.param("displacement (ml)"));
+            if (ml != null && ml > 100) {
+                b.engineCc(ml);
+            }
+        }
+        if (b.seats() == null) {
+            b.seats(intValue(sheet.param("seating capacity")));
+        }
+        if (b.doors() == null) {
+            b.doors(intValue(sheet.param("number of doors")));
+        }
+        if (b.drivetrain() == null) {
+            b.drivetrain(Drivetrain.detect(sheet.param("drive type")));
+        }
+        b.euroStandard(FeatureMapper.euroStandard(sheet.param("emission standard")));
     }
 
     // ---------------------------------------------------------------- images

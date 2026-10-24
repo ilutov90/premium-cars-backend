@@ -17,6 +17,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
@@ -151,8 +152,9 @@ class JdbcRepositoriesTest {
                 .fuelType(FuelType.PLUGIN_HYBRID).drivetrain(Drivetrain.AWD).engineCc(1998).powerHp(292)
                 .batteryKwh(new BigDecimal("19.7")).electricRangeKm(88).rangeStandard("WLTP").motorPowerKw(80)
                 .bodyType("SUV").seats(5).doors(5).curbWeightKg(2190).dimensions("4708 × 1891 × 1676")
-                .firstRegistration("2022-04").color(" ")
+                .firstRegistration("2022-04").color(" ").euroStandard(6)
                 .extraSpecs(Map.of("Drive", "AWD", "Seats", "5"))
+                .features(List.of(CarFeature.NAVIGATION, CarFeature.ABS, CarFeature.NAVIGATION))
                 .build();
         var update = new CarUpdateRequest(edited,
                 new PricingInputs(new BigDecimal("21000"), "usd", null, null, null));
@@ -175,6 +177,8 @@ class JdbcRepositoriesTest {
         assertThat(saved.curbWeightKg()).isEqualTo(2190);
         assertThat(saved.firstRegistration()).isEqualTo("2022-04");
         assertThat(saved.extraSpecs()).containsExactly(Map.entry("Drive", "AWD"), Map.entry("Seats", "5"));
+        assertThat(saved.euroStandard()).isEqualTo(6);
+        assertThat(saved.features()).containsExactly(CarFeature.ABS, CarFeature.NAVIGATION); // form order, no duplicates
 
         AdminCar published = carService.changeStatus(draft.id(), CarStatus.PUBLISHED);
         assertThat(published.publishedAt()).isNotNull();

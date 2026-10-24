@@ -52,7 +52,7 @@ class AutowiniSourceAdapterTest {
     }
 
     private static final ParsedPage MOBILE = new ParsedPage("IC5341711", Map.of("item_no", "IC5341711"), null, null,
-            null, List.of(DIR + "m1_1024.jpg"));
+            null, List.of(DIR + "m1_1024.jpg"), List.of());
 
     @Test
     void theApiPriceGoesIntoTheMobilePage() {

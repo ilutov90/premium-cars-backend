@@ -9,6 +9,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
@@ -52,6 +53,58 @@ class AutohomePageParserTest {
         assertThat(specs.curbWeightKg()).isEqualTo(2020);
         assertThat(specs.dimensions()).isEqualTo("4980 × 1910 × 1495");
         assertThat(specs.description()).isNull(); // the source's SEO text is not imported
+    }
+
+    @Test
+    void readsTheSpecificationsTable() throws IOException {
+        ParsedPage page = AutohomePageParser.parse(page("autohome-60286620.html"), "60286620");
+
+        AutohomeSpecSheet sheet = page.specSheet();
+        assertThat(sheet.param("Maximum horsepower (Ps)")).isEqualTo("300");
+        assertThat(sheet.param("Drive Type")).isEqualTo("Front Engine, All-Wheel Drive");
+        assertThat(sheet.param("Emission Standard")).isEqualTo("China VI");
+        assertThat(sheet.phrases())
+                .contains("Front/Rear Side Airbags: Front", "Front Seat Features: Ventilation", "Paddle Shifters")
+                .doesNotContain("Front/Rear Side Airbags: Rear", "Heated Steering Wheel") // "-" and "○"
+                .doesNotContain("Lighting Features: Pixel-style"); // subvalue 2 = optional
+    }
+
+    @Test
+    void fillsMobileBgDataFromTheSpecificationsTable() throws IOException {
+        ParsedPage page = AutohomePageParser.parse(page("autohome-60286620.html"), "60286620");
+        CarSpecs specs = AutohomePageParser.toSpecs(page, EvSpecs.NONE);
+
+        assertThat(specs.fuelType()).isEqualTo(FuelType.PETROL);
+        assertThat(specs.powerHp()).isEqualTo(300); // the engine's Ps, not 221 kW * 1.36
+        assertThat(specs.engineCc()).isEqualTo(1997); // "Engine (cc)" says "2.0T 300hp L4"
+        assertThat(specs.engine()).isEqualTo("2.0T 300hp L4");
+        assertThat(specs.euroStandard()).isEqualTo(6);
+        assertThat(specs.drivetrain()).isEqualTo(Drivetrain.AWD);
+        assertThat(specs.features()).containsExactly(
+                CarFeature.GPS_TRACKING, CarFeature.ABS, CarFeature.AIRBAGS_REAR, CarFeature.AIRBAGS_FRONT,
+                CarFeature.AIRBAGS_SIDE, CarFeature.EBD, CarFeature.ESP, CarFeature.TIRE_PRESSURE_MONITORING,
+                CarFeature.PARKING_SENSORS, CarFeature.ISOFIX, CarFeature.TRACTION_CONTROL,
+                CarFeature.DISTANCE_CONTROL, CarFeature.HILL_DESCENT_CONTROL,
+                CarFeature.CAMERA, CarFeature.CARPLAY_ANDROID_AUTO, CarFeature.START_STOP, CarFeature.BLUETOOTH,
+                CarFeature.MANUAL_SHIFT_MODE, CarFeature.USB_AUX, CarFeature.POWER_TAILGATE,
+                CarFeature.KEYLESS_START, CarFeature.TRIP_COMPUTER, CarFeature.VENTILATED_SEATS,
+                CarFeature.LIGHT_SENSOR, CarFeature.POWER_MIRRORS, CarFeature.POWER_WINDOWS, CarFeature.POWER_SEATS,
+                CarFeature.ELECTRIC_POWER_STEERING, CarFeature.CLIMATE_CONTROL,
+                CarFeature.MULTIFUNCTION_STEERING_WHEEL, CarFeature.NAVIGATION, CarFeature.HEATED_SEATS,
+                CarFeature.STEERING_WHEEL_ADJUSTMENT, CarFeature.RAIN_SENSOR, CarFeature.CRUISE_CONTROL,
+                CarFeature.FOUR_BY_FOUR,
+                CarFeature.DOORS_4_5, CarFeature.LED_HEADLIGHTS, CarFeature.ALLOY_WHEELS, CarFeature.PANORAMIC_ROOF,
+                CarFeature.CENTRAL_LOCKING,
+                CarFeature.LEATHER_INTERIOR);
+    }
+
+    @Test
+    void pagesWithoutTheTableStillWork() throws IOException {
+        ParsedPage page = AutohomePageParser.parse(page("autohome-60182282.html"), "60182282");
+        assertThat(page.specSheet().isEmpty()).isTrue();
+        CarSpecs specs = AutohomePageParser.toSpecs(page, EvSpecs.NONE);
+        assertThat(specs.euroStandard()).isNull();
+        assertThat(specs.features()).containsExactly(CarFeature.DOORS_4_5); // 4 doors, left-hand drive, FWD
     }
 
     @Test

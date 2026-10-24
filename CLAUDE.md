@@ -27,6 +27,9 @@ Always run `mvn test` before finishing a change.
 - Domain types are Java records (`Car`, `CarSpecs`, `PricingInputs`, `CarImage`, `Inquiry`). Enums are stored as
   their `name()`. Build `CarSpecs` with `CarSpecs.builder()` / `toBuilder()`: `build()` trims, maps blank to null
   and truncates to the column sizes. EV fields (battery, range, motor) are nullable; combustion cars leave them null.
+- Car data is limited to what mobile.bg's "Добави обява" form can take: extras are `CarFeature` (one constant per
+  mobile.bg checkbox, `mobileBgLabel()` is the checkbox's exact value, stored by `name()` in `car.features`), plus
+  `euroStandard` (1-6). Importers fill what the source shows (`FeatureMapper`), the admins edit the rest.
 - The car API is nested: `{specs, pricing}` in requests and admin responses, `specs` in public responses.
 - jsonb columns: write with `CAST(:param AS jsonb)`, read/write through `JsonColumns`.
 - Schema changes: add a **new** Liquibase SQL file under `src/main/resources/db/changelog/changes/`
@@ -50,10 +53,10 @@ Always run `mvn test` before finishing a change.
 |---|---|
 | `catalog` | cars and photos: domain records, `CarRepository`, `CarImageRepository`, `CarService`, public + admin controllers |
 | `importing` | import by link: `ImportService`, one `SourceAdapter` per site, `PageFetcher` |
-| `importing.extract` | `GenericPageExtractor` (JSON-LD, `__NEXT_DATA__`, Open Graph, text), `EvSpecsExtractor`, `TitleParser`, `LabelValues` |
+| `importing.extract` | `GenericPageExtractor` (JSON-LD, `__NEXT_DATA__`, Open Graph, text), `EvSpecsExtractor`, `TitleParser`, `LabelValues`, `FeatureMapper` (equipment text of both sites -> `CarFeature`, Euro class, steering side) |
 | `importing.browser` | `PageRenderer` / `PlaywrightPageRenderer`: headless Chromium for JS-rendered pages (`app.importer.browser.enabled`) |
-| `importing.source.autohome` | global.autohome.com.cn: `AutohomePageParser`, `AutohomeSourceAdapter` (renders when photos/EV data are missing) |
-| `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser`, `AutowiniSourceAdapter` |
+| `importing.source.autohome` | global.autohome.com.cn: `AutohomePageParser`, `AutohomeSpecSheet` (the "Specifications" table from the page's Next.js data: parameters + standard equipment, "○" options are not counted), `AutohomeSourceAdapter` (renders when photos/EV data are missing) |
+| `importing.source.autowini` | autowini.com: `AutowiniClient` (Keycloak login, cookies), `AutowiniPageParser` (incl. the seller's "Options"), `AutowiniSourceAdapter` |
 | `pricing` | `PriceCalculator` (final price = car + base costs + step costs + profit), `PricingProfile` + repository (one formula per site, in the DB, edited in the admin panel), `ExchangeRateProvider` (`EcbExchangeRateProvider`: daily ECB rates, configured ones as fallback). A car's price is calculated once and kept with its breakdown (`car.price_breakdown`): only its own price fields or an explicit recalculation change it, never rates, profiles or restarts |
 | `media` | `ImageStorage` (local folder now, S3/R2 later), `ImageDownloader` |
 | `social` | publishing to Facebook / Instagram / Viber: `MetaGraphClient` (Graph API), `ViberChannelClient` (Channels Post API) + `ViberWebhookController` (signed callback), `ImgbbUploader`, `SocialPublisher`, `social_post`, `post_template` (text templates filled in by the admin panel: one shared by Facebook and Instagram, stored as `FACEBOOK`, one for Viber), `post_setting` (phone, Viber link, office for the templates), `scheduled_post` + `ScheduledPostService` (one publication = one post per network, published at the same time in the background now or later; checked every 30 s, never retried) |
@@ -71,7 +74,7 @@ DTOs are in `catalog/web/dto/CarDtos.java` and `inquiry/InquiryDtos.java`. The f
 
 ## Tests
 
-- `CarSearchSqlTest`, `PriceCalculatorTest`, `GenericPageExtractorTest`, `EvSpecsExtractorTest`,
+- `CarSearchSqlTest`, `PriceCalculatorTest`, `GenericPageExtractorTest`, `EvSpecsExtractorTest`, `FeatureMapperTest`,
   `AutohomePageParserTest`, `AutowiniPageParserTest`: fast, no DB, no network.
 - `JdbcRepositoriesTest`, `AdminAuthTest`: full Spring context on PostgreSQL 17 in Docker (Testcontainers,
   `@ServiceConnection`); `VaultConfigTest`: real Vault in Docker. `src/test/resources/application.properties`

@@ -1,9 +1,13 @@
 package com.premiumcars.catalog.domain;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -26,7 +30,9 @@ import jakarta.validation.constraints.Size;
  * @param electricRangeKm   official electric range
  * @param rangeStandard     test cycle of the range: CLTC, NEDC, WLTP, EPA ...
  * @param motorPowerKw      total electric motor power
+ * @param euroStandard      emission class as a Euro number 1-6 (China VI counts as 6), as mobile.bg asks for it
  * @param extraSpecs        any other label/value pairs found on the source page
+ * @param features          extras, one per mobile.bg checkbox, in {@link CarFeature} order without duplicates
  */
 public record CarSpecs(
         @NotBlank @Size(max = 255) String title,
@@ -46,6 +52,7 @@ public record CarSpecs(
         @Min(0) @Max(3000) Integer electricRangeKm,
         @Size(max = 10) String rangeStandard,
         @Min(0) @Max(3000) Integer motorPowerKw,
+        @Min(1) @Max(6) Integer euroStandard,
         @Size(max = 100) String bodyType,
         @Min(1) @Max(20) Integer seats,
         @Min(1) @Max(10) Integer doors,
@@ -53,11 +60,13 @@ public record CarSpecs(
         @Min(0) @Max(20_000) Integer curbWeightKg,
         @Size(max = 50) String dimensions,
         @Size(max = 20_000) String description,
-        Map<String, String> extraSpecs
+        Map<String, String> extraSpecs,
+        List<CarFeature> features
 ) {
 
     public CarSpecs {
         extraSpecs = extraSpecs == null ? Map.of() : extraSpecs;
+        features = Builder.cleanFeatures(features);
     }
 
     public static Builder builder() {
@@ -71,10 +80,10 @@ public record CarSpecs(
                 .fuelType(fuelType).transmission(transmission).drivetrain(drivetrain)
                 .engineCc(engineCc).engine(engine).powerHp(powerHp)
                 .batteryKwh(batteryKwh).electricRangeKm(electricRangeKm).rangeStandard(rangeStandard)
-                .motorPowerKw(motorPowerKw)
+                .motorPowerKw(motorPowerKw).euroStandard(euroStandard)
                 .bodyType(bodyType).seats(seats).doors(doors).color(color)
                 .curbWeightKg(curbWeightKg).dimensions(dimensions)
-                .description(description).extraSpecs(extraSpecs);
+                .description(description).extraSpecs(extraSpecs).features(features);
     }
 
     /** Fluent builder; every setter accepts null. */
@@ -96,6 +105,7 @@ public record CarSpecs(
         private Integer electricRangeKm;
         private String rangeStandard;
         private Integer motorPowerKw;
+        private Integer euroStandard;
         private String bodyType;
         private Integer seats;
         private Integer doors;
@@ -104,6 +114,7 @@ public record CarSpecs(
         private String dimensions;
         private String description;
         private Map<String, String> extraSpecs = new LinkedHashMap<>();
+        private List<CarFeature> features = List.of();
 
         private Builder() {
         }
@@ -125,6 +136,7 @@ public record CarSpecs(
         public Builder electricRangeKm(Integer v) { electricRangeKm = v; return this; }
         public Builder rangeStandard(String v) { rangeStandard = v; return this; }
         public Builder motorPowerKw(Integer v) { motorPowerKw = v; return this; }
+        public Builder euroStandard(Integer v) { euroStandard = v; return this; }
         public Builder bodyType(String v) { bodyType = v; return this; }
         public Builder seats(Integer v) { seats = v; return this; }
         public Builder doors(Integer v) { doors = v; return this; }
@@ -138,11 +150,22 @@ public record CarSpecs(
             return this;
         }
 
+        public Builder features(Collection<CarFeature> v) {
+            features = v == null ? List.of() : List.copyOf(v.stream().filter(Objects::nonNull).toList());
+            return this;
+        }
+
         public String title() { return title; }
         public String make() { return make; }
         public String model() { return model; }
         public Integer year() { return year; }
         public FuelType fuelType() { return fuelType; }
+        public Integer powerHp() { return powerHp; }
+        public Integer engineCc() { return engineCc; }
+        public Integer seats() { return seats; }
+        public Integer doors() { return doors; }
+        public Drivetrain drivetrain() { return drivetrain; }
+        public List<CarFeature> features() { return features; }
 
         /** Trims text, maps blanks to null, cuts to column sizes. The title falls back to "Car". */
         public CarSpecs build() {
@@ -165,6 +188,7 @@ public record CarSpecs(
                     electricRangeKm,
                     clean(rangeStandard, 10),
                     motorPowerKw,
+                    euroStandard,
                     clean(bodyType, 100),
                     seats,
                     doors,
@@ -172,7 +196,18 @@ public record CarSpecs(
                     curbWeightKg,
                     clean(dimensions, 50),
                     clean(description, 20_000),
-                    cleanSpecs(extraSpecs));
+                    cleanSpecs(extraSpecs),
+                    features);
+        }
+
+        /** Enum order (the mobile.bg form's order), no nulls, no duplicates. */
+        static List<CarFeature> cleanFeatures(List<CarFeature> features) {
+            if (features == null || features.isEmpty()) {
+                return List.of();
+            }
+            EnumSet<CarFeature> set = EnumSet.noneOf(CarFeature.class);
+            features.stream().filter(Objects::nonNull).forEach(set::add);
+            return List.copyOf(set);
         }
 
         /** Keeps insertion order (it is the display order) and drops empty labels or values. */
