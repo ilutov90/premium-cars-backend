@@ -1,5 +1,9 @@
 package com.premiumcars.inquiry;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -13,6 +17,7 @@ import com.premiumcars.common.NotFoundException;
 import com.premiumcars.common.PageResponse;
 import com.premiumcars.inquiry.InquiryDtos.AdminInquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryCreated;
+import com.premiumcars.inquiry.InquiryDtos.InquiryReport;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 
 @Service
@@ -22,12 +27,19 @@ public class InquiryService {
 
     private final InquiryRepository repo;
     private final CarRepository carRepo;
-    private final ApplicationEventPublisher events;
+    private static final ZoneId SOFIA = ZoneId.of("Europe/Sofia");
+    /** The longest period one report covers. */
+    static final int MAX_REPORT_DAYS = 366;
 
-    public InquiryService(InquiryRepository repo, CarRepository carRepo, ApplicationEventPublisher events) {
+    private final ApplicationEventPublisher events;
+    private final Clock clock;
+
+    public InquiryService(InquiryRepository repo, CarRepository carRepo, ApplicationEventPublisher events,
+                          Clock clock) {
         this.repo = repo;
         this.carRepo = carRepo;
         this.events = events;
+        this.clock = clock;
     }
 
     @Transactional
@@ -45,13 +57,15 @@ public class InquiryService {
                     .filter(Car::isPubliclyVisible)
                     .orElseThrow(() -> new NotFoundException("Car not found: " + r.carId()));
         }
+        Attribution attribution = r.attribution() == null ? Attribution.NONE : r.attribution();
         long id = repo.insert(r.carId(), r.name().trim(), trimToNull(r.phone()), trimToNull(r.email()),
-                trimToNull(r.message()));
-        log.info("New inquiry #{} for car {}", id, r.carId());
+                trimToNull(r.message()), r.heardFrom(), attribution);
+        log.info("New inquiry #{} for car {} (heard from {}, utm_source {})", id, r.carId(), r.heardFrom(),
+                attribution.utmSource());
         // InquiryNotifier e-mails the admin after the commit, outside this transaction
         events.publishEvent(new InquiryCreatedEvent(id, r.name().trim(), trimToNull(r.phone()),
                 trimToNull(r.email()), trimToNull(r.message()), car == null ? null : car.specs().title(),
-                car == null ? null : car.slug()));
+                car == null ? null : car.slug(), r.heardFrom(), attribution));
         return new InquiryCreated(id);
     }
 
@@ -70,9 +84,27 @@ public class InquiryService {
         return repo.findById(id).map(InquiryService::toDto).orElseThrow();
     }
 
+    /**
+     * Inquiries from {@code from} to {@code to} (both inclusive, Sofia days). Defaults: the last 30 days up to today.
+     */
+    @Transactional(readOnly = true)
+    public InquiryReport report(LocalDate from, LocalDate to) {
+        LocalDate end = to != null ? to : LocalDate.now(clock.withZone(SOFIA));
+        LocalDate start = from != null ? from : end.minusDays(29);
+        if (start.isAfter(end)) {
+            throw new BadRequestException("\"from\" must not be after \"to\"");
+        }
+        if (start.plusDays(MAX_REPORT_DAYS).isBefore(end)) {
+            throw new BadRequestException("A report covers at most " + MAX_REPORT_DAYS + " days");
+        }
+        return new InquiryReport(start, end, repo.countBetween(start, end), repo.countByStatus(start, end),
+                repo.countByHeardFrom(start, end), repo.countByUtmSource(start, end),
+                repo.countByUtmCampaign(start, end), repo.countByCar(start, end, 20), repo.countByWeek(start, end));
+    }
+
     private static AdminInquiry toDto(Inquiry i) {
         return new AdminInquiry(i.id(), i.carId(), i.carTitle(), i.carSlug(), i.name(), i.phone(), i.email(),
-                i.message(), i.status(), i.createdAt());
+                i.message(), i.status(), i.createdAt(), i.heardFrom(), i.attribution());
     }
 
     private static boolean isBlank(String s) {
