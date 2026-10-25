@@ -119,10 +119,15 @@ public final class CarDtos {
      *                 only to some members, so it is usually entered here)
      * @param currency currency of {@code price}; defaults to EUR
      */
+    /**
+     * @param html optional: the listing page as the admin's browser saved it, for sites that refuse the server
+     *             (guazi's bot check); the link still identifies the listing
+     */
     public record ImportRequest(
             @NotBlank @Size(max = 2000) String url,
             @DecimalMin("0") BigDecimal price,
-            @Size(min = 3, max = 3) String currency
+            @Size(min = 3, max = 3) String currency,
+            @Size(max = 10_000_000) String html
     ) {
     }
 

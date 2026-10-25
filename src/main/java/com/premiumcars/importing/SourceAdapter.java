@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.common.BadRequestException;
 import com.premiumcars.media.ImageDownloader.DownloadedImage;
 
 /**
@@ -19,6 +20,15 @@ public interface SourceAdapter {
     boolean supports(URI url);
 
     ImportedCar importFrom(URI url);
+
+    /**
+     * The listing from its page as the admin's browser saved it (for sites that refuse requests from the server).
+     * Sites that are always read from the link refuse it.
+     */
+    default ImportedCar importFromHtml(URI url, String html) {
+        throw new BadRequestException(
+                "This site is imported from its link only; leave the saved page out");
+    }
 
     /** The canonical form of a listing URL, used to detect duplicate imports. */
     default URI canonicalUrl(URI url) {

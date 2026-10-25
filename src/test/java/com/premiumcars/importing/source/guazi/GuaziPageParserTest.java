@@ -161,4 +161,25 @@ class GuaziPageParserTest {
                 .containsExactly("https://x.guazistatic-global.com/a.jpg",
                         "https://x.guazistatic-global.com/a.jpg?x-bce-process=image/format,f_jpg");
     }
+
+    @Test
+    void rawDataMayBeAReferenceToAnotherFlightRow() {
+        String row5 = "5:[\\\"$\\\",\\\"div\\\",null,{\\\"rawData\\\":\\\"$1f\\\"}]\\n";
+        String row1f = "1f:{\\\"productId\\\":\\\"abcdef12\\\",\\\"title\\\":\\\"Used BYD Han 2022\\\","
+                + "\\\"prices\\\":[{\\\"price\\\":\\\"$$9,000\\\",\\\"isDefault\\\":1}]}\\n";
+        String html = "<script>self.__next_f.push([1,\"" + row5 + row1f + "\"])</script>";
+
+        ParsedPage page = GuaziPageParser.parse(html, "abcdef12");
+        assertThat(page.title()).isEqualTo("BYD Han 2022");
+        assertThat(page.priceUsd()).isEqualByComparingTo("9000");
+    }
+
+    @Test
+    void aBotCheckPageIsDescribed() {
+        assertThatThrownBy(() -> GuaziPageParser.parse(
+                "<html><head><title>Check</title><script>var t='EO_Bot_Ssid=';</script></head></html>", "abcdef12"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("title \"Check\"")
+                .hasMessageContaining("Next.js data missing");
+    }
 }

@@ -22,6 +22,10 @@ import com.premiumcars.importing.source.guazi.GuaziPageParser.ParsedPage;
 /**
  * en.guazi.com (Guazi's export site, cars in China). No login, no browser: the page's HTML holds the whole listing
  * (see {@link GuaziPageParser}). Prices are FOB in USD; the car is priced with the autohome formula.
+ * <p>
+ * guazi may answer the server with a bot check (a script page) instead of the listing. The admin then saves the page
+ * in their own browser and imports that file ({@link #importFromHtml}); the server does not try to get past the
+ * check.
  */
 @Component
 @Order(12)
@@ -70,11 +74,31 @@ public class GuaziSourceAdapter implements SourceAdapter {
             throw new BadRequestException("Not a guazi car page (expected https://en.guazi.com/products/...html): "
                     + url);
         }
+        return fromPage(fetcher.fetchHtml(page), id, false);
+    }
+
+    @Override
+    public ImportedCar importFromHtml(URI url, String html) {
+        String id = GuaziPageParser.productId(canonicalUrl(url).toString());
+        if (id == null) {
+            throw new BadRequestException("Not a guazi car page (expected https://en.guazi.com/products/...html): "
+                    + url);
+        }
+        return fromPage(html, id, true);
+    }
+
+    private ImportedCar fromPage(String html, String id, boolean saved) {
         ParsedPage parsed;
         try {
-            parsed = GuaziPageParser.parse(fetcher.fetchHtml(page), id);
+            parsed = GuaziPageParser.parse(html, id);
         } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Could not read the guazi page: " + e.getMessage(), e);
+            throw new BadRequestException(saved
+                    ? "The saved file is not this guazi listing: " + e.getMessage()
+                    : "guazi did not send the listing to the server (bot check): save the page in your browser and "
+                      + "import the file. " + e.getMessage(), e);
+        }
+        if (saved && !id.equalsIgnoreCase(parsed.productId())) {
+            throw new BadRequestException("The saved file is listing " + parsed.productId() + ", not " + id);
         }
         CarSpecs specs = GuaziPageParser.toSpecs(parsed);
 
