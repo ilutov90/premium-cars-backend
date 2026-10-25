@@ -82,8 +82,8 @@ DTOs are in `catalog/web/dto/CarDtos.java`, `inquiry/InquiryDtos.java` and `deli
 
 - `CarSearchSqlTest`, `PriceCalculatorTest`, `GenericPageExtractorTest`, `EvSpecsExtractorTest`, `FeatureMapperTest`,
   `AutohomePageParserTest`, `AutowiniPageParserTest`, `GuaziPageParserTest`: fast, no DB, no network
-  (the `guazi-*.html` pages are reduced copies with the real structure; replace them with saved real pages when an
-  import misreads one).
+  (`guazi-bxrayk2hvc.html` is a real listing's `rawData` + JSON-LD in the page's structure, without the rest of the
+  saved page, which carries the logged-in visitor's account; `guazi-68pfqu2abf.html` is a reduced copy).
 - `JdbcRepositoriesTest`, `AdminAuthTest`: full Spring context on PostgreSQL 17 in Docker (Testcontainers,
   `@ServiceConnection`); `VaultConfigTest`: real Vault in Docker. `src/test/resources/application.properties`
   turns Vault and rate limits off for the other tests.

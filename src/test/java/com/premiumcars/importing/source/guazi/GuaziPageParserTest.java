@@ -21,9 +21,10 @@ import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.importing.source.guazi.GuaziPageParser.ParsedPage;
 
 /**
- * The pages under /pages/guazi-*.html are reduced copies of two real en.guazi.com listings: the same structure
- * (Next.js flight chunks holding {@code rawData}, the JSON-LD Car) with a subset of the values, without VIN or
- * seller data.
+ * /pages/guazi-bxrayk2hvc.html holds the real {@code rawData} and JSON-LD of a saved en.guazi.com listing (Tesla
+ * Model Y, October 2026) in the page's structure (Next.js flight chunks), without the masked VIN and without the
+ * rest of the page (the saved page carried the logged-in visitor's account). /pages/guazi-68pfqu2abf.html is a
+ * reduced copy with a subset of a listing's values (and a recommended car's rawData before it).
  */
 class GuaziPageParserTest {
 
@@ -48,15 +49,15 @@ class GuaziPageParserTest {
     void readsAnElectricCar() throws IOException {
         ParsedPage page = GuaziPageParser.parse(page("guazi-bxrayk2hvc.html"), "bxrayk2hvc");
 
-        assertThat(page.productId()).isEqualTo("bxrayk2hvc"); // not the recommended car before it
+        assertThat(page.productId()).isEqualTo("bxrayk2hvc");
         assertThat(page.title()).isEqualTo("Tesla Model Y 2025 Long-Range All-Wheel-Drive Version");
-        assertThat(page.priceUsd()).isEqualByComparingTo("37899"); // the default port (Shanghai)
+        assertThat(page.priceUsd()).isEqualByComparingTo("37899"); // Shanghai, the default port
         assertThat(page.batteryHealthPct()).isEqualTo(91);
         assertThat(page.fields()).containsEntry("location", "Shaoxing, China")
                 .containsEntry("range", "719").containsEntry("range_label", "CLTC Electric Range (km)");
-        assertThat(page.images()).hasSize(3) // the duplicate photo once; processed ("effect") photos kept
-                .first().asString().startsWith("https://global-image-pub.guazistatic-global.com/a1.jpg");
-        assertThat(page.inspection()).isEqualTo("guazi inspection: grade A; issues: Exterior 6, New Energy 1");
+        assertThat(page.images()).hasSize(26) // exterior, interior and details; processed ("effect") photos kept
+                .allMatch(u -> u.startsWith("https://global-image-pub.guazistatic-global.com/"));
+        assertThat(page.inspection()).isEqualTo("guazi inspection: grade A; issues: Exterior Design 6, New Energy 1");
 
         CarSpecs s = GuaziPageParser.toSpecs(page);
         assertThat(s.make()).isEqualTo("Tesla");
@@ -76,27 +77,35 @@ class GuaziPageParserTest {
         assertThat(s.batteryHealthPct()).isEqualTo(91);
         assertThat(s.engineCc()).isNull();
         assertThat(s.bodyType()).isEqualTo("SUV");
+        assertThat(s.seats()).isEqualTo(5);
+        assertThat(s.doors()).isEqualTo(5);
         assertThat(s.color()).isEqualTo("Dark grey");
         assertThat(s.curbWeightKg()).isEqualTo(1992);
         assertThat(s.dimensions()).isEqualTo("4797 × 1920 × 1624");
         assertThat(s.euroStandard()).isNull();
         assertThat(s.features()).contains(CarFeature.AIRBAGS_FRONT, CarFeature.AIRBAGS_SIDE, CarFeature.AIRBAGS_REAR,
-                CarFeature.ABS, CarFeature.ESP, CarFeature.TIRE_PRESSURE_MONITORING, CarFeature.PARKING_SENSORS,
-                CarFeature.CAMERA, CarFeature.USB_AUX, CarFeature.TRIP_COMPUTER, CarFeature.POWER_MIRRORS,
-                CarFeature.POWER_WINDOWS, CarFeature.DISTANCE_CONTROL, CarFeature.CRUISE_CONTROL,
-                CarFeature.PANORAMIC_ROOF, CarFeature.CENTRAL_LOCKING, CarFeature.RAIN_SENSOR, CarFeature.POWER_SEATS,
-                CarFeature.LIGHT_SENSOR, CarFeature.KEYLESS_START, CarFeature.FOUR_BY_FOUR, CarFeature.DOORS_4_5)
-                .doesNotContain(CarFeature.SUNROOF, CarFeature.RIGHT_HAND_DRIVE, CarFeature.SEVEN_SEATS);
+                CarFeature.EBD, CarFeature.ESP, CarFeature.TRACTION_CONTROL, CarFeature.TIRE_PRESSURE_MONITORING,
+                CarFeature.DISTANCE_CONTROL, CarFeature.CRUISE_CONTROL, CarFeature.CAMERA, CarFeature.USB_AUX,
+                CarFeature.POWER_TAILGATE, CarFeature.KEYLESS_START, CarFeature.CENTRAL_LOCKING,
+                CarFeature.LIGHT_SENSOR, CarFeature.RAIN_SENSOR, CarFeature.POWER_MIRRORS, CarFeature.POWER_WINDOWS,
+                CarFeature.POWER_SEATS, CarFeature.MULTIFUNCTION_STEERING_WHEEL, CarFeature.HEATED_STEERING_WHEEL,
+                CarFeature.ALLOY_WHEELS, CarFeature.PANORAMIC_ROOF, CarFeature.FOUR_BY_FOUR, CarFeature.DOORS_4_5)
+                // "No" on the page: rear radar, front seat heating, on-board computer, paddle shifters
+                .doesNotContain(CarFeature.PARKING_SENSORS, CarFeature.HEATED_SEATS, CarFeature.TRIP_COMPUTER,
+                        CarFeature.MANUAL_SHIFT_MODE, CarFeature.SUNROOF, CarFeature.RIGHT_HAND_DRIVE,
+                        CarFeature.SEVEN_SEATS);
 
         // the car page's sheet: "Yes" = fitted (""), "No" and "Optional" left out, values kept
         assertThat(s.sheet()).extracting(SpecGroup::name).containsExactly("Motor", "Body Structure",
-                "Safety Configuration", "Driving Assistance", "Multimedia", "Glass/Mirrors");
-        SpecGroup safety = s.sheet().get(2);
-        assertThat(safety.items()).contains(new SpecGroup.Item("Rear Curtain Airbags", ""))
+                "Safety Configuration", "Driving Assistance Configuration", "Exterior Configuration",
+                "Interior Configuration", "Seat Configuration", "Multimedia Configuration", "Lighting Configuration",
+                "Glass/Mirrors");
+        assertThat(s.sheet().get(2).items()).contains(new SpecGroup.Item("Rear Curtain Airbags", ""))
                 .extracting(SpecGroup.Item::name).doesNotContain("Rear Side Airbags");
         assertThat(s.sheet().get(3).items()).extracting(SpecGroup.Item::name)
-                .doesNotContain("Automatic Parking").contains("Level of Driving Assistance");
-        assertThat(s.sheet().get(5).items()).extracting(SpecGroup.Item::name).doesNotContain("Rear Wiper");
+                .contains("Level of Driving Assistance", "Adaptive Cruise Control")
+                .doesNotContain("Automatic Parking", "Rear Radar");
+        assertThat(s.sheet().get(0).items()).contains(new SpecGroup.Item("Fast Charging", "Supported"));
     }
 
     @Test
