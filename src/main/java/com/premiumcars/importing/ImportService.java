@@ -49,8 +49,9 @@ public class ImportService {
     /**
      * @param price    optional price that replaces the one on the page (autowini usually hides it)
      * @param currency currency of {@code price}; EUR when empty
+     * @param html     the page as the admin's browser saved it, or null to download it
      */
-    public ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency) {
+    public ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html) {
         URI url = normalize(rawUrl);
         SourceAdapter adapter = adapters.stream()
                 .filter(a -> a.supports(url))
@@ -65,7 +66,9 @@ public class ImportService {
         }
         log.info("Importing {} with {}", key, adapter.getClass().getSimpleName());
 
-        ImportedCar data = adapter.importFrom(canonical);
+        ImportedCar data = html == null || html.isBlank()
+                ? adapter.importFrom(canonical)
+                : adapter.importFromHtml(canonical, html);
         if (price != null) {
             String cur = currency == null || currency.isBlank() ? "EUR" : currency.trim().toUpperCase(Locale.ROOT);
             data = new ImportedCar(data.sourceRef(), data.sourceLocation(), data.specs(), price, cur,

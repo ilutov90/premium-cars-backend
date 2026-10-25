@@ -135,9 +135,11 @@ public final class GuaziPageParser {
 
     public static ParsedPage parse(String html, String productId) {
         Document doc = Jsoup.parse(html);
-        JsonNode raw = rawData(NextFlightData.text(doc), productId);
+        String flight = NextFlightData.text(doc);
+        JsonNode raw = rawData(flight, productId);
         if (raw == null) {
-            throw new IllegalArgumentException("The guazi page has no listing data (rawData)");
+            throw new IllegalArgumentException("The guazi page has no listing data (rawData): " + describe(html, doc,
+                    flight));
         }
         String id = text(raw, "productId");
         Map<String, String> fields = details(raw.path("vehicleDetails"));
@@ -208,7 +210,11 @@ public final class GuaziPageParser {
         JsonNode first = null;
         int at = data.indexOf("\"rawData\":");
         while (at >= 0) {
-            JsonNode node = NextFlightData.valueAt(data, at + "\"rawData\":".length());
+            int valueAt = at + "\"rawData\":".length();
+            JsonNode node = NextFlightData.valueAt(data, valueAt);
+            if (node == null) {
+                node = referencedRow(data, valueAt); // "rawData":"$1f": the object is flight row 1f
+            }
             if (node != null && node.isObject()) {
                 if (productId == null || productId.equalsIgnoreCase(text(node, "productId"))) {
                     return node;
@@ -220,6 +226,36 @@ public final class GuaziPageParser {
             at = data.indexOf("\"rawData\":", at + 1);
         }
         return first;
+    }
+
+    private static final Pattern ROW_REFERENCE = Pattern.compile("\\G\\s*\"\\$([0-9a-fA-F]+)\"");
+
+    /** The value of flight row {@code id} when the text at {@code from} is a reference {@code "$id"}. */
+    static JsonNode referencedRow(String data, int from) {
+        Matcher m = ROW_REFERENCE.matcher(data);
+        if (!m.find(from)) {
+            return null;
+        }
+        String id = m.group(1);
+        int start;
+        if (data.startsWith(id + ":")) {
+            start = id.length() + 1;
+        } else {
+            int line = data.indexOf("\n" + id + ":");
+            if (line < 0) {
+                return null;
+            }
+            start = line + id.length() + 2;
+        }
+        JsonNode node = NextFlightData.valueAt(data, start);
+        return node != null && node.isObject() ? node : null;
+    }
+
+    /** What the page was, for the error message: size, title and whether it has Next.js data at all. */
+    static String describe(String html, Document doc, String flight) {
+        String title = doc.title();
+        return html.length() + " characters, title \"" + (title.length() > 80 ? title.substring(0, 80) : title)
+                + "\", Next.js data " + (flight.isEmpty() ? "missing" : flight.length() + " characters");
     }
 
     static Map<String, String> details(JsonNode list) {

@@ -27,9 +27,14 @@ class GuaziSourceAdapterTest {
             super(null);
         }
 
+        String answer; // what guazi sends instead of the listing, when set
+
         @Override
         public String fetchHtml(URI url) {
             requested.add(url);
+            if (answer != null) {
+                return answer;
+            }
             String id = GuaziPageParser.productId(url.toString());
             try (InputStream in = getClass().getResourceAsStream("/pages/guazi-" + id + ".html")) {
                 return new String(in.readAllBytes(), StandardCharsets.UTF_8);
@@ -80,5 +85,39 @@ class GuaziSourceAdapterTest {
         assertThatThrownBy(() -> adapter.importFrom(URI.create("https://en.guazi.com/cars?brand=tesla")))
                 .isInstanceOf(BadRequestException.class);
         assertThat(pages.requested).isEmpty();
+    }
+
+    private static final String BOT_CHECK = "<html><head><script>function a(a){var t='EO_Bot_Ssid=';}</script></head>"
+            + "<body></body></html>";
+
+    @Test
+    void aBotCheckAsksForTheSavedPage() {
+        URI tesla = URI.create(
+                "https://en.guazi.com/products/tesla-model-y-2025-00l-gray-37900km-at-4wd-5-seats-bxrayk2hvc.html");
+        String saved = pages.fetchHtml(tesla);
+        pages.answer = BOT_CHECK;
+
+        assertThatThrownBy(() -> adapter.importFrom(tesla))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("bot check")
+                .hasMessageContaining("Next.js data missing");
+
+        ImportedCar car = adapter.importFromHtml(tesla, saved); // the page saved in the admin's browser
+        assertThat(car.sourceRef()).isEqualTo("bxrayk2hvc");
+        assertThat(car.price()).isEqualByComparingTo("37899");
+        assertThat(car.imageUrls()).hasSize(26);
+    }
+
+    @Test
+    void aSavedPageMustBeTheLinkedListing() {
+        URI byd = URI.create("https://en.guazi.com/products/byd-song-max-2021-68pfqu2abf.html");
+        String tesla = pages.fetchHtml(URI.create("https://en.guazi.com/products/x-bxrayk2hvc.html"));
+
+        assertThatThrownBy(() -> adapter.importFromHtml(byd, tesla))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("is listing bxrayk2hvc, not 68pfqu2abf");
+        assertThatThrownBy(() -> adapter.importFromHtml(byd, BOT_CHECK))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("not this guazi listing");
     }
 }
