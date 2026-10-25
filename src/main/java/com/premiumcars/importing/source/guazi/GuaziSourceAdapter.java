@@ -4,6 +4,8 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,15 +19,18 @@ import com.premiumcars.common.BadRequestException;
 import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.importing.PageFetcher;
 import com.premiumcars.importing.SourceAdapter;
+import com.premiumcars.importing.browser.PageRenderer;
+import com.premiumcars.importing.browser.PageRenderer.RenderedPage;
 import com.premiumcars.importing.source.guazi.GuaziPageParser.ParsedPage;
 
 /**
  * en.guazi.com (Guazi's export site, cars in China). No login, no browser: the page's HTML holds the whole listing
  * (see {@link GuaziPageParser}). Prices are FOB in USD; the car is priced with the autohome formula.
  * <p>
- * guazi may answer the server with a bot check (a script page) instead of the listing. The admin then saves the page
- * in their own browser and imports that file ({@link #importFromHtml}); the server does not try to get past the
- * check.
+ * guazi answers plain requests from our server with a check page (a script that reloads into the listing). With
+ * guazi's permission (October 2026) the page is then opened in the headless browser ({@link PageRenderer}), which
+ * runs that script like a visitor's browser. Browser loads are kept at least {@link #MIN_INTERVAL_MS} apart and run
+ * one at a time. A page saved in the admin's own browser can still be imported ({@link #importFromHtml}).
  */
 @Component
 @Order(12)
@@ -33,10 +38,18 @@ public class GuaziSourceAdapter implements SourceAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(GuaziSourceAdapter.class);
 
-    private final PageFetcher fetcher;
+    /** Pause between two browser loads of guazi pages: gentle on their site, also for bulk imports later. */
+    static final long MIN_INTERVAL_MS = 5_000;
+    /** The listing is there once the page's Next.js data holds rawData. */
+    private static final Pattern LISTING_READY = Pattern.compile("rawData");
 
-    public GuaziSourceAdapter(PageFetcher fetcher) {
+    private final PageFetcher fetcher;
+    private final PageRenderer renderer;
+    private long lastBrowserLoad;
+
+    public GuaziSourceAdapter(PageFetcher fetcher, PageRenderer renderer) {
         this.fetcher = fetcher;
+        this.renderer = renderer;
     }
 
     @Override
@@ -74,7 +87,36 @@ public class GuaziSourceAdapter implements SourceAdapter {
             throw new BadRequestException("Not a guazi car page (expected https://en.guazi.com/products/...html): "
                     + url);
         }
-        return fromPage(fetcher.fetchHtml(page), id, false);
+        String html = fetcher.fetchHtml(page);
+        if (GuaziPageParser.hasListing(html) || !renderer.enabled()) {
+            return fromPage(html, id, false);
+        }
+        log.info("guazi {}: plain download got no listing ({} characters), opening it in the browser", id,
+                html.length());
+        Optional<RenderedPage> rendered = browserLoad(page);
+        if (rendered.isEmpty()) {
+            throw new BadRequestException("guazi did not show the listing, not even in the browser: " + page
+                    + " (see the server log; meanwhile import the page saved in your browser)");
+        }
+        return fromPage(rendered.get().html(), id, false);
+    }
+
+    /** One browser load at a time, at least {@link #MIN_INTERVAL_MS} after the previous one. */
+    private synchronized Optional<RenderedPage> browserLoad(URI page) {
+        long wait = lastBrowserLoad + MIN_INTERVAL_MS - System.currentTimeMillis();
+        if (wait > 0) {
+            try {
+                Thread.sleep(wait);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Optional.empty();
+            }
+        }
+        try {
+            return renderer.renderWhen(page.toString(), LISTING_READY);
+        } finally {
+            lastBrowserLoad = System.currentTimeMillis();
+        }
     }
 
     @Override
@@ -94,8 +136,7 @@ public class GuaziSourceAdapter implements SourceAdapter {
         } catch (IllegalArgumentException e) {
             throw new BadRequestException(saved
                     ? "The saved file is not this guazi listing: " + e.getMessage()
-                    : "guazi did not send the listing to the server (bot check): save the page in your browser and "
-                      + "import the file. " + e.getMessage(), e);
+                    : "Could not read the guazi page (browser rendering is off?): " + e.getMessage(), e);
         }
         if (saved && !id.equalsIgnoreCase(parsed.productId())) {
             throw new BadRequestException("The saved file is listing " + parsed.productId() + ", not " + id);

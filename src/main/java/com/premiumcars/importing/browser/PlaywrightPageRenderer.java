@@ -225,6 +225,56 @@ public class PlaywrightPageRenderer implements PageRenderer {
     }
 
     @Override
+    public synchronized Optional<RenderedPage> renderWhen(String url, Pattern ready) {
+        if (!enabled()) {
+            return Optional.empty();
+        }
+        double timeoutMs = props.importer().browser().timeoutSeconds() * 1000.0;
+        long started = System.currentTimeMillis();
+        try (Playwright playwright = Playwright.create()) {
+            Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
+            BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+                    .setUserAgent(props.importer().userAgent())
+                    .setLocale("en-US"));
+            Page page = context.newPage();
+            page.setDefaultTimeout(timeoutMs);
+            Response main = page.navigate(url, new Page.NavigateOptions()
+                    .setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(timeoutMs));
+            long deadline = started + (long) timeoutMs;
+            String html = "";
+            int pages = 0;
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    html = page.content();
+                    if (ready.matcher(html).find()) {
+                        browser.close();
+                        log.info("Rendered {} in {} ms (HTTP {}, ready after {} checks)", url,
+                                System.currentTimeMillis() - started, main == null ? "?" : main.status(), pages);
+                        return Optional.of(new RenderedPage(html, List.of()));
+                    }
+                } catch (PlaywrightException e) {
+                    // the page is navigating (a check page reloading itself); look again
+                }
+                pages++;
+                page.waitForTimeout(500);
+            }
+            browser.close();
+            log.warn("{} did not become ready in {} ms; last page {} characters, title '{}'", url,
+                    System.currentTimeMillis() - started, html.length(), titleOf(html));
+            return Optional.empty();
+        } catch (PlaywrightException e) {
+            log.warn("Browser rendering failed for {}: {}", url, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private static String titleOf(String html) {
+        int a = html.indexOf("<title>");
+        int b = a < 0 ? -1 : html.indexOf("</title>", a);
+        return b < 0 ? "" : html.substring(a + 7, Math.min(b, a + 87));
+    }
+
+    @Override
     public synchronized Optional<RenderedPage> render(String url, List<Pattern> clickTexts, Pattern responseHint) {
         if (!enabled()) {
             return Optional.empty();

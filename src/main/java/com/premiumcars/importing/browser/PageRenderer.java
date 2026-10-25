@@ -28,6 +28,15 @@ public interface PageRenderer {
      */
     Optional<RenderedPage> render(String url, List<Pattern> clickTexts, Pattern responseHint);
 
+    /**
+     * Like {@link #render(String, List, Pattern)}, but waits (up to the browser timeout) until the page's HTML
+     * matches {@code ready}, e.g. for a site that first shows a check page which reloads into the real one.
+     * Empty when the HTML never matches.
+     */
+    default Optional<RenderedPage> renderWhen(String url, Pattern ready) {
+        return render(url, List.of(), null).filter(p -> ready.matcher(p.html()).find());
+    }
+
     /** A cookie to put into the browser before opening a page (e.g. a logged-in session). */
     record BrowserCookie(String name, String value, String domain, String path) {
     }
