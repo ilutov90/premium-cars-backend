@@ -39,7 +39,7 @@ public class GuaziSourceAdapter implements SourceAdapter {
     private static final Logger log = LoggerFactory.getLogger(GuaziSourceAdapter.class);
 
     /** Pause between two browser loads of guazi pages: gentle on their site, also for bulk imports later. */
-    static final long MIN_INTERVAL_MS = 5_000;
+    static final long MIN_INTERVAL_MS = 1_000;
     /** The listing is there once the page's Next.js data holds rawData. */
     private static final Pattern LISTING_READY = Pattern.compile("rawData");
 
