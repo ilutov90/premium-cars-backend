@@ -22,7 +22,8 @@ final class CarSearchSql {
             c.id, c.slug, c.status, c.source, c.source_url, c.source_ref, c.source_location,
             c.title, c.make, c.model, c.trim_level, c.model_year, c.first_registration, c.mileage_km,
             c.fuel_type, c.transmission, c.drivetrain, c.engine_cc, c.engine, c.power_hp,
-            c.battery_kwh, c.electric_range_km, c.range_standard, c.motor_power_kw, c.euro_standard,
+            c.battery_kwh, c.electric_range_km, c.range_standard, c.motor_power_kw, c.battery_health_pct,
+            c.euro_standard,
             c.body_type, c.seats, c.doors, c.color, c.curb_weight_kg, c.dimensions, c.description, c.specs, c.features,
             c.spec_sheet,
             c.source_price, c.source_currency, c.price_profile, c.profit_eur, c.fixed_total_eur,
@@ -81,7 +82,7 @@ final class CarSearchSql {
             and("c.transmission = :transmission", "transmission", f.transmission().name());
         }
         if (f.origin() != null) {
-            and("c.source = :source", "source", f.origin().source().name());
+            and("c.source IN (:sources)", "sources", f.origin().sources().stream().map(Enum::name).toList());
         }
         if (f.yearFrom() != null) {
             and("c.model_year >= :yearFrom", "yearFrom", f.yearFrom());

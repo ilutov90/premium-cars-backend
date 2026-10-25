@@ -8,13 +8,11 @@ import java.util.Map;
 import java.util.Set;
 
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import com.premiumcars.catalog.domain.SpecGroup;
+import com.premiumcars.importing.extract.NextFlightData;
 
 /**
  * The "Specifications" table of an autohome listing: the parameters of the model version (engine, body, chassis
@@ -40,8 +38,6 @@ public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases
     /** Rows not shown on the car page: China's list price would confuse customers, the model name repeats the title. */
     private static final Set<String> NOT_SHOWN = Set.of("model name", "manufacturer suggested retail price (¥)");
 
-    private static final ObjectMapper JSON = new ObjectMapper();
-    private static final String PUSH = "self.__next_f.push(";
     private static final Set<String> EMPTY_VALUES = Set.of("", "-", "--", "—", "/", "○");
     /** Parameters that are names, not equipment: they could contain words the feature rules look for. */
     private static final Set<String> NOT_PHRASES = Set.of("model name", "manufacturer");
@@ -202,26 +198,8 @@ public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases
 
     /** The text of all {@code self.__next_f.push([1, "..."])} chunks, in page order; the raw HTML when none. */
     static String nextData(Document doc) {
-        StringBuilder out = new StringBuilder();
-        for (Element script : doc.select("script")) {
-            String code = script.data().trim();
-            if (!code.startsWith(PUSH)) {
-                continue;
-            }
-            int end = code.lastIndexOf(')');
-            if (end <= PUSH.length()) {
-                continue;
-            }
-            try {
-                JsonNode chunk = JSON.readTree(code.substring(PUSH.length(), end));
-                if (chunk.isArray() && chunk.size() > 1 && chunk.get(1).isTextual()) {
-                    out.append(chunk.get(1).asText());
-                }
-            } catch (JsonProcessingException e) {
-                // not a data chunk (e.g. a function call); skip it
-            }
-        }
-        return out.isEmpty() ? doc.outerHtml() : out.toString();
+        String text = NextFlightData.text(doc);
+        return text.isEmpty() ? doc.outerHtml() : text;
     }
 
     /** The JSON array after {@code "key":}, or null when it is not there or not valid JSON. */
@@ -234,30 +212,8 @@ public record AutohomeSpecSheet(Map<String, String> params, List<String> phrases
         if (start < 0) {
             return null;
         }
-        int depth = 0;
-        boolean inString = false;
-        for (int i = start; i < data.length(); i++) {
-            char c = data.charAt(i);
-            if (inString) {
-                if (c == '\\') {
-                    i++;
-                } else if (c == '"') {
-                    inString = false;
-                }
-            } else if (c == '"') {
-                inString = true;
-            } else if (c == '[') {
-                depth++;
-            } else if (c == ']' && --depth == 0) {
-                try {
-                    JsonNode node = JSON.readTree(data.substring(start, i + 1));
-                    return node.isArray() ? node : null;
-                } catch (JsonProcessingException e) {
-                    return null;
-                }
-            }
-        }
-        return null;
+        JsonNode node = NextFlightData.valueAt(data, start);
+        return node != null && node.isArray() ? node : null;
     }
 
     private static Iterable<JsonNode> iterable(JsonNode node) {

@@ -17,7 +17,8 @@ import com.premiumcars.catalog.domain.Drivetrain;
  * Both sites are first turned into "phrases": lines {@code "item"} or {@code "item: detail"}, one per piece of
  * equipment the car has, e.g. {@code "Front Seat Features: Heating"} (autohome) or {@code "Heating Seat"}
  * (autowini). Group names are left out on purpose: autohome's "Sunroof &amp; Glass" or "Air Conditioning &amp;
- * Refrigerator" would otherwise match every item of the group. A feature is set when any of its patterns is found in a phrase. Only extras that a source can show
+ * Refrigerator" would otherwise match every item of the group. guazi gives both kinds: its "Features" names and
+ * its "Specifications" rows ({@code "Rear Curtain Airbags"}, {@code "External Audio Interface: Type-C"}). A feature is set when any of its patterns is found in a phrase. Only extras that a source can show
  * have rules; the rest (leasing, barter, taxi ...) are left to the admins.
  */
 public final class FeatureMapper {
@@ -34,11 +35,13 @@ public final class FeatureMapper {
                 + "|airbag ?\\((driver|passenger|front)");
         rule(CarFeature.AIRBAGS_SIDE, "side airbags: front|curtain airbags: front|side airbag|curtain airbag"
                 + "|airbag ?\\((side|curtain)");
-        rule(CarFeature.AIRBAGS_REAR, "(side|curtain) airbags: rear|(?<!/)rear( seat)?( side)? airbag|airbag ?\\(rear");
+        rule(CarFeature.AIRBAGS_REAR, "(side|curtain) airbags: rear|(?<!/)rear( seat)?( side| curtain)? airbag"
+                + "|airbag ?\\(rear");
         rule(CarFeature.EBD, "brake force distribution|\\bebd\\b");
         rule(CarFeature.ESP, "electronic stability|\\besc\\b|\\besp\\b|\\bvdc\\b|\\bdsc\\b");
         rule(CarFeature.TIRE_PRESSURE_MONITORING, "tire pressure|tyre pressure|\\btpms\\b");
-        rule(CarFeature.PARKING_SENSORS, "parking sensors?|park(ing)? assist sensor|parking distance");
+        rule(CarFeature.PARKING_SENSORS, "parking sensors?|park(ing)? assist sensor|parking distance"
+                + "|(front|rear|parking) radar");
         rule(CarFeature.ISOFIX, "isofix");
         rule(CarFeature.TRACTION_CONTROL, "traction control|\\btcs\\b|\\basr\\b");
         rule(CarFeature.DISTANCE_CONTROL, "adaptive cruise|smart cruise|distance control");
@@ -46,7 +49,7 @@ public final class FeatureMapper {
 
         // Комфорт
         rule(CarFeature.CAMERA, "driving assistance camera: (360|panoramic|rear|reversing)|rear ?view camera"
-                + "|rear camera|reversing camera|backup camera|around ?view|360.degree|360 camera");
+                + "|rear camera|reversing camera|backup camera|around ?view|360.degree|360 camera|panoramic camera");
         rule(CarFeature.CARPLAY_ANDROID_AUTO, "carplay|android auto");
         rule(CarFeature.START_STOP, "start/stop|start-stop|stop ?& ?go|\\bisg\\b");
         rule(CarFeature.BLUETOOTH, "bluetooth|hands-?free");
@@ -59,20 +62,21 @@ public final class FeatureMapper {
         rule(CarFeature.AIR_SUSPENSION, "air suspension");
         rule(CarFeature.KEYLESS_START, "keyless start|push.?(button )?start|button start|smart key");
         rule(CarFeature.DIFFERENTIAL_LOCK, "differential lock|locking differential|limited.slip");
-        rule(CarFeature.TRIP_COMPUTER, "trip computer");
+        rule(CarFeature.TRIP_COMPUTER, "trip computer|on-?board computer");
         rule(CarFeature.LOW_RANGE, "low.range|low gear ratio");
         rule(CarFeature.VENTILATED_SEATS, "seat features: ventilation|ventilated seat|cooling seat|cooled seat"
                 + "|seat ventilation");
         rule(CarFeature.LIGHT_SENSOR, "automatic headlights|auto(matic)? light|light sensor|auto headlight");
         rule(CarFeature.POWER_MIRRORS, "mirror features: power|power (folding )?(side )?mirror"
-                + "|electric (folding )?(side )?mirror");
-        rule(CarFeature.POWER_WINDOWS, "power windows?");
+                + "|electric (folding )?(side )?mirror|electric (rearview|exterior) mirror");
+        rule(CarFeature.POWER_WINDOWS, "power windows?|anti-?pinch window");
         rule(CarFeature.POWER_SEATS, "power-adjustable (driver|passenger|driver/passenger) seats|power seat"
-                + "|electric seat");
+                + "|electric seat|seat electric adjust");
         rule(CarFeature.ELECTRIC_POWER_STEERING, "electric power steering|\\bmdps\\b|\\beps\\b");
         rule(CarFeature.CLIMATE_CONTROL, "automatic air conditioning|auto(matic)? air ?con|full auto air"
                 + "|climate control|dual-zone");
-        rule(CarFeature.AIR_CONDITIONING, "manual air conditioning|air ?conditioner|\\ba/c\\b");
+        rule(CarFeature.AIR_CONDITIONING, "manual air conditioning|air ?conditioner|\\ba/c\\b"
+                + "|(rear|independent) air conditioning");
         rule(CarFeature.MULTIFUNCTION_STEERING_WHEEL, "multi-?function steering|steering (wheel )?remote");
         rule(CarFeature.NAVIGATION, "navigation system|^navigation$|^navigation \\(|gps navigation");
         rule(CarFeature.HEATED_STEERING_WHEEL, "heated steering|steering wheel heat");

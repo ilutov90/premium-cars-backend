@@ -120,7 +120,7 @@ public class CarRepository {
                                          title, make, model, trim_level, model_year, first_registration, mileage_km,
                                          fuel_type, transmission, drivetrain, engine_cc, engine, power_hp,
                                          battery_kwh, electric_range_km, range_standard, motor_power_kw,
-                                         euro_standard,
+                                         battery_health_pct, euro_standard,
                                          body_type, seats, doors, color, curb_weight_kg, dimensions,
                                          description, specs, features, spec_sheet,
                                          source_price, source_currency, price_profile, profit_eur, fixed_total_eur,
@@ -129,7 +129,7 @@ public class CarRepository {
                                 :title, :make, :model, :trim, :year, :firstRegistration, :mileageKm,
                                 :fuelType, :transmission, :drivetrain, :engineCc, :engine, :powerHp,
                                 :batteryKwh, :electricRangeKm, :rangeStandard, :motorPowerKw,
-                                :euroStandard,
+                                :batteryHealthPct, :euroStandard,
                                 :bodyType, :seats, :doors, :color, :curbWeightKg, :dimensions,
                                 :description, CAST(:specs AS jsonb), CAST(:features AS jsonb),
                                 CAST(:sheet AS jsonb),
@@ -157,7 +157,7 @@ public class CarRepository {
                             engine_cc = :engineCc, engine = :engine, power_hp = :powerHp,
                             battery_kwh = :batteryKwh, electric_range_km = :electricRangeKm,
                             range_standard = :rangeStandard, motor_power_kw = :motorPowerKw,
-                            euro_standard = :euroStandard,
+                            battery_health_pct = :batteryHealthPct, euro_standard = :euroStandard,
                             body_type = :bodyType, seats = :seats, doors = :doors, color = :color,
                             curb_weight_kg = :curbWeightKg, dimensions = :dimensions,
                             description = :description, specs = CAST(:specs AS jsonb),
@@ -242,6 +242,7 @@ public class CarRepository {
         p.put("electricRangeKm", d.electricRangeKm());
         p.put("rangeStandard", d.rangeStandard());
         p.put("motorPowerKw", d.motorPowerKw());
+        p.put("batteryHealthPct", d.batteryHealthPct());
         p.put("euroStandard", d.euroStandard());
         p.put("bodyType", d.bodyType());
         p.put("seats", d.seats());

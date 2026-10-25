@@ -305,7 +305,7 @@ public class CarService {
     /** Imported cars are priced with their site's formula; other cars get one chosen in the editor. */
     static PriceProfile defaultProfile(CarSource source) {
         return switch (source) {
-            case AUTOHOME -> PriceProfile.AUTOHOME;
+            case AUTOHOME, GUAZI -> PriceProfile.AUTOHOME; // both sell cars in China, priced in USD
             case AUTOWINI -> PriceProfile.AUTOWINI;
             case OTHER, MANUAL -> null;
         };

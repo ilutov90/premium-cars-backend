@@ -48,6 +48,7 @@ final class CarRowMapper implements RowMapper<Car> {
                 .electricRangeKm(rs.getObject("electric_range_km", Integer.class))
                 .rangeStandard(rs.getString("range_standard"))
                 .motorPowerKw(rs.getObject("motor_power_kw", Integer.class))
+                .batteryHealthPct(rs.getObject("battery_health_pct", Integer.class))
                 .euroStandard(rs.getObject("euro_standard", Integer.class))
                 .bodyType(rs.getString("body_type"))
                 .seats(rs.getObject("seats", Integer.class))

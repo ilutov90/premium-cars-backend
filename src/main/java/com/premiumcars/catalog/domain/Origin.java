@@ -1,23 +1,26 @@
 package com.premiumcars.catalog.domain;
 
+import java.util.List;
+
 /** Country of origin shown to customers. Derived from the source, so the source site itself stays hidden. */
 public enum Origin {
     KR(CarSource.AUTOWINI),
-    CN(CarSource.AUTOHOME);
+    CN(CarSource.AUTOHOME, CarSource.GUAZI);
 
-    private final CarSource source;
+    private final List<CarSource> sources;
 
-    Origin(CarSource source) {
-        this.source = source;
+    Origin(CarSource... sources) {
+        this.sources = List.of(sources);
     }
 
-    public CarSource source() {
-        return source;
+    /** The source sites of this country. */
+    public List<CarSource> sources() {
+        return sources;
     }
 
     public static Origin of(CarSource source) {
         for (Origin o : values()) {
-            if (o.source == source) {
+            if (o.sources.contains(source)) {
                 return o;
             }
         }
