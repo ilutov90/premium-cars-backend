@@ -10,12 +10,15 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
 
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.importing.PageFetcher;
+import com.premiumcars.importing.browser.PageRenderer;
 
 class GuaziSourceAdapterTest {
 
@@ -44,8 +47,39 @@ class GuaziSourceAdapterTest {
         }
     }
 
+    /** The headless browser: off, or showing the given page. */
+    private static final class FakeBrowser implements PageRenderer {
+        boolean on;
+        String html;
+        final List<String> opened = new ArrayList<>();
+
+        @Override
+        public Optional<RenderedPage> render(String url, List<Pattern> clickTexts, Pattern responseHint) {
+            throw new AssertionError("guazi waits for the listing (renderWhen)");
+        }
+
+        @Override
+        public Optional<RenderedPage> renderWhen(String url, Pattern ready) {
+            opened.add(url);
+            return html != null && ready.matcher(html).find()
+                    ? Optional.of(new RenderedPage(html, List.of())) : Optional.empty();
+        }
+
+        @Override
+        public BrowserImages loadImages(String pageUrl, List<List<String>> candidates, List<BrowserCookie> cookies,
+                                        Pattern pageImageFilter) {
+            return BrowserImages.NONE;
+        }
+
+        @Override
+        public boolean enabled() {
+            return on;
+        }
+    }
+
     private final SavedPages pages = new SavedPages();
-    private final GuaziSourceAdapter adapter = new GuaziSourceAdapter(pages);
+    private final FakeBrowser browser = new FakeBrowser();
+    private final GuaziSourceAdapter adapter = new GuaziSourceAdapter(pages, browser);
 
     @Test
     void handlesEveryLanguageOfTheSite() {
@@ -91,20 +125,53 @@ class GuaziSourceAdapterTest {
             + "<body></body></html>";
 
     @Test
-    void aBotCheckAsksForTheSavedPage() {
+    void theCheckPageIsOpenedInTheBrowser() {
+        URI tesla = URI.create(
+                "https://en.guazi.com/products/tesla-model-y-2025-00l-gray-37900km-at-4wd-5-seats-bxrayk2hvc.html");
+        String listing = pages.fetchHtml(tesla);
+        pages.requested.clear();
+        pages.answer = BOT_CHECK;
+        browser.on = true;
+        browser.html = listing;
+
+        ImportedCar car = adapter.importFrom(tesla);
+
+        assertThat(pages.requested).containsExactly(tesla); // one plain request, then the browser
+        assertThat(browser.opened).containsExactly(tesla.toString());
+        assertThat(car.sourceRef()).isEqualTo("bxrayk2hvc");
+        assertThat(car.price()).isEqualByComparingTo("37899");
+        assertThat(car.imageUrls()).hasSize(26);
+    }
+
+    @Test
+    void theBrowserIsNotOpenedWhenThePlainPageHasTheListing() {
+        browser.on = true;
+        adapter.importFrom(URI.create("https://en.guazi.com/products/byd-song-max-2021-68pfqu2abf.html"));
+        assertThat(browser.opened).isEmpty();
+    }
+
+    @Test
+    void aCheckPageThatNeverGivesTheListing() {
+        URI tesla = URI.create("https://en.guazi.com/products/x-bxrayk2hvc.html");
+        pages.answer = BOT_CHECK;
+
+        assertThatThrownBy(() -> adapter.importFrom(tesla)) // browser off
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Next.js data missing");
+
+        browser.on = true; // browser on, but the check page stays
+        assertThatThrownBy(() -> adapter.importFrom(tesla))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("not even in the browser");
+    }
+
+    @Test
+    void aSavedPageCanStillBeImported() {
         URI tesla = URI.create(
                 "https://en.guazi.com/products/tesla-model-y-2025-00l-gray-37900km-at-4wd-5-seats-bxrayk2hvc.html");
         String saved = pages.fetchHtml(tesla);
-        pages.answer = BOT_CHECK;
-
-        assertThatThrownBy(() -> adapter.importFrom(tesla))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("bot check")
-                .hasMessageContaining("Next.js data missing");
-
-        ImportedCar car = adapter.importFromHtml(tesla, saved); // the page saved in the admin's browser
+        ImportedCar car = adapter.importFromHtml(tesla, saved);
         assertThat(car.sourceRef()).isEqualTo("bxrayk2hvc");
-        assertThat(car.price()).isEqualByComparingTo("37899");
         assertThat(car.imageUrls()).hasSize(26);
     }
 

@@ -133,6 +133,11 @@ public final class GuaziPageParser {
         return URI.create("https://en.guazi.com" + (url.getRawPath() == null ? "" : url.getRawPath()));
     }
 
+    /** True when the HTML carries listing data (cheap check, before parsing). */
+    public static boolean hasListing(String html) {
+        return html != null && html.contains("rawData");
+    }
+
     public static ParsedPage parse(String html, String productId) {
         Document doc = Jsoup.parse(html);
         String flight = NextFlightData.text(doc);
