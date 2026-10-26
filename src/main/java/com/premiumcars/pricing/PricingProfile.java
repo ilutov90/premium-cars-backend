@@ -3,32 +3,34 @@ package com.premiumcars.pricing;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * One site's price formula, all amounts in EUR:
+ * One site's price formula, all amounts in EUR, on the car's FOB price as the site shows it (converted to EUR):
  *
  * <pre>
- *   final price = car price + baseCosts + stepCost * max(0, car price - threshold) / step + profit
+ *   duty and VAT = dutyVatPct % of (FOB + sea freight)
+ *   final price  = FOB + sea freight + land transport + commission + duty and VAT + profit
  * </pre>
  *
- * The step costs are proportional: autohome, car for 25 000 = 5860 + 2880 * 1.5 + 2000 profit.
+ * China (autohome, guazi), FOB 21 450: 21 450 + 2000 + 1600 + 500 + 20 % of 23 450 (4690) + 2000 = 32 240.
  *
- * @param baseCosts  all costs of one import (transport, customs, fees …) for a car up to {@code threshold}
- * @param threshold  car price from which {@code stepCost} starts to apply
- * @param step       size of one step above the threshold (10 000)
- * @param stepCost   extra costs per full step (partial steps count proportionally)
- * @param profit     our profit per car
- * @param updatedAt  ignored on update
+ * @param seaFreight    shipping to the European port
+ * @param landTransport from the port to Bulgaria
+ * @param commission    the buying agent's commission
+ * @param profit        our profit per car (a car may have its own)
+ * @param dutyVatPct    customs duty and VAT together, percent of FOB + sea freight (20 = 20 %)
+ * @param updatedAt     ignored on update
  */
 public record PricingProfile(
         PriceProfile id,
-        @NotNull @DecimalMin("0") BigDecimal baseCosts,
-        @NotNull @DecimalMin("0") BigDecimal threshold,
-        @NotNull @DecimalMin(value = "0", inclusive = false) BigDecimal step,
-        @NotNull @DecimalMin("0") BigDecimal stepCost,
+        @NotNull @DecimalMin("0") BigDecimal seaFreight,
+        @NotNull @DecimalMin("0") BigDecimal landTransport,
+        @NotNull @DecimalMin("0") BigDecimal commission,
         @NotNull @DecimalMin("0") BigDecimal profit,
+        @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal dutyVatPct,
         Instant updatedAt
 ) {
 }
