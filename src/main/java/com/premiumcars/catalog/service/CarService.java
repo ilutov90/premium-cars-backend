@@ -288,9 +288,7 @@ public class CarService {
     }
 
     private static PriceBreakdown withTotal(PriceBreakdown b, BigDecimal total) {
-        return new PriceBreakdown(b.profile(), b.sourcePrice(), b.sourceCurrency(), b.carPriceEur(), b.baseCostsEur(),
-                b.steps(), b.stepCostsEur(), b.profitEur(), b.profitOverridden(), b.calculatedTotalEur(), total,
-                b.fixedTotal(), b.eurPerUnit());
+        return b.withTotal(total);
     }
 
     private Car find(long id) {

@@ -13,15 +13,15 @@ import org.springframework.stereotype.Repository;
 public class PricingProfileRepository {
 
     private static final String COLUMNS =
-            "id, base_costs_eur, threshold_eur, step_eur, step_cost_eur, profit_eur, updated_at";
+            "id, sea_freight_eur, land_transport_eur, commission_eur, profit_eur, duty_vat_pct, updated_at";
 
     private static final RowMapper<PricingProfile> MAPPER = (rs, i) -> new PricingProfile(
             PriceProfile.valueOf(rs.getString("id")),
-            rs.getBigDecimal("base_costs_eur"),
-            rs.getBigDecimal("threshold_eur"),
-            rs.getBigDecimal("step_eur"),
-            rs.getBigDecimal("step_cost_eur"),
+            rs.getBigDecimal("sea_freight_eur"),
+            rs.getBigDecimal("land_transport_eur"),
+            rs.getBigDecimal("commission_eur"),
             rs.getBigDecimal("profit_eur"),
+            rs.getBigDecimal("duty_vat_pct"),
             rs.getObject("updated_at", OffsetDateTime.class).toInstant());
 
     private final JdbcClient jdbc;
@@ -45,15 +45,15 @@ public class PricingProfileRepository {
     public boolean update(PriceProfile id, PricingProfile p) {
         int rows = jdbc.sql("""
                         UPDATE pricing_profile SET
-                            base_costs_eur = :baseCosts, threshold_eur = :threshold, step_eur = :step,
-                            step_cost_eur = :stepCost, profit_eur = :profit,
+                            sea_freight_eur = :seaFreight, land_transport_eur = :landTransport,
+                            commission_eur = :commission, profit_eur = :profit, duty_vat_pct = :dutyVatPct,
                             updated_at = now()
                         WHERE id = :id""")
-                .param("baseCosts", p.baseCosts())
-                .param("threshold", p.threshold())
-                .param("step", p.step())
-                .param("stepCost", p.stepCost())
+                .param("seaFreight", p.seaFreight())
+                .param("landTransport", p.landTransport())
+                .param("commission", p.commission())
                 .param("profit", p.profit())
+                .param("dutyVatPct", p.dutyVatPct())
                 .param("id", id.name())
                 .update();
         return rows == 1;

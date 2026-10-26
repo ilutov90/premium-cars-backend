@@ -9,9 +9,9 @@ import org.springframework.stereotype.Component;
  * Final customer price of a car (see {@link PricingProfile}):
  *
  * <pre>
- *   car price in EUR = source price * exchange rate
- *   steps            = max(0, car price - threshold) / step     (proportional: 5000 above = 0.5 steps)
- *   final price      = car price + base costs + step cost * steps + profit
+ *   FOB in EUR   = source price * exchange rate
+ *   duty and VAT = duty/VAT % of (FOB + sea freight)
+ *   final price  = FOB + sea freight + land transport + commission + duty and VAT + profit
  * </pre>
  *
  * rounded to whole euros. Per car, the admin may set another profit or the final price by hand.
@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
 public class PriceCalculator {
 
     private static final int SCALE = 2;
-    private static final int STEP_SCALE = 6;
+    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
     private final ExchangeRateProvider rates;
 
@@ -47,21 +47,21 @@ public class PriceCalculator {
                 return null;
             }
             return new PriceBreakdown(profile == null ? null : profile.id(), sourcePrice, sourceCurrency, null, null,
-                    null, null, profitOverride == null ? null : round(profitOverride), profitOverride != null, null,
-                    fixed, true, null);
+                    null, null, null, null, null, null, null, profitOverride == null ? null : round(profitOverride),
+                    profitOverride != null, null, fixed, true, null);
         }
         String currency = sourceCurrency == null ? "EUR" : sourceCurrency;
         BigDecimal rate = rates.eurPerUnit(currency);
-        BigDecimal carPriceEur = round(sourcePrice.multiply(rate));
+        BigDecimal fob = round(sourcePrice.multiply(rate));
         BigDecimal profit = profitOverride == null ? profile.profit() : profitOverride;
 
-        BigDecimal above = carPriceEur.subtract(profile.threshold()).max(BigDecimal.ZERO);
-        BigDecimal steps = above.divide(profile.step(), STEP_SCALE, RoundingMode.HALF_UP);
-        BigDecimal stepCosts = round(profile.stepCost().multiply(steps));
-        BigDecimal calculated = whole(carPriceEur.add(profile.baseCosts()).add(stepCosts).add(profit));
+        BigDecimal dutyVat = round(fob.add(profile.seaFreight()).multiply(profile.dutyVatPct()).divide(HUNDRED));
+        BigDecimal calculated = whole(fob.add(profile.seaFreight()).add(profile.landTransport())
+                .add(profile.commission()).add(dutyVat).add(profit));
 
-        return new PriceBreakdown(profile.id(), sourcePrice, currency, carPriceEur, round(profile.baseCosts()),
-                plain(steps), stepCosts, round(profit), profitOverride != null, calculated,
+        return new PriceBreakdown(profile.id(), sourcePrice, currency, fob, round(profile.seaFreight()),
+                round(profile.landTransport()), round(profile.commission()), plain(profile.dutyVatPct()), dutyVat,
+                null, null, null, round(profit), profitOverride != null, calculated,
                 fixed == null ? calculated : fixed, fixed != null, rate);
     }
 
@@ -70,7 +70,7 @@ public class PriceCalculator {
         return value.setScale(0, RoundingMode.HALF_UP).setScale(SCALE, RoundingMode.UNNECESSARY);
     }
 
-    /** 2.000000 -> 2, 1.500000 -> 1.5 (never 1E+1). */
+    /** 20.00 -> 20, 17.50 -> 17.5 (never 2E+1). */
     private static BigDecimal plain(BigDecimal value) {
         BigDecimal v = value.stripTrailingZeros();
         return v.scale() < 0 ? v.setScale(0, RoundingMode.UNNECESSARY) : v;
