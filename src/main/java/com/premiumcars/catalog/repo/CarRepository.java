@@ -183,18 +183,52 @@ public class CarRepository {
                 .update();
     }
 
-    /** Sets the status; the first publish also stamps published_at. */
+    /** Sets the status; the first publish also stamps published_at, REMOVED stamps removed_at. */
     public void updateStatus(long id, CarStatus status) {
         jdbc.sql("""
                         UPDATE car SET
                             status = :status,
                             published_at = CASE WHEN :publish THEN COALESCE(published_at, now()) ELSE published_at END,
+                            removed_at = CASE WHEN :removed THEN COALESCE(removed_at, now()) END,
                             updated_at = now()
                         WHERE id = :id""")
                 .param("status", status.name())
                 .param("publish", status == CarStatus.PUBLISHED)
+                .param("removed", status == CarStatus.REMOVED)
                 .param("id", id)
                 .update();
+    }
+
+    /**
+     * The listing disappeared from the source (automatic import): hides a PUBLISHED, RESERVED or DRAFT car; SOLD and
+     * ARCHIVED cars stay as they are.
+     *
+     * @return false when the car was in another status
+     */
+    public boolean markRemoved(long id) {
+        return jdbc.sql("""
+                        UPDATE car SET status = 'REMOVED', removed_at = now(), updated_at = now()
+                        WHERE id = :id AND status IN ('PUBLISHED', 'RESERVED', 'DRAFT')""")
+                .param("id", id)
+                .update() == 1;
+    }
+
+    /** The listing is back at the source: a REMOVED car is published again. @return false when it was not REMOVED */
+    public boolean restoreRemoved(long id) {
+        return jdbc.sql("""
+                        UPDATE car SET status = 'PUBLISHED', removed_at = NULL,
+                            published_at = COALESCE(published_at, now()), updated_at = now()
+                        WHERE id = :id AND status = 'REMOVED'""")
+                .param("id", id)
+                .update() == 1;
+    }
+
+    /** REMOVED cars hidden before {@code before} (to delete). */
+    public List<Long> findRemovedBefore(java.time.Instant before) {
+        return jdbc.sql("SELECT id FROM car WHERE status = 'REMOVED' AND removed_at < :before ORDER BY id")
+                .param("before", java.sql.Timestamp.from(before))
+                .query(Long.class)
+                .list();
     }
 
     /** The price and the breakdown it was calculated from (kept: see 013-frozen-prices.sql). */

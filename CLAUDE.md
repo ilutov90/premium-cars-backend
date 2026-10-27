@@ -47,7 +47,7 @@ Always run `mvn test` before finishing a change.
 - Admin auth: session cookie + CSRF (`auth` package). Never re-introduce HTTP Basic, passwords in the browser or
   CORS for the API; the browser reaches the API through the frontend (same origin).
 - Code, comments, identifiers and docs (README, CLAUDE.md) in English; user-facing texts live in the frontend (Bulgarian).
-  Exception: the inquiry e-mail to the business (`InquiryNotifier`) is Bulgarian.
+  Exception: the e-mails to the business (`InquiryNotifier`, `AutoImportMailer`) are Bulgarian.
 - `Dockerfile` is the production image (CI pushes it to GHCR); local development never needs it.
 
 ## Layout (`com.premiumcars`)
@@ -68,6 +68,7 @@ Always run `mvn test` before finishing a change.
 | `mobilebg` | mobile.bg module of the admin panel: `MobileBgMapper` (a car -> mobile.bg's "Добави обява" values; brand/model matched against mobile.bg's lists; problems as warning codes the frontend words), `MobileBgService` / `MobileBgController` (`GET /api/admin/cars/{id}/mobile-bg`, `GET/PUT /api/admin/mobile-bg/catalog`, `POST /api/admin/cars/{id}/mobile-bg/listing`), `mobile_bg_catalog` (mobile.bg's lists as the admins' browser extension last read them), `mobile_bg_listing` (where a car was posted). The server never calls mobile.bg: the extension (frontend repo, `extension/mobile-bg`) types the form in the admin's browser and the admin presses mobile.bg's buttons |
 | `inquiry` | customer inquiries with where they came from (`HeardFrom`: "Откъде научихте за нас?", `Attribution`: UTM parameters, landing page, referring site); `InquiryNotifier` e-mails the admin through Resend after the commit (async); the admin report (`GET /api/admin/reports/inquiries`: per channel, campaign, car and week, Sofia days) |
 | `delivery` | "Доставени коли": handed-over cars with the customer's words and a photo (`delivered_car`, photo uploaded as the request body), shown on the site only when published, which needs the customer's consent |
+| `autoimport` | automatic import (admin tab "Автоматичен импорт", `/api/admin/auto-import`): a main switch and one per source (`auto_import_state`, `auto_import_source` with the source's filters: autowini Inspected/Actual, guazi grades), the makes with year from and chosen models (`auto_import_brand`), the sources' own make/model lists (`auto_import_catalog`). `AutowiniSearch` (v2api.autowini.com `/items/cars`, no login) and `GuaziSearch` (`POST /os/facade/search/product/list`; only the first 500 results of a search are served, so big makes are read per model and per year) behind `SourceSearch`, paced by `SearchHttp`. `AutoImportRunner`: nightly at 03:00 Sofia (guazi first) or on demand, also as a dry run that changes nothing; queues new listings (`auto_import_listing`), links cars already in the catalog (also imported by hand), hides as `REMOVED` (`car.removed_at`) the cars whose listing was missing in 2 runs in a row (makes read whole only), publishes them again when they return, stops without removing when over 20 % would go (`AutoImportMailer` e-mails), deletes cars REMOVED for 30 days; `auto_import_run` is the report. `AutoImportWorker` imports the queue one by one (guazi first, 20 photos, `ImportService.importAutomatically`) and publishes; no price or no photos -> left a draft |
 | `config`, `common` | security, CORS, properties, errors, paging |
 
 Extension points (add a class, no other changes): new source site -> `SourceAdapter`; cloud photo storage ->
@@ -80,11 +81,11 @@ DTOs are in `catalog/web/dto/CarDtos.java`, `inquiry/InquiryDtos.java` and `deli
 
 ## Tests
 
-- `CarSearchSqlTest`, `PriceCalculatorTest`, `GenericPageExtractorTest`, `EvSpecsExtractorTest`, `FeatureMapperTest`,
+- `CarSearchSqlTest`, `SearchParsingTest` (both sites' search API shapes), `PriceCalculatorTest`, `GenericPageExtractorTest`, `EvSpecsExtractorTest`, `FeatureMapperTest`,
   `AutohomePageParserTest`, `AutowiniPageParserTest`, `GuaziPageParserTest`: fast, no DB, no network
   (`guazi-bxrayk2hvc.html` is a real listing's `rawData` + JSON-LD in the page's structure, without the rest of the
   saved page, which carries the logged-in visitor's account; `guazi-68pfqu2abf.html` is a reduced copy).
-- `JdbcRepositoriesTest`, `AdminAuthTest`: full Spring context on PostgreSQL 17 in Docker (Testcontainers,
+- `JdbcRepositoriesTest`, `AdminAuthTest`, `AutoImportRunnerTest` (a run's bookkeeping with a made-up search): full Spring context on PostgreSQL 17 in Docker (Testcontainers,
   `@ServiceConnection`); `VaultConfigTest`: real Vault in Docker. `src/test/resources/application.properties`
   turns Vault and rate limits off for the other tests.
 - When an import misreads a real page: save it under `src/test/resources/pages/` and add a case to

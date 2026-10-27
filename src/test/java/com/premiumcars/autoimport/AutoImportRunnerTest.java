@@ -1,0 +1,203 @@
+package com.premiumcars.autoimport;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import com.premiumcars.autoimport.AutoImportDtos.BrandUpdate;
+import com.premiumcars.autoimport.AutoImportDtos.SourceUpdate;
+import com.premiumcars.autoimport.AutoImportRunRepository.Result;
+import com.premiumcars.autoimport.AutoImportSettingsRepository.SourceSettings;
+import com.premiumcars.autoimport.AutoImportTypes.Brand;
+import com.premiumcars.autoimport.AutoImportTypes.BrandPass;
+import com.premiumcars.autoimport.AutoImportTypes.CatalogBrand;
+import com.premiumcars.autoimport.AutoImportTypes.CatalogModel;
+import com.premiumcars.autoimport.AutoImportTypes.FoundListing;
+import com.premiumcars.autoimport.AutoImportTypes.SourceFilters;
+import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.catalog.domain.CarSpecs;
+import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.service.CarService;
+import com.premiumcars.importing.ImportedCar;
+
+/**
+ * The run's bookkeeping against PostgreSQL 17 in Docker, with a made-up search instead of the sites: new listings
+ * queued, cars imported by hand linked, removal after two missed runs, return, the 20 % guard, incomplete makes.
+ */
+@SpringBootTest
+@Testcontainers(disabledWithoutDocker = true)
+class AutoImportRunnerTest {
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17-alpine");
+
+    @Autowired
+    AutoImportRunner runner;
+
+    @Autowired
+    AutoImportService service;
+
+    @Autowired
+    AutoImportSettingsRepository settings;
+
+    @Autowired
+    AutoImportListingRepository listings;
+
+    @Autowired
+    CarService carService;
+
+    /** Answers per make code; a make not in the map has no listings (read whole). */
+    static class FakeSearch implements SourceSearch {
+        final Map<String, List<FoundListing>> results = new HashMap<>();
+        final Map<String, Boolean> complete = new HashMap<>();
+
+        @Override
+        public CarSource source() {
+            return CarSource.GUAZI;
+        }
+
+        @Override
+        public List<CatalogBrand> brands() {
+            return List.of();
+        }
+
+        @Override
+        public List<CatalogModel> models(String brandCode) {
+            return List.of();
+        }
+
+        @Override
+        public int count(Brand brand, SourceFilters filters) {
+            return results.getOrDefault(brand.code(), List.of()).size();
+        }
+
+        @Override
+        public BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
+            List<FoundListing> list = results.getOrDefault(brand.code(), List.of());
+            list.forEach(found);
+            boolean whole = complete.getOrDefault(brand.code(), true);
+            return new BrandPass(brand.code(), brand.name(), list.size(), list.size(), whole, whole ? null : "cut");
+        }
+    }
+
+    private static FoundListing listing(String id) {
+        return new FoundListing(id, "https://en.guazi.com/products/test-car-" + id + ".html", "BYD Seal " + id,
+                new BigDecimal("15000"));
+    }
+
+    private static final SourceSettings GUAZI = new SourceSettings(CarSource.GUAZI, true,
+            new SourceFilters(false, false, List.of("S", "A", "B")), Instant.now());
+
+    @Test
+    void runsKeepTheCatalogInStepWithTheSource() {
+        // the seeded makes; BYD is 1212, Kia 1292
+        assertThat(settings.brands(CarSource.GUAZI)).extracting(Brand::code).contains("1212", "1292", "104012");
+        assertThat(settings.enabled()).isFalse(); // off until an admin turns it on
+
+        // a car imported by hand earlier, published
+        var manual = carService.createDraft(new ImportedCar("aaa1", null, CarSpecs.builder().title("BYD Seal").build(),
+                new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI, listing("aaa1").url());
+        carService.changeStatus(manual.id(), CarStatus.PUBLISHED);
+
+        FakeSearch search = new FakeSearch();
+        search.results.put("1212", List.of(listing("aaa1"), listing("bbb2")));
+
+        // dry run: counts only
+        Result dry = runner.pass(search, GUAZI, true);
+        assertThat(dry.found()).isEqualTo(2);
+        assertThat(dry.newCount()).isEqualTo(1);
+        assertThat(listings.count(CarSource.GUAZI)).isZero();
+
+        // real run: the new one queued, the one imported by hand linked
+        Result first = runner.pass(search, GUAZI, false);
+        assertThat(first.status()).isEqualTo("DONE");
+        assertThat(first.newCount()).isEqualTo(1);
+        assertThat(listings.find(CarSource.GUAZI, "aaa1").orElseThrow())
+                .satisfies(l -> assertThat(l.state()).isEqualTo("IMPORTED"))
+                .satisfies(l -> assertThat(l.carId()).isEqualTo(manual.id()));
+        assertThat(listings.find(CarSource.GUAZI, "bbb2").orElseThrow().state()).isEqualTo("QUEUED");
+        assertThat(listings.nextQueued(List.of(CarSource.GUAZI, CarSource.AUTOWINI)).orElseThrow().listingId())
+                .isEqualTo("bbb2");
+
+        // aaa1 gone once: kept; gone twice: hidden
+        search.results.put("1212", List.of(listing("bbb2")));
+        Result once = runner.pass(search, GUAZI, false);
+        assertThat(once.goneCount()).isZero();
+        assertThat(carService.getAdmin(manual.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        Result twice = runner.pass(search, GUAZI, false);
+        assertThat(twice.goneCount()).isEqualTo(1);
+        assertThat(carService.getAdmin(manual.id()).status()).isEqualTo(CarStatus.REMOVED);
+        assertThat(listings.find(CarSource.GUAZI, "aaa1")).isEmpty();
+
+        // back at the source: published again
+        search.results.put("1212", List.of(listing("aaa1"), listing("bbb2")));
+        Result back = runner.pass(search, GUAZI, false);
+        assertThat(back.returnedCount()).isEqualTo(1);
+        assertThat(back.newCount()).isZero();
+        assertThat(carService.getAdmin(manual.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        assertThat(listings.find(CarSource.GUAZI, "aaa1").orElseThrow().carId()).isEqualTo(manual.id());
+
+        // a make not read whole: nothing of it counts as gone
+        search.results.put("1212", List.of());
+        search.complete.put("1212", false);
+        runner.pass(search, GUAZI, false);
+        Result cut = runner.pass(search, GUAZI, false);
+        assertThat(cut.status()).isEqualTo("INCOMPLETE");
+        assertThat(cut.goneCount()).isZero();
+        assertThat(carService.getAdmin(manual.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        search.complete.remove("1212");
+
+        // the guard: most listings vanish at once -> nothing removed
+        List<FoundListing> many = new ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            many.add(listing("g" + i));
+        }
+        search.results.put("1292", many);
+        search.results.put("1212", List.of(listing("aaa1"), listing("bbb2")));
+        runner.pass(search, GUAZI, false);
+        search.results.remove("1292");
+        runner.pass(search, GUAZI, false); // missed once
+        Result stopped = runner.pass(search, GUAZI, false);
+        assertThat(stopped.status()).isEqualTo("STOPPED");
+        assertThat(stopped.goneCount()).isZero();
+        assertThat(listings.find(CarSource.GUAZI, "g0")).isPresent();
+    }
+
+    @Test
+    void settingsAreSavedWhole() {
+        var update = new SourceUpdate(true, new SourceFilters(true, true, List.of()), List.of(
+                new BrandUpdate("C0810", "Kia", true, 2019, List.of(new AutoImportDtos.ModelRef("C1150", "Carnival"))),
+                new BrandUpdate("C0120", "BMW", false, 2016, List.of())));
+        var overview = service.save(CarSource.AUTOWINI, update);
+        var autowini = overview.sources().stream().filter(s -> s.source() == CarSource.AUTOWINI).findFirst()
+                .orElseThrow();
+        assertThat(autowini.enabled()).isTrue();
+        assertThat(autowini.brands()).hasSize(2);
+        assertThat(autowini.brands()).filteredOn(b -> b.code().equals("C0810")).singleElement()
+                .satisfies(b -> assertThat(b.yearFrom()).isEqualTo(2019))
+                .satisfies(b -> assertThat(b.models()).containsExactly(new CatalogModel("C1150", "Carnival")));
+        assertThat(overview.sources().getFirst().source()).isEqualTo(CarSource.GUAZI); // guazi first
+
+        settings.saveCatalog(CarSource.AUTOWINI, List.of(new CatalogBrand("C0810", "Kia", null)));
+        settings.saveModels(CarSource.AUTOWINI, "C0810", "Kia", List.of(new CatalogModel("C1150", "Carnival")));
+        settings.saveCatalog(CarSource.AUTOWINI, List.of(new CatalogBrand("C0810", "KIA", null))); // models kept
+        assertThat(settings.catalog(CarSource.AUTOWINI)).singleElement()
+                .satisfies(b -> assertThat(b.name()).isEqualTo("KIA"))
+                .satisfies(b -> assertThat(b.models()).hasSize(1));
+    }
+}
