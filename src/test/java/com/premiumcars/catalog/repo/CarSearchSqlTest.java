@@ -9,6 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import com.premiumcars.catalog.domain.CarSort;
+import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.Origin;
@@ -70,5 +71,20 @@ class CarSearchSqlTest {
         assertThat(admin.text()).contains("c.source_url ILIKE :q", "c.source_ref ILIKE :q");
         assertThat(admin.params()).containsEntry("q", "%IC5546178%");
         assertThat(pub.text()).doesNotContain("source_url").doesNotContain("source_ref");
+    }
+
+    @Test
+    void theAdminListFiltersBySourceAndCountsPerStatus() {
+        var sql = CarSearchSql.forAdmin(null, EnumSet.allOf(CarStatus.class), CarSource.GUAZI);
+        assertThat(sql.count().text()).contains("c.source = :source");
+        assertThat(sql.count().params()).containsEntry("source", "GUAZI");
+        assertThat(sql.countByStatus().text()).startsWith("SELECT c.status, count(*) AS n FROM car c WHERE")
+                .endsWith("GROUP BY c.status");
+        assertThat(CarSearchSql.forAdmin(null, EnumSet.allOf(CarStatus.class), null).count().text())
+                .doesNotContain(":source");
+        assertThat(sql.page(CarSort.fromAdminParam("created"), 0, 48).text()).contains("ORDER BY c.created_at DESC");
+        assertThat(CarSort.fromAdminParam("price_desc")).isEqualTo(CarSort.PRICE_DESC);
+        assertThat(CarSort.fromAdminParam("nonsense")).isEqualTo(CarSort.UPDATED);
+        assertThat(CarSort.fromAdminParam(null)).isEqualTo(CarSort.UPDATED);
     }
 }

@@ -11,7 +11,9 @@ public enum CarSort {
     YEAR_DESC("c.model_year DESC NULLS LAST, c.id DESC"),
     MILEAGE_ASC("c.mileage_km ASC NULLS LAST, c.id DESC"),
     /** Admin list: most recently edited first. */
-    UPDATED("c.updated_at DESC, c.id DESC");
+    UPDATED("c.updated_at DESC, c.id DESC"),
+    /** Admin list: most recently imported or added first. */
+    CREATED("c.created_at DESC, c.id DESC");
 
     private final String orderBy;
 
@@ -21,6 +23,19 @@ public enum CarSort {
 
     public String orderBy() {
         return orderBy;
+    }
+
+    /** The admin list's sort ("updated", "created", "price_desc", "price_asc"); unknown or empty values mean UPDATED. */
+    public static CarSort fromAdminParam(String value) {
+        if (value == null) {
+            return UPDATED;
+        }
+        return switch (value) {
+            case "created" -> CREATED;
+            case "price_desc" -> PRICE_DESC;
+            case "price_asc" -> PRICE_ASC;
+            default -> UPDATED;
+        };
     }
 
     /** Maps the public query value ("price_asc", ...) to a sort; unknown or empty values mean NEWEST. */
