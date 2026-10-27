@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
  * <pre>
  *   FOB in EUR   = source price * exchange rate
  *   duty and VAT = duty/VAT % of (FOB + sea freight)
+ *   profit       = profit % of FOB, at least the minimum profit
  *   final price  = FOB + sea freight + land transport + commission + duty and VAT + profit
  * </pre>
  *
@@ -48,12 +49,12 @@ public class PriceCalculator {
             }
             return new PriceBreakdown(profile == null ? null : profile.id(), sourcePrice, sourceCurrency, null, null,
                     null, null, null, null, null, null, null, profitOverride == null ? null : round(profitOverride),
-                    profitOverride != null, null, fixed, true, null);
+                    profitOverride != null, null, fixed, true, null, null, null);
         }
         String currency = sourceCurrency == null ? "EUR" : sourceCurrency;
         BigDecimal rate = rates.eurPerUnit(currency);
         BigDecimal fob = round(sourcePrice.multiply(rate));
-        BigDecimal profit = profitOverride == null ? profile.profit() : profitOverride;
+        BigDecimal profit = profitOverride == null ? profit(fob, profile) : profitOverride;
 
         BigDecimal dutyVat = round(fob.add(profile.seaFreight()).multiply(profile.dutyVatPct()).divide(HUNDRED));
         BigDecimal calculated = whole(fob.add(profile.seaFreight()).add(profile.landTransport())
@@ -62,7 +63,14 @@ public class PriceCalculator {
         return new PriceBreakdown(profile.id(), sourcePrice, currency, fob, round(profile.seaFreight()),
                 round(profile.landTransport()), round(profile.commission()), plain(profile.dutyVatPct()), dutyVat,
                 null, null, null, round(profit), profitOverride != null, calculated,
-                fixed == null ? calculated : fixed, fixed != null, rate);
+                fixed == null ? calculated : fixed, fixed != null, rate,
+                profitOverride == null ? plain(profile.profitPct()) : null,
+                profitOverride == null ? round(profile.profitMin()) : null);
+    }
+
+    /** The formula's profit: a percent of FOB, at least the minimum (FOB 8000 at 10 %, minimum 1000: 1000). */
+    static BigDecimal profit(BigDecimal fob, PricingProfile profile) {
+        return round(fob.multiply(profile.profitPct()).divide(HUNDRED)).max(round(profile.profitMin()));
     }
 
     /** Rounded to whole euros, kept with two decimals like the other amounts. */

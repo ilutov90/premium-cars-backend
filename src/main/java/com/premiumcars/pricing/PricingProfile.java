@@ -12,15 +12,18 @@ import jakarta.validation.constraints.NotNull;
  *
  * <pre>
  *   duty and VAT = dutyVatPct % of (FOB + sea freight)
+ *   profit       = profitPct % of FOB, at least profitMin
  *   final price  = FOB + sea freight + land transport + commission + duty and VAT + profit
  * </pre>
  *
- * China (autohome, guazi), FOB 21 450: 21 450 + 2000 + 1600 + 500 + 20 % of 23 450 (4690) + 2000 = 32 240.
+ * China (autohome, guazi), FOB 21 450: 21 450 + 2000 + 1600 + 500 + 20 % of 23 450 (4690) + 10 % of 21 450 (2145)
+ * = 32 385.
  *
  * @param seaFreight    shipping to the European port
  * @param landTransport from the port to Bulgaria
  * @param commission    the buying agent's commission
- * @param profit        our profit per car (a car may have its own)
+ * @param profitPct     our profit per car, percent of FOB (a car may have its own amount)
+ * @param profitMin     the least profit per car, EUR
  * @param dutyVatPct    customs duty and VAT together, percent of FOB + sea freight (20 = 20 %)
  * @param updatedAt     ignored on update
  */
@@ -29,7 +32,8 @@ public record PricingProfile(
         @NotNull @DecimalMin("0") BigDecimal seaFreight,
         @NotNull @DecimalMin("0") BigDecimal landTransport,
         @NotNull @DecimalMin("0") BigDecimal commission,
-        @NotNull @DecimalMin("0") BigDecimal profit,
+        @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal profitPct,
+        @NotNull @DecimalMin("0") BigDecimal profitMin,
         @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal dutyVatPct,
         Instant updatedAt
 ) {
