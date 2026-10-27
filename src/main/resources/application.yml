@@ -82,6 +82,14 @@ app:
     dir: ./data/media
     # Relative: the browser loads photos through the frontend (/media is forwarded to this backend)
     base-url: /media/
+    # Cloudflare R2 for new photos (autowini's: guazi and autohome photos are linked, not stored). Used when all five
+    # are set; until then photos stay in the local folder. Existing local photos move to R2 once it is on.
+    r2:
+      endpoint: ${R2_ENDPOINT:}                  # https://<account id>.r2.cloudflarestorage.com
+      bucket: ${R2_BUCKET:premium-cars-photos}
+      public-url: ${R2_PUBLIC_URL:}              # the bucket's custom domain, e.g. https://img.premiumcarsimport.bg/
+      access-key-id: ${R2_ACCESS_KEY_ID:}        # secret: from Vault
+      secret-access-key: ${R2_SECRET_ACCESS_KEY:} # secret: from Vault
   importer:
     # Exactly the posting script's user agent. autowini answered 403 (pages and photos) to the same requests
     # sent with "Chrome/141.0" while the script's requests went through.
