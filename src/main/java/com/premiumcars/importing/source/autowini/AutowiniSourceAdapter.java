@@ -73,6 +73,15 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         return "https://www.autowini.com/";
     }
 
+    /**
+     * Without a price (neither on the page nor from autowini's API) there is nothing to sell the car for: the import
+     * is refused unless the admin enters the price.
+     */
+    @Override
+    public boolean requiresPrice() {
+        return true;
+    }
+
     @Override
     public HttpClient imageClient() {
         return client.sessionClient();
