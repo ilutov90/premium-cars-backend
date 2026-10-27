@@ -16,6 +16,7 @@ import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
+import com.premiumcars.catalog.domain.Inspection;
 import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.importing.source.guazi.GuaziPageParser.ParsedPage;
@@ -59,6 +60,22 @@ class GuaziPageParserTest {
                 .allMatch(u -> u.startsWith("https://global-image-pub.guazistatic-global.com/"));
         assertThat(page.inspection()).isEqualTo("guazi inspection: grade A; issues: Exterior Design 6, New Energy 1");
 
+        // the report for the car page: the three checks passed, 7 areas, the 4 points with a defect (with video)
+        Inspection report = page.report();
+        assertThat(report.grade()).isEqualTo("A");
+        assertThat(report.checks()).containsExactly(new Inspection.Check("No Accident Damage", true),
+                new Inspection.Check("No Water Damage", true), new Inspection.Check("No Fire Damage", true));
+        assertThat(report.categories()).hasSize(7)
+                .contains(new Inspection.Category("Exterior Design", 92, 6), new Inspection.Category("New Energy", 11, 1));
+        assertThat(report.findings()).hasSize(4).extracting(Inspection.Finding::item)
+                .containsExactly("Directly ahead and downward", "Right side", "Directly behind and below", "Left side");
+        assertThat(report.findings().get(2)).satisfies(f -> {
+            assertThat(f.category()).isEqualTo("Exterior Design");
+            assertThat(f.result()).isEqualTo("Minor defect");
+            assertThat(f.note()).isEqualTo("Rear bumper surface damage.");
+            assertThat(f.videoUrl()).startsWith("https://global-image-pub.guazistatic-global.com/").endsWith(".mp4");
+        });
+
         CarSpecs s = GuaziPageParser.toSpecs(page);
         assertThat(s.make()).isEqualTo("Tesla");
         assertThat(s.model()).isEqualTo("Model Y");
@@ -75,6 +92,7 @@ class GuaziPageParserTest {
         assertThat(s.motorPowerKw()).isEqualTo(331);
         assertThat(s.powerHp()).isEqualTo(450);
         assertThat(s.batteryHealthPct()).isEqualTo(91);
+        assertThat(s.inspection()).isEqualTo(report);
         assertThat(s.engineCc()).isNull();
         assertThat(s.bodyType()).isEqualTo("SUV");
         assertThat(s.seats()).isEqualTo(5);
@@ -116,6 +134,8 @@ class GuaziPageParserTest {
         assertThat(page.batteryHealthPct()).isNull();
         assertThat(page.images()).hasSize(5);
         assertThat(page.inspection()).isEqualTo("guazi inspection: grade A; issues: Exterior 6");
+        assertThat(page.report().categories()).containsExactly(new Inspection.Category("Exterior", 90, 6));
+        assertThat(page.report().findings()).isEmpty();
 
         CarSpecs s = GuaziPageParser.toSpecs(page);
         assertThat(s.title()).isEqualTo("BYD Song MAX 2021 Upgraded Model 1.5T Automatic Luxury 6-Seater");
