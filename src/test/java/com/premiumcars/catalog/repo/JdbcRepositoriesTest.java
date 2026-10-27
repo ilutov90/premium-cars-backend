@@ -20,6 +20,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarImage;
+import com.premiumcars.catalog.domain.CarSort;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
@@ -319,6 +320,16 @@ class JdbcRepositoriesTest {
             assertThat(row.sourceUrl()).isEqualTo(url);
         });
         assertThat(carService.searchAdmin(null, ref.toLowerCase(), 0, 10).items()).hasSize(1);
+
+        // by source site, with the counts per status for the filter buttons
+        assertThat(carService.searchAdmin(null, ref, CarSource.AUTOWINI, CarSort.PRICE_DESC, 0, 10).items())
+                .hasSize(1);
+        assertThat(carService.searchAdmin(null, ref, CarSource.GUAZI, CarSort.UPDATED, 0, 10).items()).isEmpty();
+        var counts = carService.adminCounts(ref, null);
+        assertThat(counts.total()).isEqualTo(1);
+        assertThat(counts.byStatus()).containsEntry(CarStatus.DRAFT, 1L);
+        assertThat(carService.adminCounts(null, null).total())
+                .isEqualTo(carService.searchAdmin(null, null, 0, 1).totalItems());
 
         carService.delete(car.id());
     }

@@ -3,6 +3,7 @@ package com.premiumcars.catalog.web.dto;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarSpecs;
@@ -92,6 +93,10 @@ public final class CarDtos {
      * @param linked  shown from the source site, not stored by us
      * @param fileUrl the photo from our own origin (for downloads and the mobile.bg extension)
      */
+    /** The admin list's counts: all cars matching the search and source, and per status. */
+    public record AdminCarCounts(long total, Map<CarStatus, Long> byStatus) {
+    }
+
     public record AdminImage(Long id, String url, String sourceUrl, int position, boolean linked, String fileUrl) {
     }
 

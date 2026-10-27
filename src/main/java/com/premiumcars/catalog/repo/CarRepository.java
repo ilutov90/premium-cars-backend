@@ -87,6 +87,23 @@ public class CarRepository {
         return search(CarSearchSql.forAdmin(filter, statuses), sort, page, size);
     }
 
+    /** The admin list: also by source site (null = all). */
+    public CarPage searchAdmin(CarFilter filter, Collection<CarStatus> statuses, CarSource source, CarSort sort,
+                               int page, int size) {
+        return search(CarSearchSql.forAdmin(filter, statuses, source), sort, page, size);
+    }
+
+    /** How many cars match the admin list's search and source, per status. */
+    public Map<CarStatus, Long> countAdminByStatus(CarFilter filter, CarSource source) {
+        CarSearchSql.Sql sql = CarSearchSql.forAdmin(filter, java.util.EnumSet.allOf(CarStatus.class), source)
+                .countByStatus();
+        Map<CarStatus, Long> out = new java.util.EnumMap<>(CarStatus.class);
+        jdbc.sql(sql.text()).params(sql.params())
+                .query((rs, n) -> out.put(CarStatus.valueOf(rs.getString("status")), rs.getLong("n")))
+                .list();
+        return out;
+    }
+
     private CarPage search(CarSearchSql sql, CarSort sort, int page, int size) {
         CarSearchSql.Sql count = sql.count();
         long total = jdbc.sql(count.text()).params(count.params()).query(Long.class).single();

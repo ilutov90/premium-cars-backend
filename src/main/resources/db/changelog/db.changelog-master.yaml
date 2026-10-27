@@ -47,3 +47,5 @@ databaseChangeLog:
       file: db/changelog/changes/023-auto-import.sql
   - include:
       file: db/changelog/changes/024-inspection.sql
+  - include:
+      file: db/changelog/changes/025-admin-list-indexes.sql

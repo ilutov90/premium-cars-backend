@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import com.premiumcars.catalog.domain.CarSort;
+import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.web.dto.CarFilter;
 
@@ -54,6 +55,15 @@ final class CarSearchSql {
         return build(filter, statuses, true);
     }
 
+    /** The admin list, also filtered by source site (null = all). */
+    static CarSearchSql forAdmin(CarFilter filter, Collection<CarStatus> statuses, CarSource source) {
+        CarSearchSql b = build(filter, statuses, true);
+        if (source != null) {
+            b.and("c.source = :source", "source", source.name());
+        }
+        return b;
+    }
+
     private static CarSearchSql build(CarFilter filter, Collection<CarStatus> statuses, boolean matchSource) {
         var b = new CarSearchSql(matchSource);
         b.where.append("WHERE c.status IN (:statuses)");
@@ -99,6 +109,11 @@ final class CarSearchSql {
         if (f.mileageTo() != null) {
             and("c.mileage_km <= :mileageTo", "mileageTo", f.mileageTo());
         }
+    }
+
+    /** Matching cars per status (for the admin list's filter counts). */
+    Sql countByStatus() {
+        return new Sql("SELECT c.status, count(*) AS n FROM car c " + where + " GROUP BY c.status", params);
     }
 
     Sql count() {
