@@ -56,6 +56,26 @@ public class CarImageRepository {
                 .list();
     }
 
+    /** Photos in the local folder (storage paths without the "r2:" prefix), a batch at a time. */
+    public List<CarImage> findLocal(int limit) {
+        return jdbc.sql("""
+                        SELECT id, car_id, storage_path, source_url, position
+                        FROM car_image WHERE storage_path IS NOT NULL AND storage_path NOT LIKE 'r2:%'
+                        ORDER BY id LIMIT :limit""")
+                .param("limit", limit)
+                .query(MAPPER)
+                .list();
+    }
+
+    /** @return false when the photo changed meanwhile (deleted, linked or moved) */
+    public boolean moveStoragePath(long imageId, String from, String to) {
+        return jdbc.sql("UPDATE car_image SET storage_path = :to WHERE id = :imageId AND storage_path = :from")
+                .param("to", to)
+                .param("from", from)
+                .param("imageId", imageId)
+                .update() == 1;
+    }
+
     /** Turns a stored photo into a linked one, shown from {@code url}. */
     public void link(long imageId, String url) {
         jdbc.sql("UPDATE car_image SET storage_path = NULL, source_url = :url WHERE id = :imageId")

@@ -36,7 +36,38 @@ public record AppProperties(
      * @param dir     folder where downloaded car photos are stored
      * @param baseUrl public URL prefix the frontend uses to load them
      */
-    public record Media(String dir, String baseUrl) {
+    /**
+     * @param dir     local folder for photos (all photos until R2 is configured; afterwards only older ones)
+     * @param baseUrl URL prefix of the local photos
+     * @param r2      Cloudflare R2 for new photos; off until configured
+     */
+    public record Media(String dir, String baseUrl, R2 r2) {
+
+        public Media {
+            r2 = r2 == null ? new R2(null, null, null, null, null) : r2;
+        }
+    }
+
+    /**
+     * Cloudflare R2 bucket (S3 API) for car photos.
+     *
+     * @param endpoint        the account's S3 endpoint, https://&lt;account id&gt;.r2.cloudflarestorage.com
+     * @param bucket          bucket name
+     * @param publicUrl       where browsers load the photos from: the bucket's custom domain, e.g.
+     *                        https://img.premiumcarsimport.bg/
+     * @param accessKeyId     secret: from Vault (R2_ACCESS_KEY_ID)
+     * @param secretAccessKey secret: from Vault (R2_SECRET_ACCESS_KEY)
+     */
+    public record R2(String endpoint, String bucket, String publicUrl, String accessKeyId, String secretAccessKey) {
+
+        public boolean configured() {
+            return notBlank(endpoint) && notBlank(bucket) && notBlank(publicUrl) && notBlank(accessKeyId)
+                    && notBlank(secretAccessKey);
+        }
+
+        private static boolean notBlank(String s) {
+            return s != null && !s.isBlank();
+        }
     }
 
     /**
