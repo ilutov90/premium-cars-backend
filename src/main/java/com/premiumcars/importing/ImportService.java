@@ -54,6 +54,15 @@ public class ImportService {
      * @param html     the page as the admin's browser saved it, or null to download it
      */
     public ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html) {
+        return importFromUrl(rawUrl, price, currency, html, props.importer().maxImages());
+    }
+
+    /** The automatic import: a listing URL from a source's search, with fewer photos than an import by hand. */
+    public ImportResult importAutomatically(String listingUrl, int maxImages) {
+        return importFromUrl(listingUrl, null, null, null, Math.min(maxImages, props.importer().maxImages()));
+    }
+
+    private ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html, int maxImages) {
         URI url = normalize(rawUrl);
         SourceAdapter adapter = adapters.stream()
                 .filter(a -> a.supports(url))
@@ -83,7 +92,7 @@ public class ImportService {
 
         String referer = adapter.referer(canonical);
         var imageClient = adapter.imageClient();
-        List<String> urls = data.imageUrls().stream().limit(props.importer().maxImages()).toList();
+        List<String> urls = data.imageUrls().stream().limit(maxImages).toList();
         DownloadedImage[] photos = new DownloadedImage[urls.size()];
         String[] working = new String[urls.size()]; // the candidate URL that downloaded
         for (int i = 0; i < urls.size(); i++) {
