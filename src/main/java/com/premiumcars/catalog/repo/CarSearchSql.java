@@ -105,14 +105,14 @@ final class CarSearchSql {
         return new Sql("SELECT count(*) FROM car c " + where, params);
     }
 
-    /** One page of cars, each with the storage path of its cover photo (or null). */
+    /** One page of cars, each with its cover photo: storage path, or null and the linked URL (or both null). */
     Sql page(CarSort sort, int page, int size) {
         var p = new LinkedHashMap<>(params);
         p.put("limit", size);
         p.put("offset", page * size);
-        String text = "SELECT " + CAR_COLUMNS + ", cover.storage_path AS cover_path\n"
+        String text = "SELECT " + CAR_COLUMNS + ", cover.storage_path AS cover_path, cover.source_url AS cover_url\n"
                 + "FROM car c\n"
-                + "LEFT JOIN LATERAL (SELECT i.storage_path FROM car_image i WHERE i.car_id = c.id\n"
+                + "LEFT JOIN LATERAL (SELECT i.storage_path, i.source_url FROM car_image i WHERE i.car_id = c.id\n"
                 + "                   ORDER BY i.position LIMIT 1) cover ON true\n"
                 + where + "\n"
                 + "ORDER BY " + sort.orderBy() + "\n"

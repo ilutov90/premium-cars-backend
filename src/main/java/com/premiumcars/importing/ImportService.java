@@ -23,7 +23,9 @@ import com.premiumcars.media.ImageDownloader.DownloadedImage;
 import com.premiumcars.media.ImageStorage;
 
 /**
- * "Import by link": fetch the page, extract data, create a DRAFT car, download its photos.
+ * "Import by link": fetch the page, extract data, create a DRAFT car, download its photos. Sites whose photos load in
+ * any browser ({@link SourceAdapter#linksPhotos()}) keep them linked: each photo is downloaded once to find the variant
+ * that works, and only its URL is saved.
  * Not transactional on purpose: network calls happen outside database transactions.
  */
 @Service
@@ -83,11 +85,13 @@ public class ImportService {
         var imageClient = adapter.imageClient();
         List<String> urls = data.imageUrls().stream().limit(props.importer().maxImages()).toList();
         DownloadedImage[] photos = new DownloadedImage[urls.size()];
+        String[] working = new String[urls.size()]; // the candidate URL that downloaded
         for (int i = 0; i < urls.size(); i++) {
             for (String candidate : adapter.imageCandidates(urls.get(i))) {
                 Optional<DownloadedImage> img = downloader.download(candidate, referer, imageClient);
                 if (img.isPresent()) {
                     photos[i] = img.get();
+                    working[i] = candidate;
                     break;
                 }
             }
@@ -105,7 +109,12 @@ public class ImportService {
         }
         List<NewCarImage> images = new ArrayList<>();
         for (int i = 0; i < photos.length; i++) {
-            if (photos[i] != null) {
+            if (photos[i] == null) {
+                continue;
+            }
+            if (adapter.linksPhotos() && working[i] != null) {
+                images.add(new NewCarImage(null, working[i]));
+            } else {
                 images.add(new NewCarImage(storage.store("cars/" + draft.id(), photos[i].bytes(),
                         photos[i].extension()), urls.get(i)));
             }

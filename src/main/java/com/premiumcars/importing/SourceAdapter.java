@@ -35,6 +35,15 @@ public interface SourceAdapter {
         return url;
     }
 
+    /**
+     * True when the site's photo CDN serves the photos to any browser (tested without cookies and referer): they are
+     * then not stored, the site shows them from the source's URL (a "linked" photo). Sites that refuse other sites'
+     * visitors (autowini: Akamai "Access Denied") keep a stored copy.
+     */
+    default boolean linksPhotos() {
+        return false;
+    }
+
     /** Referer sent when downloading photos (some CDNs refuse requests without it). */
     default String referer(URI listingUrl) {
         return listingUrl.toString();

@@ -1,5 +1,6 @@
 package com.premiumcars.catalog.repo;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,6 +35,33 @@ public class CarImageRepository {
                 .param("carId", carId)
                 .query(MAPPER)
                 .list();
+    }
+
+    public Optional<CarImage> findById(long imageId) {
+        return jdbc.sql("SELECT id, car_id, storage_path, source_url, position FROM car_image WHERE id = :imageId")
+                .param("imageId", imageId)
+                .query(MAPPER)
+                .optional();
+    }
+
+    /** Stored photos of cars from these sources (to turn them into linked photos), oldest first. */
+    public List<CarImage> findStored(Collection<String> sources) {
+        return jdbc.sql("""
+                        SELECT i.id, i.car_id, i.storage_path, i.source_url, i.position
+                        FROM car_image i JOIN car c ON c.id = i.car_id
+                        WHERE i.storage_path IS NOT NULL AND i.source_url IS NOT NULL AND c.source IN (:sources)
+                        ORDER BY i.id""")
+                .param("sources", sources)
+                .query(MAPPER)
+                .list();
+    }
+
+    /** Turns a stored photo into a linked one, shown from {@code url}. */
+    public void link(long imageId, String url) {
+        jdbc.sql("UPDATE car_image SET storage_path = NULL, source_url = :url WHERE id = :imageId")
+                .param("url", url)
+                .param("imageId", imageId)
+                .update();
     }
 
     public Optional<CarImage> find(long carId, long imageId) {

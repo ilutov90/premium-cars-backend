@@ -209,14 +209,16 @@ public class CarService {
         find(id);
         List<CarImage> photos = images.findByCarId(id);
         cars.delete(id);
-        photos.forEach(i -> storage.delete(i.storagePath()));
+        photos.stream().filter(i -> !i.linked()).forEach(i -> storage.delete(i.storagePath()));
     }
 
     @Transactional
     public AdminCar deleteImage(long carId, long imageId) {
         CarImage image = findImage(carId, imageId);
         images.delete(carId, imageId);
-        storage.delete(image.storagePath());
+        if (!image.linked()) {
+            storage.delete(image.storagePath());
+        }
         return loadAdmin(carId);
     }
 

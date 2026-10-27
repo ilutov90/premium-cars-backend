@@ -41,3 +41,5 @@ databaseChangeLog:
       file: db/changelog/changes/020-price-formula-duty.sql
   - include:
       file: db/changelog/changes/021-profit-percent.sql
+  - include:
+      file: db/changelog/changes/022-linked-photos.sql

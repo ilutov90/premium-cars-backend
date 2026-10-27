@@ -19,6 +19,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.premiumcars.catalog.domain.CarFeature;
+import com.premiumcars.catalog.domain.CarImage;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
@@ -80,6 +81,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     InquiryService inquiryService;
+
+    @Autowired
+    CarImageRepository carImages;
 
     @Autowired
     SocialPostRepository socialPosts;
@@ -164,15 +168,31 @@ class JdbcRepositoriesTest {
         AdminCar withImages = carService.attachImages(draft.id(), List.of(
                 new NewCarImage("cars/test/a.jpg", null),
                 new NewCarImage("cars/test/b.jpg", null),
-                new NewCarImage("cars/test/c.jpg", null)));
-        assertThat(withImages.images()).extracting(i -> i.position()).containsExactly(0, 1, 2);
+                new NewCarImage("cars/test/c.jpg", "https://cdn.example.com/c.jpg"),
+                new NewCarImage(null, "https://cdn.example.com/d.jpg"))); // linked: shown from the source
+        assertThat(withImages.images()).extracting(i -> i.position()).containsExactly(0, 1, 2, 3);
+        assertThat(withImages.images().get(3).linked()).isTrue();
+        assertThat(withImages.images().get(3).url()).isEqualTo("https://cdn.example.com/d.jpg");
+        assertThat(withImages.images().get(0).url()).endsWith("cars/test/a.jpg");
+        assertThat(withImages.images().get(3).fileUrl())
+                .isEqualTo("/media/photo/" + withImages.images().get(3).id());
+
+        // stored photos of a site that now links them: linked one by one (StoredPhotoLinker)
+        assertThat(carImages.findStored(List.of("AUTOHOME"))).extracting(CarImage::id)
+                .contains(withImages.images().get(2).id())
+                .doesNotContain(withImages.images().get(0).id(), withImages.images().get(3).id()); // no URL / linked
+        assertThat(carImages.findStored(List.of("AUTOWINI"))).extracting(CarImage::carId).doesNotContain(draft.id());
+        carImages.link(withImages.images().get(2).id(), "https://cdn.example.com/c-large.jpg");
+        assertThat(carImages.findById(withImages.images().get(2).id()).orElseThrow())
+                .satisfies(i -> assertThat(i.linked()).isTrue())
+                .extracting(CarImage::sourceUrl).isEqualTo("https://cdn.example.com/c-large.jpg");
 
         long third = withImages.images().get(2).id();
         AdminCar covered = carService.makeCover(draft.id(), third);
         assertThat(covered.images().getFirst().id()).isEqualTo(third);
 
         AdminCar fewer = carService.deleteImage(draft.id(), withImages.images().getFirst().id());
-        assertThat(fewer.images()).extracting(i -> i.position()).containsExactly(0, 1);
+        assertThat(fewer.images()).extracting(i -> i.position()).containsExactly(0, 1, 2);
 
         CarSpecs edited = draft.specs().toBuilder()
                 .title("BMW X3 xDrive30i M Sport").trim("  M Sport ").mileageKm(31_000)
@@ -213,7 +233,7 @@ class JdbcRepositoriesTest {
         AdminCar published = carService.changeStatus(draft.id(), CarStatus.PUBLISHED);
         assertThat(published.publishedAt()).isNotNull();
         var publicCar = carService.getPublic(published.slug());
-        assertThat(publicCar.imageUrls()).hasSize(2);
+        assertThat(publicCar.imageUrls()).hasSize(3).contains("https://cdn.example.com/d.jpg");
         assertThat(publicCar.priceEur()).isEqualByComparingTo("27978");
         assertThat(publicCar.specs().batteryKwh()).isEqualByComparingTo("19.7");
         assertThat(publicCar.specs().sheet()).hasSize(2);

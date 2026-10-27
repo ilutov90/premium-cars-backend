@@ -87,7 +87,12 @@ public final class CarDtos {
     ) {
     }
 
-    public record AdminImage(Long id, String url, String sourceUrl, int position) {
+    /**
+     * @param url     where browsers show it from (our storage, or the source's CDN when {@code linked})
+     * @param linked  shown from the source site, not stored by us
+     * @param fileUrl the photo from our own origin (for downloads and the mobile.bg extension)
+     */
+    public record AdminImage(Long id, String url, String sourceUrl, int position, boolean linked, String fileUrl) {
     }
 
     public record AdminCar(
