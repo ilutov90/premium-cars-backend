@@ -45,8 +45,8 @@ public interface SourceAdapter {
     }
 
     /**
-     * True when a listing without a price must not be imported (unless the admin enters one): guazi's auctions show a
-     * stand-in price. Other sites' listings may hide the price (autowini) and are imported as drafts without it.
+     * True when a listing without a price must not be imported (unless the admin enters one): guazi (auctions show a
+     * stand-in price) and autowini. autohome is still imported as a draft without a price.
      */
     default boolean requiresPrice() {
         return false;

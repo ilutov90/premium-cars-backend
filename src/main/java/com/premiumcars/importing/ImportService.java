@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.NewCarImage;
 import com.premiumcars.catalog.service.CarService;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
@@ -85,9 +86,10 @@ public class ImportService {
             data = new ImportedCar(data.sourceRef(), data.sourceLocation(), data.specs(), price, cur,
                     data.imageUrls(), data.warnings());
         }
-        if (data.price() == null && adapter.requiresPrice()) {
-            throw new BadRequestException("The listing has no fixed FOB price (an auction?), so it was not imported."
-                    + " To import it anyway, enter the price in the import form.");
+        if ((data.price() == null || data.price().signum() <= 0) && adapter.requiresPrice()) {
+            throw new BadRequestException("No price could be read from the listing (" + adapter.source()
+                    + (adapter.source() == CarSource.GUAZI ? ": no fixed FOB price, an auction?" : "")
+                    + "), so it was not imported. To import it anyway, enter the price in the import form.");
         }
         List<String> warnings = new ArrayList<>(data.warnings());
         addGeneralWarnings(data, warnings);
