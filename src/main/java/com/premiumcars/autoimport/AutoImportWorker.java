@@ -21,7 +21,8 @@ import com.premiumcars.importing.ImportService;
 
 /**
  * Imports the queued listings one at a time (guazi's first), with the same code as an import by hand but
- * {@value #MAX_PHOTOS} photos, and publishes each car. A car without a price or photos stays a draft. Works while
+ * {@value #MAX_PHOTOS} photos, and publishes each car. A car without photos stays a draft; one without a FOB price is
+ * deleted again (skipped). Works while
  * the main switch and the listing's source are on; a failure is retried up to 3 times, then again after the next run.
  */
 @Component
@@ -75,11 +76,16 @@ public class AutoImportWorker {
         try {
             ImportResult r = importService.importAutomatically(l.url(), MAX_PHOTOS);
             AdminCar car = r.car();
+            if (car.price() == null && !r.alreadyImported()) {
+                // no FOB price on the listing page: skipped, not put on the site with a wrong or missing price
+                carService.delete(car.id());
+                listings.failed(l.source(), l.listingId(), "No FOB price on the listing: skipped");
+                log.info("Auto-import {} {}: no FOB price, skipped", l.source(), l.listingId());
+                return;
+            }
             String note = null;
             if (car.status() == CarStatus.DRAFT) {
-                if (car.price() == null) {
-                    note = "No price found: left as a draft";
-                } else if (car.images().isEmpty()) {
+                if (car.images().isEmpty()) {
                     note = "No photos: left as a draft";
                 } else {
                     carService.changeStatus(car.id(), CarStatus.PUBLISHED);
