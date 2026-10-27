@@ -44,6 +44,14 @@ public interface SourceAdapter {
         return false;
     }
 
+    /**
+     * True when a listing without a price must not be imported (unless the admin enters one): guazi's auctions show a
+     * stand-in price. Other sites' listings may hide the price (autowini) and are imported as drafts without it.
+     */
+    default boolean requiresPrice() {
+        return false;
+    }
+
     /** Referer sent when downloading photos (some CDNs refuse requests without it). */
     default String referer(URI listingUrl) {
         return listingUrl.toString();

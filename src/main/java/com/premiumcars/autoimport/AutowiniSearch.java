@@ -101,7 +101,8 @@ public class AutowiniSearch implements SourceSearch {
                     JsonNode items = data.path("items");
                     for (JsonNode item : items) {
                         FoundListing l = listing(item);
-                        if (l != null && seen.add(l.id())) {
+                        // a listing without a price counts as read but is not imported
+                        if (l != null && seen.add(l.id()) && l.price() != null && l.price().signum() > 0) {
                             found.accept(l);
                         }
                     }

@@ -81,7 +81,8 @@ public class GuaziSearch implements SourceSearch {
     public BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
         Set<String> seen = new HashSet<>();
         Consumer<FoundListing> once = l -> {
-            if (seen.add(l.id())) {
+            // listings without a fixed price (auctions show guazi's stand-in) count as read but are not imported
+            if (seen.add(l.id()) && GuaziPageParser.realPrice(l.price())) {
                 found.accept(l);
             }
         };

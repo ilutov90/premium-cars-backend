@@ -85,6 +85,10 @@ public class ImportService {
             data = new ImportedCar(data.sourceRef(), data.sourceLocation(), data.specs(), price, cur,
                     data.imageUrls(), data.warnings());
         }
+        if (data.price() == null && adapter.requiresPrice()) {
+            throw new BadRequestException("The listing has no fixed FOB price (an auction?), so it was not imported."
+                    + " To import it anyway, enter the price in the import form.");
+        }
         List<String> warnings = new ArrayList<>(data.warnings());
         addGeneralWarnings(data, warnings);
 

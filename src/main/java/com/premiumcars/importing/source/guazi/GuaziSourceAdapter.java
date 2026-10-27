@@ -85,6 +85,12 @@ public class GuaziSourceAdapter implements SourceAdapter {
         return GuaziPageParser.imageCandidates(imageUrl);
     }
 
+    /** A listing without a fixed FOB price (auctions) is not imported unless the admin enters the price. */
+    @Override
+    public boolean requiresPrice() {
+        return true;
+    }
+
     @Override
     public ImportedCar importFrom(URI url) {
         URI page = canonicalUrl(url);
@@ -151,7 +157,7 @@ public class GuaziSourceAdapter implements SourceAdapter {
 
         List<String> warnings = new ArrayList<>();
         if (parsed.priceUsd() == null) {
-            warnings.add("Price not found: enter it by hand.");
+            warnings.add("guazi shows no fixed FOB price for this listing (an auction?).");
         }
         if (specs.fuelType() != null && specs.fuelType().hasTractionBattery()) {
             if (specs.batteryKwh() == null) {

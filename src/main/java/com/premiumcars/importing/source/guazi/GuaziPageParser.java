@@ -155,6 +155,9 @@ public final class GuaziPageParser {
         if (price == null) {
             price = ldPrice(doc);
         }
+        if (raw.path("fixedPrice").asInt(1) == 2) {
+            price = null; // an auction: no fixed FOB price, whatever the page shows
+        }
         String title = firstNonBlank(text(raw, "tdkTitle"), stripUsed(text(raw, "title")));
         return new ParsedPage(id.isEmpty() ? productId : id, title, value(text(raw, "makeNameEn")),
                 value(text(raw, "modelName")), fields, specs, highlights(raw.path("carHighLightList")), price,
@@ -326,7 +329,7 @@ public final class GuaziPageParser {
         BigDecimal first = null;
         for (JsonNode p : iterable(prices)) {
             BigDecimal v = ValueParsers.parseNumber(text(p, "price"));
-            if (v == null || v.signum() <= 0) {
+            if (!realPrice(v)) {
                 continue;
             }
             JsonNode def = p.path("isDefault");
@@ -340,6 +343,17 @@ public final class GuaziPageParser {
         return first;
     }
 
+    /**
+     * guazi's stand-in price for a listing without a fixed price (auctions show "$9,999,999" for every port, its
+     * largest allowed unit price).
+     */
+    static final BigDecimal NO_PRICE = new BigDecimal("9999999");
+
+    /** A price we can sell from: positive and not guazi's stand-in for "no fixed price". */
+    public static boolean realPrice(BigDecimal usd) {
+        return usd != null && usd.signum() > 0 && usd.compareTo(NO_PRICE) < 0;
+    }
+
     /** Price of the page's schema.org Car (USD), the fallback when rawData has none. */
     static BigDecimal ldPrice(Document doc) {
         for (Element script : doc.select("script[type=application/ld+json]")) {
@@ -351,7 +365,7 @@ public final class GuaziPageParser {
                         JsonNode offer = offers.isArray() ? offers.path(0) : offers;
                         String currency = offer.path("priceCurrency").asText("USD");
                         BigDecimal v = ValueParsers.parseNumber(offer.path("price").asText(""));
-                        if (v != null && "USD".equalsIgnoreCase(currency)) {
+                        if (realPrice(v) && "USD".equalsIgnoreCase(currency)) {
                             return v;
                         }
                     }

@@ -194,6 +194,22 @@ class GuaziPageParserTest {
         assertThat(page.priceUsd()).isEqualByComparingTo("9000");
     }
 
+    /** An auction (Kia KX3 aj42y7hjea, October 2026): every port shows guazi's stand-in "$9,999,999". */
+    @Test
+    void anAuctionHasNoPrice() {
+        String row = "5:[\\\"$\\\",\\\"div\\\",null,{\\\"rawData\\\":{\\\"productId\\\":\\\"aj42y7hjea\\\","
+                + "\\\"title\\\":\\\"Used Kia KX3 2021 1.5L CVT Trend Edition\\\",\\\"fixedPrice\\\":2,"
+                + "\\\"prices\\\":[{\\\"price\\\":\\\"$$9,999,999\\\",\\\"isDefault\\\":1}]}}]\\n";
+        ParsedPage page = GuaziPageParser.parse("<script>self.__next_f.push([1,\"" + row + "\"])</script>", "aj42y7hjea");
+        assertThat(page.title()).isEqualTo("Kia KX3 2021 1.5L CVT Trend Edition");
+        assertThat(page.priceUsd()).isNull();
+
+        // the stand-in alone (without the auction flag) is no price either
+        assertThat(GuaziPageParser.realPrice(new java.math.BigDecimal("9999999"))).isFalse();
+        assertThat(GuaziPageParser.realPrice(new java.math.BigDecimal("15588"))).isTrue();
+        assertThat(GuaziPageParser.realPrice(null)).isFalse();
+    }
+
     @Test
     void aBotCheckPageIsDescribed() {
         assertThatThrownBy(() -> GuaziPageParser.parse(
