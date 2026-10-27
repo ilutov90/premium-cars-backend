@@ -17,6 +17,8 @@ import java.math.BigDecimal;
  * @param steps              old formula only: steps above the threshold, proportional
  * @param stepCostsEur       old formula only
  * @param profitOverridden   the profit was set for this car instead of taken from the formula
+ * @param profitPct          the formula's profit percent of FOB (null when overridden or calculated before 021)
+ * @param profitMinEur       the formula's least profit (null when overridden or calculated before 021)
  * @param calculatedTotalEur what the formula gives (null when it cannot be calculated)
  * @param totalEur           the final price: {@code calculatedTotalEur}, or the price set by hand
  * @param fixedTotal         {@code totalEur} was set by hand
@@ -40,13 +42,15 @@ public record PriceBreakdown(
         BigDecimal calculatedTotalEur,
         BigDecimal totalEur,
         boolean fixedTotal,
-        BigDecimal eurPerUnit
+        BigDecimal eurPerUnit,
+        BigDecimal profitPct,
+        BigDecimal profitMinEur
 ) {
 
     /** The same breakdown with another final price. */
     public PriceBreakdown withTotal(BigDecimal total) {
         return new PriceBreakdown(profile, sourcePrice, sourceCurrency, carPriceEur, seaFreightEur, landTransportEur,
                 commissionEur, dutyVatPct, dutyVatEur, baseCostsEur, steps, stepCostsEur, profitEur,
-                profitOverridden, calculatedTotalEur, total, fixedTotal, eurPerUnit);
+                profitOverridden, calculatedTotalEur, total, fixedTotal, eurPerUnit, profitPct, profitMinEur);
     }
 }

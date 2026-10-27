@@ -13,14 +13,15 @@ import org.springframework.stereotype.Repository;
 public class PricingProfileRepository {
 
     private static final String COLUMNS =
-            "id, sea_freight_eur, land_transport_eur, commission_eur, profit_eur, duty_vat_pct, updated_at";
+            "id, sea_freight_eur, land_transport_eur, commission_eur, profit_pct, profit_min_eur, duty_vat_pct, updated_at";
 
     private static final RowMapper<PricingProfile> MAPPER = (rs, i) -> new PricingProfile(
             PriceProfile.valueOf(rs.getString("id")),
             rs.getBigDecimal("sea_freight_eur"),
             rs.getBigDecimal("land_transport_eur"),
             rs.getBigDecimal("commission_eur"),
-            rs.getBigDecimal("profit_eur"),
+            rs.getBigDecimal("profit_pct"),
+            rs.getBigDecimal("profit_min_eur"),
             rs.getBigDecimal("duty_vat_pct"),
             rs.getObject("updated_at", OffsetDateTime.class).toInstant());
 
@@ -46,13 +47,15 @@ public class PricingProfileRepository {
         int rows = jdbc.sql("""
                         UPDATE pricing_profile SET
                             sea_freight_eur = :seaFreight, land_transport_eur = :landTransport,
-                            commission_eur = :commission, profit_eur = :profit, duty_vat_pct = :dutyVatPct,
+                            commission_eur = :commission, profit_pct = :profitPct, profit_min_eur = :profitMin,
+                            duty_vat_pct = :dutyVatPct,
                             updated_at = now()
                         WHERE id = :id""")
                 .param("seaFreight", p.seaFreight())
                 .param("landTransport", p.landTransport())
                 .param("commission", p.commission())
-                .param("profit", p.profit())
+                .param("profitPct", p.profitPct())
+                .param("profitMin", p.profitMin())
                 .param("dutyVatPct", p.dutyVatPct())
                 .param("id", id.name())
                 .update();
