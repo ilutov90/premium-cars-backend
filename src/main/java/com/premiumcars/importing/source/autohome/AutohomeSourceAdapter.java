@@ -77,6 +77,12 @@ public class AutohomeSourceAdapter implements SourceAdapter {
         return "https://global.autohome.com.cn/";
     }
 
+    /** The photos load in any browser: the site shows them from autohome's CDN, nothing is stored. */
+    @Override
+    public boolean linksPhotos() {
+        return true;
+    }
+
     @Override
     public List<String> imageCandidates(String imageUrl) {
         return AutohomePageParser.imageCandidates(imageUrl);

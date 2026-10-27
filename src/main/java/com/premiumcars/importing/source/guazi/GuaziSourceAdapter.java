@@ -74,6 +74,12 @@ public class GuaziSourceAdapter implements SourceAdapter {
         return "https://en.guazi.com/";
     }
 
+    /** The photos load in any browser: the site shows them from guazi's CDN, nothing is stored. */
+    @Override
+    public boolean linksPhotos() {
+        return true;
+    }
+
     @Override
     public List<String> imageCandidates(String imageUrl) {
         return GuaziPageParser.imageCandidates(imageUrl);

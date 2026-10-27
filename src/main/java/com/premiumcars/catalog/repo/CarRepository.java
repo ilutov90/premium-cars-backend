@@ -24,8 +24,11 @@ import com.premiumcars.pricing.PriceBreakdown;
 @Repository
 public class CarRepository {
 
-    /** A car in a list, with the storage path of its cover photo (null when it has none). */
-    public record CarListRow(Car car, String coverPath) {
+    /**
+     * A car in a list, with its cover photo: the storage path, or for a linked photo null and its URL (both null when
+     * the car has no photos).
+     */
+    public record CarListRow(Car car, String coverPath, String coverUrl) {
     }
 
     public record CarPage(List<CarListRow> rows, long total) {
@@ -42,7 +45,8 @@ public class CarRepository {
         this.jdbc = jdbc;
         this.json = json;
         this.carMapper = new CarRowMapper(json);
-        this.listRowMapper = (rs, n) -> new CarListRow(carMapper.mapRow(rs, n), rs.getString("cover_path"));
+        this.listRowMapper = (rs, n) -> new CarListRow(carMapper.mapRow(rs, n), rs.getString("cover_path"),
+                rs.getString("cover_url"));
     }
 
     // ---------------------------------------------------------------- queries

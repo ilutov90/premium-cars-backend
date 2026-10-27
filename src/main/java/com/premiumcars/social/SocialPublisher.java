@@ -9,9 +9,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -30,7 +30,7 @@ import com.premiumcars.catalog.repo.CarRepository;
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.common.NotFoundException;
 import com.premiumcars.config.AppProperties;
-import com.premiumcars.media.ImageStorage;
+import com.premiumcars.importing.CarPhotoFiles;
 
 /**
  * Publishes a car to the Facebook page / Instagram account / Viber channel: the admin's text (generated in the admin panel in the
@@ -67,19 +67,19 @@ public class SocialPublisher {
     private final AppProperties.Social cfg;
     private final CarRepository cars;
     private final CarImageRepository images;
-    private final ImageStorage storage;
+    private final CarPhotoFiles photoFiles;
     private final MetaGraphClient graph;
     private final ImgbbUploader imgbb;
     private final SocialPostRepository posts;
     private final ViberChannelClient viber;
 
-    public SocialPublisher(AppProperties props, CarRepository cars, CarImageRepository images, ImageStorage storage,
+    public SocialPublisher(AppProperties props, CarRepository cars, CarImageRepository images, CarPhotoFiles photoFiles,
                            MetaGraphClient graph, ImgbbUploader imgbb, SocialPostRepository posts,
                            ViberChannelClient viber) {
         this.cfg = props.social();
         this.cars = cars;
         this.images = images;
-        this.storage = storage;
+        this.photoFiles = photoFiles;
         this.graph = graph;
         this.imgbb = imgbb;
         this.posts = posts;
@@ -327,15 +327,15 @@ public class SocialPublisher {
             if (image == null) {
                 throw new BadRequestException("Photo " + id + " is not a photo of car " + carId);
             }
-            out.add(read(image));
+            out.add(read(image).orElseThrow(() -> new BadRequestException(
+                    "Photo " + id + " no longer loads from the source site: pick another one")));
         }
         return out;
     }
 
-    private Photo read(CarImage image) {
-        String path = image.storagePath();
-        String ext = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-        return new Photo(storage.read(path), ext);
+    /** Stored photos from our storage; linked ones downloaded from the source now, not kept. */
+    private Optional<Photo> read(CarImage image) {
+        return photoFiles.read(image).map(f -> new Photo(f.bytes(), f.extension()));
     }
 
     private List<Photo> photos(long carId, int limit) {
@@ -344,7 +344,7 @@ public class SocialPublisher {
             if (out.size() >= limit) {
                 break;
             }
-            out.add(read(image));
+            read(image).ifPresent(out::add); // a linked photo that no longer loads is left out
         }
         return out;
     }

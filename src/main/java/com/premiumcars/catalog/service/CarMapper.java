@@ -38,7 +38,7 @@ public class CarMapper {
     public CarSummary toSummary(CarListRow row) {
         Car c = row.car();
         CarSpecs s = c.specs();
-        String cover = row.coverPath() == null ? null : storage.publicUrl(row.coverPath());
+        String cover = coverUrl(row);
         return new CarSummary(c.id(), c.slug(), s.title(), s.make(), s.model(), s.year(), s.mileageKm(),
                 s.fuelType(), s.transmission(), s.powerHp(), s.batteryKwh(), s.electricRangeKm(),
                 Origin.of(c.source()), c.status(), c.totalPriceEur(), cover);
@@ -47,14 +47,31 @@ public class CarMapper {
     public AdminCarSummary toAdminSummary(CarListRow row) {
         Car c = row.car();
         CarSpecs s = c.specs();
-        String cover = row.coverPath() == null ? null : storage.publicUrl(row.coverPath());
+        String cover = coverUrl(row);
         return new AdminCarSummary(c.id(), c.slug(), s.title(), s.year(), s.mileageKm(), c.status(),
                 c.totalPriceEur(), cover, c.source(), c.sourceRef(), c.sourceUrl());
     }
 
+    /** Where browsers load the photo from: our media storage, or the source's CDN for a linked photo. */
+    public String url(CarImage image) {
+        return image.linked() ? image.sourceUrl() : storage.publicUrl(image.storagePath());
+    }
+
+    /**
+     * The photo's bytes from our own origin, stored or linked alike: for the admin panel and its mobile.bg extension,
+     * which cannot read other sites' photos (see PhotoFileController).
+     */
+    public static String fileUrl(long imageId) {
+        return "/media/photo/" + imageId;
+    }
+
+    private String coverUrl(CarListRow row) {
+        return row.coverPath() != null ? storage.publicUrl(row.coverPath()) : row.coverUrl();
+    }
+
     public CarDetail toDetail(Car c, List<CarImage> images) {
         return new CarDetail(c.id(), c.slug(), c.status(), Origin.of(c.source()), c.specs(),
-                images.stream().map(i -> storage.publicUrl(i.storagePath())).toList(),
+                images.stream().map(this::url).toList(),
                 c.totalPriceEur());
     }
 
@@ -63,8 +80,8 @@ public class CarMapper {
         return new AdminCar(c.id(), c.slug(), c.status(), c.source(), c.sourceUrl(), c.sourceRef(),
                 c.sourceLocation(), c.specs(), c.pricing(), price,
                 images.stream()
-                        .map(i -> new AdminImage(i.id(), storage.publicUrl(i.storagePath()), i.sourceUrl(),
-                                i.position()))
+                        .map(i -> new AdminImage(i.id(), url(i), i.sourceUrl(), i.position(), i.linked(),
+                                fileUrl(i.id())))
                         .toList(),
                 c.createdAt(), c.updatedAt(), c.publishedAt());
     }
