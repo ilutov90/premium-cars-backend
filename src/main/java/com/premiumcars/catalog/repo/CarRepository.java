@@ -1,6 +1,7 @@
 package com.premiumcars.catalog.repo;
 
 import java.math.BigDecimal;
+import java.sql.Types;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -126,7 +128,7 @@ public class CarRepository {
                                          battery_kwh, electric_range_km, range_standard, motor_power_kw,
                                          battery_health_pct, euro_standard,
                                          body_type, seats, doors, color, curb_weight_kg, dimensions,
-                                         description, specs, features, spec_sheet,
+                                         description, specs, features, spec_sheet, inspection,
                                          source_price, source_currency, price_profile, profit_eur, fixed_total_eur,
                                          total_price_eur, created_at, updated_at)
                         VALUES (:slug, :status, :source, :sourceUrl, :sourceRef, :sourceLocation,
@@ -136,7 +138,7 @@ public class CarRepository {
                                 :batteryHealthPct, :euroStandard,
                                 :bodyType, :seats, :doors, :color, :curbWeightKg, :dimensions,
                                 :description, CAST(:specs AS jsonb), CAST(:features AS jsonb),
-                                CAST(:sheet AS jsonb),
+                                CAST(:sheet AS jsonb), CAST(:inspection AS jsonb),
                                 :sourcePrice, :sourceCurrency, :priceProfile, :profitEur, :fixedTotalEur,
                                 :totalPriceEur, now(), now())
                         RETURNING id""")
@@ -292,6 +294,7 @@ public class CarRepository {
         p.put("specs", json.write(d.extraSpecs()));
         p.put("features", json.write(d.features().stream().map(Enum::name).toList()));
         p.put("sheet", json.write(d.sheet()));
+        p.put("inspection", new SqlParameterValue(Types.VARCHAR, json.write(d.inspection())));
         p.put("sourcePrice", pricing.sourcePrice());
         p.put("sourceCurrency", pricing.sourceCurrency());
         p.put("priceProfile", name(pricing.profile()));

@@ -25,7 +25,7 @@ final class CarSearchSql {
             c.battery_kwh, c.electric_range_km, c.range_standard, c.motor_power_kw, c.battery_health_pct,
             c.euro_standard,
             c.body_type, c.seats, c.doors, c.color, c.curb_weight_kg, c.dimensions, c.description, c.specs, c.features,
-            c.spec_sheet,
+            c.spec_sheet, c.inspection,
             c.source_price, c.source_currency, c.price_profile, c.profit_eur, c.fixed_total_eur,
             c.total_price_eur, c.created_at, c.updated_at, c.published_at""";
 

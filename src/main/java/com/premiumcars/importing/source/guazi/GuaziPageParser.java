@@ -26,6 +26,7 @@ import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
+import com.premiumcars.catalog.domain.Inspection;
 import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.importing.extract.FeatureMapper;
@@ -99,7 +100,8 @@ public final class GuaziPageParser {
      */
     public record ParsedPage(String productId, String title, String make, String model, Map<String, String> fields,
                              List<SpecGroup> specs, List<String> highlights, BigDecimal priceUsd,
-                             Integer batteryHealthPct, List<String> images, String licenseDate, String inspection) {
+                             Integer batteryHealthPct, List<String> images, String licenseDate, String inspection,
+                             Inspection report) {
 
         public FuelType fuelType() {
             FuelType f = FuelType.detect(fields.get("fuel"));
@@ -157,7 +159,8 @@ public final class GuaziPageParser {
         return new ParsedPage(id.isEmpty() ? productId : id, title, value(text(raw, "makeNameEn")),
                 value(text(raw, "modelName")), fields, specs, highlights(raw.path("carHighLightList")), price,
                 batteryHealth(raw.path("batteryHealth")), images(raw.path("images")),
-                value(text(raw, "licenseDate")), inspection(raw.path("reportDetailLite")));
+                value(text(raw, "licenseDate")), inspection(raw.path("reportDetailLite")),
+                inspectionReport(raw.path("reportDetailLite")));
     }
 
     /** Our car data from the parsed page. */
@@ -205,7 +208,7 @@ public final class GuaziPageParser {
         features.addAll(FeatureMapper.fromPhrases(phrases(page)));
         features.addAll(FeatureMapper.fromSpecs(b.drivetrain(), b.seats(), b.doors(),
                 FeatureMapper.rightHandDrive(f.get("steering"))));
-        return b.features(features).sheet(sheet(page.specs())).build();
+        return b.features(features).sheet(sheet(page.specs())).inspection(page.report()).build();
     }
 
     // ---------------------------------------------------------------- rawData
@@ -430,6 +433,59 @@ public final class GuaziPageParser {
         }
         parts.add(issues.isEmpty() ? "no issues reported" : "issues: " + String.join(", ", issues));
         return "guazi inspection: " + String.join("; ", parts);
+    }
+
+    /**
+     * guazi's inspection report for the car page: the grade, the three yes/no checks ("No Accident Damage" ...; guazi's
+     * {@code state} true = the damage was found), every area with its normal / abnormal points, and the points with a
+     * defect (guazi marks them {@code normal: 1} with a verdict other than "Normal") with the inspector's note and
+     * video. Null when the page has no report.
+     */
+    static Inspection inspectionReport(JsonNode report) {
+        if (report == null || !report.isObject()) {
+            return null;
+        }
+        JsonNode base = report.path("baseInfo");
+        String grade = firstNonBlank(text(base, "level"), text(base, "grade"), text(base, "gradeName"),
+                text(base, "carLevel"));
+        List<Inspection.Check> checks = new ArrayList<>();
+        for (JsonNode c : iterable(base.path("threeStateList"))) {
+            String title = value(text(c, "title"));
+            if (title != null && c.path("state").isBoolean()) {
+                checks.add(new Inspection.Check(title, !c.path("state").asBoolean()));
+            }
+        }
+        List<Inspection.Category> categories = new ArrayList<>();
+        for (JsonNode c : iterable(report.path("categoryList"))) {
+            String name = value(text(c, "categoryName"));
+            if (name != null) {
+                categories.add(new Inspection.Category(name, c.path("normalCount").asInt(0),
+                        c.path("abnormalCount").asInt(0)));
+            }
+        }
+        List<Inspection.Finding> findings = new ArrayList<>();
+        for (String list : List.of("videoList", "conditionVideos")) {
+            for (JsonNode v : iterable(report.path(list))) {
+                String verdict = value(text(v, "detectResultMsg"));
+                boolean defect = verdict != null ? !verdict.equalsIgnoreCase("normal") : v.path("normal").asInt(0) == 1;
+                if (!defect) {
+                    continue;
+                }
+                findings.add(new Inspection.Finding(value(text(v, "categoryName")), value(text(v, "itemName")),
+                        verdict, value(text(v, "note")), httpUrl(value(text(v, "firstImageUrl"))),
+                        httpUrl(value(text(v, "videoUrl")))));
+            }
+        }
+        Inspection out = new Inspection(grade, checks, categories, findings);
+        return out.isEmpty() ? null : out;
+    }
+
+    private static String httpUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        String u = url.startsWith("//") ? "https:" + url : url;
+        return u.startsWith("http") ? u : null;
     }
 
     // ---------------------------------------------------------------- our fields

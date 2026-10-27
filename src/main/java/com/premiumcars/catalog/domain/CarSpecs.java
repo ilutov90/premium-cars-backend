@@ -36,6 +36,8 @@ import jakarta.validation.constraints.Size;
  * @param features          extras, one per mobile.bg checkbox, in {@link CarFeature} order without duplicates
  * @param sheet             the source site's full specification sheet, as imported; read-only (saving a car keeps
  *                          the stored one)
+ * @param inspection        the source's inspection report (guazi), as imported; read-only like {@code sheet}; null
+ *                          when the source has none
  */
 public record CarSpecs(
         @NotBlank @Size(max = 255) String title,
@@ -66,13 +68,15 @@ public record CarSpecs(
         @Size(max = 20_000) String description,
         Map<String, String> extraSpecs,
         List<CarFeature> features,
-        List<SpecGroup> sheet
+        List<SpecGroup> sheet,
+        Inspection inspection
 ) {
 
     public CarSpecs {
         extraSpecs = extraSpecs == null ? Map.of() : extraSpecs;
         features = Builder.cleanFeatures(features);
         sheet = SpecGroup.clean(sheet);
+        inspection = inspection == null || inspection.isEmpty() ? null : inspection;
     }
 
     public static Builder builder() {
@@ -89,7 +93,8 @@ public record CarSpecs(
                 .motorPowerKw(motorPowerKw).batteryHealthPct(batteryHealthPct).euroStandard(euroStandard)
                 .bodyType(bodyType).seats(seats).doors(doors).color(color)
                 .curbWeightKg(curbWeightKg).dimensions(dimensions)
-                .description(description).extraSpecs(extraSpecs).features(features).sheet(sheet);
+                .description(description).extraSpecs(extraSpecs).features(features).sheet(sheet)
+                .inspection(inspection);
     }
 
     /** Fluent builder; every setter accepts null. */
@@ -123,6 +128,7 @@ public record CarSpecs(
         private Map<String, String> extraSpecs = new LinkedHashMap<>();
         private List<CarFeature> features = List.of();
         private List<SpecGroup> sheet = List.of();
+        private Inspection inspection;
 
         private Builder() {
         }
@@ -161,6 +167,11 @@ public record CarSpecs(
 
         public Builder features(Collection<CarFeature> v) {
             features = v == null ? List.of() : List.copyOf(v.stream().filter(Objects::nonNull).toList());
+            return this;
+        }
+
+        public Builder inspection(Inspection v) {
+            inspection = v;
             return this;
         }
 
@@ -213,7 +224,8 @@ public record CarSpecs(
                     clean(description, 20_000),
                     cleanSpecs(extraSpecs),
                     features,
-                    sheet);
+                    sheet,
+                    inspection);
         }
 
         /** Enum order (the mobile.bg form's order), no nulls, no duplicates. */

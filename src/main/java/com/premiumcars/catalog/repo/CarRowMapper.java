@@ -15,6 +15,7 @@ import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.domain.Drivetrain;
 import com.premiumcars.catalog.domain.FuelType;
+import com.premiumcars.catalog.domain.Inspection;
 import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.pricing.PriceProfile;
@@ -63,6 +64,7 @@ final class CarRowMapper implements RowMapper<Car> {
                         .filter(Objects::nonNull)
                         .toList())
                 .sheet(json.readSpecSheet(rs.getString("spec_sheet")))
+                .inspection(json.read(rs.getString("inspection"), Inspection.class))
                 .build();
         var pricing = new PricingInputs(
                 rs.getBigDecimal("source_price"),
