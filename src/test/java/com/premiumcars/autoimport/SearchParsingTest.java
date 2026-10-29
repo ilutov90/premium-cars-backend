@@ -55,6 +55,9 @@ class SearchParsingTest {
         assertThat(l.url()).isEqualTo("https://www.autowini.com/Cars/IC5577815/cars-detail"); // as the importer keeps it
         assertThat(l.title()).isEqualTo("2020 Kia All NEW K3 1.6 A/T");
         assertThat(l.price()).isEqualByComparingTo("8354");
+        assertThat(l.mileageKm()).isNull();
+        assertThat(AutowiniSearch.listing(tree("{\"listingId\":\"IC1\",\"mileage\":215000}")).mileageKm())
+                .isEqualTo(215000);
         assertThat(AutowiniSearch.listing(tree("{\"itemName\":\"x\"}"))).isNull();
     }
 
@@ -95,6 +98,8 @@ class SearchParsingTest {
                 "https://en.guazi.com/products/byd-song-plus-new-energy-2021-00l-gray-36200km-at-2wd-5-seats-hhsub43ux6.html");
         assertThat(l.title()).isEqualTo("BYD Song PLUS New Energy 2021 EV Flagship Model");
         assertThat(l.price()).isEqualByComparingTo("15588");
+        assertThat(l.mileageKm()).isEqualTo(36200); // from the address: "...-gray-36200km-at-..."
+        assertThat(GuaziSearch.mileage("byd-seal-2023-electric-white-at-2wd-abc.html")).isNull();
         assertThat(GuaziSearch.listing(tree("{\"productId\":\"x\"}"))).isNull();
         assertThat(GuaziSearch.price("")).isNull();
     }

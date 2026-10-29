@@ -85,6 +85,9 @@ final class CarSearchSql {
         if (notBlank(f.make())) {
             and("lower(c.make) = :make", "make", f.make().trim().toLowerCase(Locale.ROOT));
         }
+        if (notBlank(f.model())) {
+            and("lower(c.model) = :model", "model", f.model().trim().toLowerCase(Locale.ROOT));
+        }
         if (f.fuelType() != null) {
             and("c.fuel_type = :fuelType", "fuelType", f.fuelType().name());
         }

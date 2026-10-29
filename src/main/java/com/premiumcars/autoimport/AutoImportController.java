@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.premiumcars.autoimport.AutoImportDtos.CatalogEntry;
+import com.premiumcars.autoimport.AutoImportDtos.MaxMileageRequest;
 import com.premiumcars.autoimport.AutoImportDtos.Overview;
 import com.premiumcars.autoimport.AutoImportDtos.Preview;
 import com.premiumcars.autoimport.AutoImportDtos.RunRequest;
@@ -44,6 +45,12 @@ public class AutoImportController {
     @PutMapping("/enabled")
     public Overview setEnabled(@RequestBody SwitchRequest request) {
         return service.setEnabled(request.enabled());
+    }
+
+    /** The mileage limit of both sources. */
+    @PutMapping("/max-mileage")
+    public Overview setMaxMileage(@Valid @RequestBody MaxMileageRequest request) {
+        return service.setMaxMileage(request.maxMileageKm());
     }
 
     @PutMapping("/{source}")

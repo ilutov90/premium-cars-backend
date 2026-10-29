@@ -30,13 +30,13 @@ class CarSearchSqlTest {
 
     @Test
     void everyFilterBecomesANamedParameter() {
-        var filter = new CarFilter("Tucson", "Hyundai", FuelType.PETROL, null, Origin.KR, 2018, null,
+        var filter = new CarFilter("Tucson", "Hyundai", "Tucson", FuelType.PETROL, null, Origin.KR, 2018, null,
                 null, new BigDecimal("30000"), 100_000);
 
         var sql = CarSearchSql.of(filter, PUBLIC).page(CarSort.PRICE_ASC, 2, 12);
 
         assertThat(sql.text())
-                .contains("c.title ILIKE :q", "lower(c.make) = :make", "c.fuel_type = :fuelType",
+                .contains("c.title ILIKE :q", "lower(c.make) = :make", "lower(c.model) = :model", "c.fuel_type = :fuelType",
                         "c.source IN (:sources)", "c.model_year >= :yearFrom", "c.total_price_eur <= :priceTo",
                         "c.mileage_km <= :mileageTo", "ORDER BY c.total_price_eur ASC NULLS LAST",
                         "LIMIT :limit OFFSET :offset")
@@ -44,6 +44,7 @@ class CarSearchSqlTest {
         assertThat(sql.params())
                 .containsEntry("q", "%Tucson%")
                 .containsEntry("make", "hyundai")
+                .containsEntry("model", "tucson")
                 .containsEntry("sources", List.of("AUTOWINI"))
                 .containsEntry("limit", 12)
                 .containsEntry("offset", 24);
@@ -63,7 +64,7 @@ class CarSearchSqlTest {
 
     @Test
     void onlyTheAdminSearchMatchesTheSourceListing() {
-        var filter = new CarFilter("IC5546178", null, null, null, null, null, null, null, null, null);
+        var filter = new CarFilter("IC5546178", null, null, null, null, null, null, null, null, null, null);
 
         var admin = CarSearchSql.forAdmin(filter, EnumSet.allOf(CarStatus.class)).count();
         var pub = CarSearchSql.of(filter, PUBLIC).count();

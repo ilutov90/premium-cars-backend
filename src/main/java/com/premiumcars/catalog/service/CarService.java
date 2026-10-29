@@ -128,7 +128,8 @@ public class CarService {
 
     @Transactional(readOnly = true)
     public FilterOptions filterOptions() {
-        return new FilterOptions(cars.findMakes(PUBLIC_STATUSES), Arrays.asList(FuelType.values()),
+        return new FilterOptions(cars.findMakes(PUBLIC_STATUSES), cars.findModels(PUBLIC_STATUSES),
+                Arrays.asList(FuelType.values()),
                 Arrays.asList(Transmission.values()), Arrays.asList(Origin.values()));
     }
 
@@ -145,7 +146,7 @@ public class CarService {
     public PageResponse<AdminCarSummary> searchAdmin(CarStatus status, String q, CarSource source, CarSort sort,
                                                      int page, int size) {
         Set<CarStatus> statuses = status == null ? EnumSet.allOf(CarStatus.class) : EnumSet.of(status);
-        var filter = new CarFilter(q, null, null, null, null, null, null, null, null, null);
+        var filter = new CarFilter(q, null, null, null, null, null, null, null, null, null, null);
         int p = Math.max(page, 0);
         int s = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         CarPage result = cars.searchAdmin(filter, statuses, source, sort, p, s);
@@ -155,7 +156,7 @@ public class CarService {
     /** How many cars the admin list's search and source match, in all and per status (the filter buttons). */
     @Transactional(readOnly = true)
     public AdminCarCounts adminCounts(String q, CarSource source) {
-        var filter = new CarFilter(q, null, null, null, null, null, null, null, null, null);
+        var filter = new CarFilter(q, null, null, null, null, null, null, null, null, null, null);
         Map<CarStatus, Long> byStatus = cars.countAdminByStatus(filter, source);
         return new AdminCarCounts(byStatus.values().stream().mapToLong(Long::longValue).sum(), byStatus);
     }

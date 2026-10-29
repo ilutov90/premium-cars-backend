@@ -150,8 +150,9 @@ public class AutowiniSearch implements SourceSearch {
             return null;
         }
         JsonNode price = item.path("price");
+        JsonNode km = item.path("mileage"); // when the answer has it; otherwise the import checks the page's
         return new FoundListing(id, AutowiniPageParser.desktopUrl(id), item.path("itemName").asText(null),
-                price.isNumber() ? price.decimalValue() : null);
+                price.isNumber() ? price.decimalValue() : null, km.isIntegralNumber() ? km.asInt() : null);
     }
 
     /** {@code data} of a {"result":"SUCCESS","data":...} answer. */

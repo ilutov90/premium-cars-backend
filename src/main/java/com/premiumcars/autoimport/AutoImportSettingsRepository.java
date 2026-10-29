@@ -51,6 +51,18 @@ public class AutoImportSettingsRepository {
                 .update();
     }
 
+    /** Listings with more km are not imported; null = no limit. */
+    public Integer maxMileageKm() {
+        return jdbc.sql("SELECT max_mileage_km FROM auto_import_state WHERE id = 1").query(Integer.class).optional()
+                .orElse(null);
+    }
+
+    public void setMaxMileageKm(Integer km) {
+        jdbc.sql("UPDATE auto_import_state SET max_mileage_km = :km, updated_at = now() WHERE id = 1")
+                .param("km", km, Types.INTEGER)
+                .update();
+    }
+
     // ---------------------------------------------------------------- sources
 
     public List<SourceSettings> sources() {

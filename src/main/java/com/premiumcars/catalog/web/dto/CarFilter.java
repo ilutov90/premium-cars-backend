@@ -10,6 +10,7 @@ import com.premiumcars.catalog.domain.Transmission;
 public record CarFilter(
         String q,
         String make,
+        String model,
         FuelType fuelType,
         Transmission transmission,
         Origin origin,

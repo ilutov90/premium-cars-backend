@@ -25,22 +25,24 @@ public class AutoImportListingRepository {
     public static final String IMPORTED = "IMPORTED";
     /** Failed {@value #MAX_ATTEMPTS} times in a row; queued again by the next run until {@value #GIVE_UP_ATTEMPTS}. */
     public static final String FAILED = "FAILED";
+    /** Over the mileage limit ({@code mileageKm}): not imported; queued again when the limit goes above it. */
+    public static final String SKIPPED = "SKIPPED";
     static final int MAX_ATTEMPTS = 3;
     static final int GIVE_UP_ATTEMPTS = 6;
 
     public record Listing(CarSource source, String listingId, String url, String brandCode, String title,
                           BigDecimal price, String state, int attempts, String lastError, int missedPasses,
-                          Long carId) {
+                          Long carId, Integer mileageKm) {
     }
 
     private static final String COLUMNS = "source, listing_id, url, brand_code, title, price, state, attempts,"
-            + " last_error, missed_passes, car_id";
+            + " last_error, missed_passes, car_id, mileage_km";
 
     private static final RowMapper<Listing> MAPPER = (rs, n) -> new Listing(
             CarSource.valueOf(rs.getString("source")), rs.getString("listing_id"), rs.getString("url"),
             rs.getString("brand_code"), rs.getString("title"), rs.getBigDecimal("price"), rs.getString("state"),
             rs.getInt("attempts"), rs.getString("last_error"), rs.getInt("missed_passes"),
-            rs.getObject("car_id", Long.class));
+            rs.getObject("car_id", Long.class), rs.getObject("mileage_km", Integer.class));
 
     private final JdbcClient jdbc;
 
@@ -58,8 +60,9 @@ public class AutoImportListingRepository {
 
     public void insert(CarSource source, FoundListing l, String brandCode, String state, Long carId) {
         jdbc.sql("""
-                        INSERT INTO auto_import_listing (source, listing_id, url, brand_code, title, price, state, car_id)
-                        VALUES (:source, :id, :url, :brand, :title, :price, :state, :carId)""")
+                        INSERT INTO auto_import_listing
+                            (source, listing_id, url, brand_code, title, price, state, car_id, mileage_km)
+                        VALUES (:source, :id, :url, :brand, :title, :price, :state, :carId, :km)""")
                 .param("source", source.name())
                 .param("id", l.id())
                 .param("url", l.url())
@@ -68,17 +71,30 @@ public class AutoImportListingRepository {
                 .param("price", l.price(), Types.NUMERIC)
                 .param("state", state)
                 .param("carId", carId, Types.BIGINT)
+                .param("km", l.mileageKm(), Types.INTEGER)
                 .update();
     }
 
-    /** Seen again: stamps it, and queues a failed one again unless it failed too often. */
-    public void seen(CarSource source, FoundListing l, String brandCode) {
+    /**
+     * Seen again: stamps it, queues a failed one again unless it failed too often, and follows the mileage limit
+     * ({@code maxKm}, null = none): a queued listing over it is skipped, a skipped one under it queued again.
+     */
+    public void seen(CarSource source, FoundListing l, String brandCode, Integer maxKm) {
         jdbc.sql("""
                         UPDATE auto_import_listing SET
                             last_seen = now(), missed_passes = 0, brand_code = :brand, title = :title, price = :price,
-                            state = CASE WHEN state = 'FAILED' AND attempts < :giveUp THEN 'QUEUED' ELSE state END,
+                            mileage_km = COALESCE(:km, mileage_km),
+                            state = CASE
+                                WHEN state = 'QUEUED' AND :maxKm > 0 AND COALESCE(:km, mileage_km) > :maxKm
+                                    THEN 'SKIPPED'
+                                WHEN state = 'SKIPPED' AND NOT (:maxKm > 0 AND COALESCE(:km, mileage_km) > :maxKm)
+                                    THEN 'QUEUED'
+                                WHEN state = 'FAILED' AND attempts < :giveUp THEN 'QUEUED'
+                                ELSE state END,
                             updated_at = now()
                         WHERE source = :source AND listing_id = :id""")
+                .param("km", l.mileageKm(), Types.INTEGER)
+                .param("maxKm", maxKm == null ? 0 : maxKm)
                 .param("brand", brandCode)
                 .param("title", cut(l.title(), 300), Types.VARCHAR)
                 .param("price", l.price(), Types.NUMERIC)
@@ -147,6 +163,19 @@ public class AutoImportListingRepository {
                 .update();
     }
 
+    /** Over the mileage limit: not imported (its car, if any, was not saved). */
+    public void skipped(CarSource source, String listingId, int mileageKm, String note) {
+        jdbc.sql("""
+                        UPDATE auto_import_listing SET state = 'SKIPPED', mileage_km = :km, last_error = :note,
+                            updated_at = now()
+                        WHERE source = :source AND listing_id = :id""")
+                .param("km", mileageKm)
+                .param("note", cut(note, 1000), Types.VARCHAR)
+                .param("source", source.name())
+                .param("id", listingId)
+                .update();
+    }
+
     public void failed(CarSource source, String listingId, String error) {
         jdbc.sql("""
                         UPDATE auto_import_listing SET
@@ -177,7 +206,7 @@ public class AutoImportListingRepository {
     /** The latest failures, for the report. */
     public List<Listing> failures(int limit) {
         return jdbc.sql("SELECT " + COLUMNS + " FROM auto_import_listing WHERE last_error IS NOT NULL"
-                        + " AND state <> 'IMPORTED' ORDER BY updated_at DESC LIMIT :limit")
+                        + " AND state NOT IN ('IMPORTED', 'SKIPPED') ORDER BY updated_at DESC LIMIT :limit")
                 .param("limit", limit)
                 .query(MAPPER)
                 .list();
