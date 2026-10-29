@@ -58,12 +58,13 @@ public class InquiryService {
                     .orElseThrow(() -> new NotFoundException("Car not found: " + r.carId()));
         }
         Attribution attribution = r.attribution() == null ? Attribution.NONE : r.attribution();
-        long id = repo.insert(r.carId(), r.name().trim(), trimToNull(r.phone()), trimToNull(r.email()),
+        String name = r.name() == null ? "" : r.name().trim();
+        long id = repo.insert(r.carId(), name, trimToNull(r.phone()), trimToNull(r.email()),
                 trimToNull(r.message()), r.heardFrom(), attribution);
         log.info("New inquiry #{} for car {} (heard from {}, utm_source {})", id, r.carId(), r.heardFrom(),
                 attribution.utmSource());
         // InquiryNotifier e-mails the admin after the commit, outside this transaction
-        events.publishEvent(new InquiryCreatedEvent(id, r.name().trim(), trimToNull(r.phone()),
+        events.publishEvent(new InquiryCreatedEvent(id, name, trimToNull(r.phone()),
                 trimToNull(r.email()), trimToNull(r.message()), car == null ? null : car.specs().title(),
                 car == null ? null : car.slug(), r.heardFrom(), attribution));
         return new InquiryCreated(id);

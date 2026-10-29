@@ -527,7 +527,14 @@ class JdbcRepositoriesTest {
         inquiryService.create(new InquiryRequest("C", "0888000003", null, null, null, null, true, null,
                 new Attribution("", " ", null, null, "x".repeat(400), null)));
 
-        var newest = inquiryService.list(Inquiry.Status.NEW, 0, 3).items();
+        // the short form: no name
+        var nameless = inquiryService.create(new InquiryRequest(null, "0888000004", null,
+                "Търся: Kia Sportage, от 2021 г.", null, null, true, null, null));
+        assertThat(inquiryService.list(Inquiry.Status.NEW, 0, 1).items().getFirst())
+                .satisfies(i -> assertThat(i.id()).isEqualTo(nameless.id()))
+                .satisfies(i -> assertThat(i.name()).isEmpty());
+
+        var newest = inquiryService.list(Inquiry.Status.NEW, 0, 4).items().subList(1, 4);
         assertThat(newest.get(0).heardFrom()).isNull();
         assertThat(newest.get(0).attribution().utmSource()).isNull();
         assertThat(newest.get(0).attribution().landingPath()).hasSize(300);

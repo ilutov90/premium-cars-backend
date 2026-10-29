@@ -6,7 +6,6 @@ import java.util.List;
 
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -16,13 +15,14 @@ public final class InquiryDtos {
     }
 
     /**
+     * @param name            optional; an inquiry without a name is stored with ""
      * @param website         honeypot field: hidden in the form, real people leave it empty, bots fill it in
      * @param privacyAccepted the customer ticked "I have read the privacy policy"; required (must be true)
      * @param heardFrom       "Откъде научихте за нас?"; optional
      * @param attribution     UTM parameters, landing page and referring site of the visit; optional
      */
     public record InquiryRequest(
-            @NotBlank @Size(max = 100) String name,
+            @Size(max = 100) String name, // optional since the short form (October 2026); stored as ""
             @Size(max = 40) String phone,
             @Email @Size(max = 200) String email,
             @Size(max = 4000) String message,

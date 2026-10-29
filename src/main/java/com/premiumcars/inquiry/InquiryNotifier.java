@@ -111,7 +111,7 @@ public class InquiryNotifier {
 
     String text(InquiryCreatedEvent e) {
         StringBuilder t = new StringBuilder("Ново запитване от сайта.\n\n");
-        t.append("Име: ").append(e.name()).append('\n');
+        t.append("Име: ").append(notBlank(e.name()) ? e.name() : "—").append('\n');
         if (notBlank(e.phone())) {
             t.append("Телефон: ").append(e.phone()).append('\n');
         }
