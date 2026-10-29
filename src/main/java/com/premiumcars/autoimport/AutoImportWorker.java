@@ -18,11 +18,12 @@ import com.premiumcars.catalog.service.CarService;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
 import com.premiumcars.catalog.web.dto.CarDtos.ImportResult;
 import com.premiumcars.importing.ImportService;
+import com.premiumcars.importing.MileageOverLimitException;
 
 /**
  * Imports the queued listings one at a time (guazi's first), with the same code as an import by hand but
  * {@value #MAX_PHOTOS} photos, and publishes each car. A car without photos stays a draft; one without a FOB price is
- * deleted again (skipped). Works while
+ * deleted again (skipped); one over the mileage limit is not saved at all (SKIPPED). Works while
  * the main switch and the listing's source are on; a failure is retried up to 3 times, then again after the next run.
  */
 @Component
@@ -73,8 +74,13 @@ public class AutoImportWorker {
     }
 
     void importOne(Listing l) {
+        Integer maxKm = settings.maxMileageKm();
+        if (maxKm != null && l.mileageKm() != null && l.mileageKm() > maxKm) {
+            listings.skipped(l.source(), l.listingId(), l.mileageKm(), "Over " + maxKm + " km: skipped");
+            return;
+        }
         try {
-            ImportResult r = importService.importAutomatically(l.url(), MAX_PHOTOS);
+            ImportResult r = importService.importAutomatically(l.url(), MAX_PHOTOS, maxKm);
             AdminCar car = r.car();
             if (car.price() == null && !r.alreadyImported()) {
                 // no FOB price on the listing page: skipped, not put on the site with a wrong or missing price
@@ -94,6 +100,9 @@ public class AutoImportWorker {
             listings.imported(l.source(), l.listingId(), car.id(), note);
             log.info("Auto-import {} {}: car {}{}", l.source(), l.listingId(), car.id(),
                     note == null ? " published" : " — " + note);
+        } catch (MileageOverLimitException e) {
+            listings.skipped(l.source(), l.listingId(), e.mileageKm(), e.getMessage());
+            log.info("Auto-import {} {}: {}", l.source(), l.listingId(), e.getMessage());
         } catch (RuntimeException e) {
             log.warn("Auto-import {} {} failed: {}", l.source(), l.listingId(), e.getMessage());
             listings.failed(l.source(), l.listingId(), e.getMessage() == null ? e.toString() : e.getMessage());

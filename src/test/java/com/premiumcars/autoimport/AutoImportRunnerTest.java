@@ -61,6 +61,9 @@ class AutoImportRunnerTest {
     @Autowired
     CarService carService;
 
+    @Autowired
+    AutoImportWorker worker;
+
     /** Answers per make code; a make not in the map has no listings (read whole). */
     static class FakeSearch implements SourceSearch {
         final Map<String, List<FoundListing>> results = new HashMap<>();
@@ -96,8 +99,12 @@ class AutoImportRunnerTest {
     }
 
     private static FoundListing listing(String id) {
+        return listing(id, null);
+    }
+
+    private static FoundListing listing(String id, Integer km) {
         return new FoundListing(id, "https://en.guazi.com/products/test-car-" + id + ".html", "BYD Seal " + id,
-                new BigDecimal("15000"));
+                new BigDecimal("15000"), km);
     }
 
     private static final SourceSettings GUAZI = new SourceSettings(CarSource.GUAZI, true,
@@ -176,6 +183,46 @@ class AutoImportRunnerTest {
         assertThat(stopped.status()).isEqualTo("STOPPED");
         assertThat(stopped.goneCount()).isZero();
         assertThat(listings.find(CarSource.GUAZI, "g0")).isPresent();
+    }
+
+    @Test
+    void listingsOverTheMileageLimitAreSkippedUntilTheLimitAllowsThem() {
+        assertThat(settings.maxMileageKm()).isEqualTo(200_000); // the default
+        service.save(CarSource.AUTOWINI, new SourceUpdate(true, new SourceFilters(false, false, List.of()),
+                List.of(new BrandUpdate("C9990", "Testmake", true, 2018, List.of()))));
+        var autowini = new SourceSettings(CarSource.AUTOWINI, true, new SourceFilters(false, false, List.of()),
+                Instant.now());
+        FakeSearch search = new FakeSearch();
+        search.results.put("C9990", List.of(listing("km1", 250_000), listing("km2", 90_000), listing("km3", null)));
+
+        Result first = runner.pass(search, autowini, false);
+        assertThat(first.newCount()).isEqualTo(2);
+        assertThat(first.message()).contains("1 over 200000 km");
+        assertThat(state("km1")).isEqualTo("SKIPPED");
+        assertThat(state("km2")).isEqualTo("QUEUED");
+        assertThat(state("km3")).isEqualTo("QUEUED"); // not shown by the search: the import checks it
+
+        // a higher limit queues it, a lower one skips it again
+        settings.setMaxMileageKm(300_000);
+        runner.pass(search, autowini, false);
+        assertThat(state("km1")).isEqualTo("QUEUED");
+        settings.setMaxMileageKm(null);
+        assertThat(service.overview().maxMileageKm()).isNull();
+        settings.setMaxMileageKm(100_000);
+        runner.pass(search, autowini, false);
+        assertThat(state("km1")).isEqualTo("SKIPPED");
+        assertThat(state("km2")).isEqualTo("QUEUED");
+
+        // the worker skips a queued listing over a limit lowered since the run, without importing it
+        settings.setMaxMileageKm(50_000);
+        worker.importOne(listings.find(CarSource.AUTOWINI, "km2").orElseThrow());
+        assertThat(state("km2")).isEqualTo("SKIPPED");
+        assertThat(service.overview().failures()).noneMatch(f -> f.listingId().startsWith("km"));
+        settings.setMaxMileageKm(200_000);
+    }
+
+    private String state(String listingId) {
+        return listings.find(CarSource.AUTOWINI, listingId).orElseThrow().state();
     }
 
     @Test

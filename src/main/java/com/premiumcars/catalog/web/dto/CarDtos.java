@@ -66,8 +66,9 @@ public final class CarDtos {
     ) {
     }
 
-    public record FilterOptions(List<String> makes, List<FuelType> fuelTypes, List<Transmission> transmissions,
-                                List<Origin> origins) {
+    /** The catalog's filter choices; {@code models}: make -> the models of the public cars of that make. */
+    public record FilterOptions(List<String> makes, Map<String, List<String>> models, List<FuelType> fuelTypes,
+                                List<Transmission> transmissions, List<Origin> origins) {
     }
 
     // ---------------------------------------------------------------- admin

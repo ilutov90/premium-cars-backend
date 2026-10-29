@@ -125,9 +125,19 @@ class JdbcRepositoriesTest {
 
     @Test
     void filtersAndPaging() {
-        var electric = new CarFilter(null, null, FuelType.ELECTRIC, null, null, null, null, null, null, null);
+        var electric = new CarFilter(null, null, null, FuelType.ELECTRIC, null, null, null, null, null, null, null);
         assertThat(carService.searchPublic(electric, null, 0, 12).items())
                 .extracting(CarSummary::make).containsOnly("BYD");
+
+        // the model filter: the models offered for a make are the public cars' own
+        var options = carService.filterOptions();
+        String make = options.makes().getFirst();
+        assertThat(options.models()).containsKey(make);
+        String model = options.models().get(make).getFirst();
+        var oneModel = new CarFilter(null, make.toUpperCase(), model.toLowerCase(), null, null, null, null, null,
+                null, null, null);
+        assertThat(carService.searchPublic(oneModel, null, 0, 12).items()).isNotEmpty()
+                .allSatisfy(c -> assertThat(c.model()).isEqualToIgnoringCase(model));
 
         var page = carService.searchPublic(null, null, 0, 1);
         assertThat(page.size()).isEqualTo(1);
@@ -517,7 +527,14 @@ class JdbcRepositoriesTest {
         inquiryService.create(new InquiryRequest("C", "0888000003", null, null, null, null, true, null,
                 new Attribution("", " ", null, null, "x".repeat(400), null)));
 
-        var newest = inquiryService.list(Inquiry.Status.NEW, 0, 3).items();
+        // the short form: no name
+        var nameless = inquiryService.create(new InquiryRequest(null, "0888000004", null,
+                "Търся: Kia Sportage, от 2021 г.", null, null, true, null, null));
+        assertThat(inquiryService.list(Inquiry.Status.NEW, 0, 1).items().getFirst())
+                .satisfies(i -> assertThat(i.id()).isEqualTo(nameless.id()))
+                .satisfies(i -> assertThat(i.name()).isEmpty());
+
+        var newest = inquiryService.list(Inquiry.Status.NEW, 0, 4).items().subList(1, 4);
         assertThat(newest.get(0).heardFrom()).isNull();
         assertThat(newest.get(0).attribution().utmSource()).isNull();
         assertThat(newest.get(0).attribution().landingPath()).hasSize(300);
@@ -606,7 +623,7 @@ class JdbcRepositoriesTest {
         assertThat(car.price()).isNotNull();
 
         carService.changeStatus(car.id(), CarStatus.PUBLISHED);
-        var china = new CarFilter(null, null, null, null, Origin.CN, null, null, null, null, null);
+        var china = new CarFilter(null, null, null, null, null, Origin.CN, null, null, null, null, null);
         assertThat(carService.searchPublic(china, null, 0, 48).items())
                 .anySatisfy(c -> {
                     assertThat(c.id()).isEqualTo(car.id());

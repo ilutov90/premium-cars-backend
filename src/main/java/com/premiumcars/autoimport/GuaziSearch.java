@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Component;
 
@@ -187,7 +189,16 @@ public class GuaziSearch implements SourceSearch {
             return null;
         }
         String url = GuaziPageParser.englishUrl(URI.create(SITE + "/products/" + seo)).toString();
-        return new FoundListing(id, url, title(item.path("title").asText(null)), price(item.path("price").asText("")));
+        return new FoundListing(id, url, title(item.path("title").asText(null)), price(item.path("price").asText("")),
+                mileage(seo));
+    }
+
+    private static final Pattern SEO_KM = Pattern.compile("-(\\d{1,7})km-");
+
+    /** The mileage in the listing's address: "...-gray-36200km-at-2wd-..." -> 36200. */
+    static Integer mileage(String seoUri) {
+        Matcher m = SEO_KM.matcher(seoUri);
+        return m.find() ? Integer.valueOf(m.group(1)) : null;
     }
 
     /** "Used BYD Song PLUS 2021 ..." -> "BYD Song PLUS 2021 ...". */

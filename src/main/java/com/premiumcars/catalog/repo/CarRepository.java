@@ -2,8 +2,10 @@ package com.premiumcars.catalog.repo;
 
 import java.math.BigDecimal;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -123,6 +125,22 @@ public class CarRepository {
                 .param("statuses", CarSearchSql.names(statuses))
                 .query(String.class)
                 .list();
+    }
+
+    /** make -> its models, of the cars with these statuses (for the catalog's model filter). */
+    public Map<String, List<String>> findModels(Collection<CarStatus> statuses) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        jdbc.sql("""
+                        SELECT DISTINCT make, model FROM car
+                        WHERE status IN (:statuses) AND make IS NOT NULL AND model IS NOT NULL AND model <> ''
+                        ORDER BY make, model""")
+                .param("statuses", CarSearchSql.names(statuses))
+                .query((rs, n) -> {
+                    out.computeIfAbsent(rs.getString("make"), k -> new ArrayList<>()).add(rs.getString("model"));
+                    return null;
+                })
+                .list();
+        return out;
     }
 
     // ---------------------------------------------------------------- writes

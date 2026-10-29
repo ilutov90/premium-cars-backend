@@ -37,7 +37,8 @@ import com.premiumcars.catalog.service.CarService;
 /**
  * A run of the automatic import for one source: lists every listing of the chosen makes, then
  * <ul>
- *   <li>queues the new ones ({@link AutoImportWorker} imports them) and links listings of cars already in our
+ *   <li>queues the new ones ({@link AutoImportWorker} imports them), except those over the mileage limit when the
+ *       search shows their mileage (kept as SKIPPED), and links listings of cars already in our
  *       catalog (also ones imported by hand), publishing again a car hidden as REMOVED whose listing is back;</li>
  *   <li>hides (REMOVED) the cars whose listing was missing in {@value #MISSES_TO_REMOVE} runs in a row, counting
  *       only makes read whole: a listing can slip between result pages while the site changes;</li>
@@ -163,14 +164,19 @@ public class AutoImportRunner {
                 .collect(Collectors.toSet());
 
         // new, seen again, back
+        Integer maxKm = settings.maxMileageKm();
         int newCount = 0;
+        int overMileage = 0;
         int returned = 0;
         for (FoundListing l : found.values()) {
             Optional<Listing> known = listings.find(source, l.id());
             Long carId = known.map(Listing::carId).orElse(null);
             Optional<Car> car = carId != null ? cars.findById(carId) : cars.findBySourceUrl(l.url());
             boolean back = car.map(c -> c.status() == CarStatus.REMOVED).orElse(false);
-            if (known.isEmpty() && car.isEmpty()) {
+            boolean over = maxKm != null && l.mileageKm() != null && l.mileageKm() > maxKm;
+            if (car.isEmpty() && over) {
+                overMileage++;
+            } else if (known.isEmpty() && car.isEmpty()) {
                 newCount++;
             }
             if (back) {
@@ -180,12 +186,13 @@ public class AutoImportRunner {
                 continue;
             }
             if (known.isPresent()) {
-                listings.seen(source, l, brandOf.get(l.id()));
+                listings.seen(source, l, brandOf.get(l.id()), maxKm);
             } else if (car.isPresent()) {
                 listings.insert(source, l, brandOf.get(l.id()), AutoImportListingRepository.IMPORTED,
                         car.get().id());
             } else {
-                listings.insert(source, l, brandOf.get(l.id()), AutoImportListingRepository.QUEUED, null);
+                listings.insert(source, l, brandOf.get(l.id()),
+                        over ? AutoImportListingRepository.SKIPPED : AutoImportListingRepository.QUEUED, null);
             }
             if (back) {
                 cars.restoreRemoved(car.get().id());
@@ -202,6 +209,9 @@ public class AutoImportRunner {
         passes.stream().filter(p -> !p.complete())
                 .forEach(p -> notes.add(p.name() + ": " + (p.error() == null ? "not read whole" : p.error())
                         + " (nothing of it removed)"));
+        if (overMileage > 0) {
+            notes.add(overMileage + " over " + maxKm + " km (not imported)");
+        }
         String status = complete.size() == brands.size() ? "DONE" : "INCOMPLETE";
         int gone = 0;
 

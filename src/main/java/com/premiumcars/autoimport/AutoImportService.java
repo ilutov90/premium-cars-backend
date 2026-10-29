@@ -63,7 +63,14 @@ public class AutoImportService {
                 .map(l -> new Failure(l.source(), l.listingId(), l.url(), l.title(), l.price(), l.state(),
                         l.attempts(), l.lastError()))
                 .toList();
-        return new Overview(settings.enabled(), runner.running(), sources, runs.recent(30), failures);
+        return new Overview(settings.enabled(), runner.running(), settings.maxMileageKm(), sources,
+                runs.recent(30), failures);
+    }
+
+    /** Applies to the queue at once (the worker checks it) and to the next run's new listings. */
+    public Overview setMaxMileage(Integer km) {
+        settings.setMaxMileageKm(km);
+        return overview();
     }
 
     public Overview setEnabled(boolean enabled) {

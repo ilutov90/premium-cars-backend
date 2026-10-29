@@ -27,10 +27,15 @@ public final class AutoImportDtos {
      * The whole tab.
      *
      * @param enabled  the main switch
-     * @param running  the run going on now ("GUAZI", "AUTOWINI (dry run)") or null
+     * @param running      the run going on now ("GUAZI", "AUTOWINI (dry run)") or null
+     * @param maxMileageKm listings with more km are not imported (both sources); null = no limit
      */
-    public record Overview(boolean enabled, String running, List<SourceView> sources, List<Run> runs,
-                           List<Failure> failures) {
+    public record Overview(boolean enabled, String running, Integer maxMileageKm, List<SourceView> sources,
+                           List<Run> runs, List<Failure> failures) {
+    }
+
+    /** The mileage limit; null = no limit. */
+    public record MaxMileageRequest(@Min(1000) @Max(2_000_000) Integer maxMileageKm) {
     }
 
     /**

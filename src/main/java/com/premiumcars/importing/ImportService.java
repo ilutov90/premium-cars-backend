@@ -55,15 +55,21 @@ public class ImportService {
      * @param html     the page as the admin's browser saved it, or null to download it
      */
     public ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html) {
-        return importFromUrl(rawUrl, price, currency, html, props.importer().maxImages());
+        return importFromUrl(rawUrl, price, currency, html, props.importer().maxImages(), null);
     }
 
-    /** The automatic import: a listing URL from a source's search, with fewer photos than an import by hand. */
-    public ImportResult importAutomatically(String listingUrl, int maxImages) {
-        return importFromUrl(listingUrl, null, null, null, Math.min(maxImages, props.importer().maxImages()));
+    /**
+     * The automatic import: a listing URL from a source's search, with fewer photos than an import by hand.
+     *
+     * @param maxMileageKm a listing with more km is not saved ({@link MileageOverLimitException}); null = no limit
+     */
+    public ImportResult importAutomatically(String listingUrl, int maxImages, Integer maxMileageKm) {
+        return importFromUrl(listingUrl, null, null, null, Math.min(maxImages, props.importer().maxImages()),
+                maxMileageKm);
     }
 
-    private ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html, int maxImages) {
+    private ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html, int maxImages,
+                                       Integer maxMileageKm) {
         URI url = normalize(rawUrl);
         SourceAdapter adapter = adapters.stream()
                 .filter(a -> a.supports(url))
@@ -85,6 +91,10 @@ public class ImportService {
             String cur = currency == null || currency.isBlank() ? "EUR" : currency.trim().toUpperCase(Locale.ROOT);
             data = new ImportedCar(data.sourceRef(), data.sourceLocation(), data.specs(), price, cur,
                     data.imageUrls(), data.warnings());
+        }
+        Integer km = data.specs().mileageKm();
+        if (maxMileageKm != null && km != null && km > maxMileageKm) {
+            throw new MileageOverLimitException(km, maxMileageKm); // before anything is saved or downloaded
         }
         if ((data.price() == null || data.price().signum() <= 0) && adapter.requiresPrice()) {
             throw new BadRequestException("No price could be read from the listing (" + adapter.source()

@@ -40,8 +40,11 @@ public final class AutoImportTypes {
         }
     }
 
-    /** One listing in the search results. {@code url} is the canonical listing URL (as car.source_url). */
-    public record FoundListing(String id, String url, String title, BigDecimal price) {
+    /**
+     * One listing in the search results. {@code url} is the canonical listing URL (as car.source_url);
+     * {@code mileageKm} when the search shows it (else the import checks it).
+     */
+    public record FoundListing(String id, String url, String title, BigDecimal price, Integer mileageKm) {
     }
 
     /**
