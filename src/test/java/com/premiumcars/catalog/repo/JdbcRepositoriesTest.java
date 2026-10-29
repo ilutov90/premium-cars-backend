@@ -250,6 +250,11 @@ class JdbcRepositoriesTest {
         assertThat(publicCar.specs().sheet()).hasSize(2);
         assertThat(carService.searchPublic(null, null, 0, 48).items())
                 .anySatisfy(c -> assertThat(c.electricRangeKm()).isEqualTo(88));
+        // the card's photos: the same as the car page's, in order, the cover first (stored and linked alike)
+        assertThat(carService.searchPublic(null, null, 0, 48).items())
+                .filteredOn(c -> c.id().equals(published.id())).singleElement()
+                .satisfies(c -> assertThat(c.imageUrls()).containsExactlyElementsOf(publicCar.imageUrls()))
+                .satisfies(c -> assertThat(c.coverImageUrl()).isEqualTo(publicCar.imageUrls().getFirst()));
         assertThat(carService.changeStatus(draft.id(), CarStatus.RESERVED).publishedAt())
                 .isEqualTo(published.publishedAt());
 

@@ -3,6 +3,7 @@ package com.premiumcars.catalog.repo;
 import java.math.BigDecimal;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -29,10 +30,14 @@ import com.premiumcars.pricing.PriceBreakdown;
 public class CarRepository {
 
     /**
-     * A car in a list, with its cover photo: the storage path, or for a linked photo null and its URL (both null when
-     * the car has no photos).
+     * A car in a list, with its first photos in order (cover first): "s:" + storage path, or "u:" + the URL of a
+     * linked photo; empty when the car has no photos.
      */
-    public record CarListRow(Car car, String coverPath, String coverUrl) {
+    public record CarListRow(Car car, List<String> photoRefs) {
+
+        public CarListRow {
+            photoRefs = photoRefs == null ? List.of() : List.copyOf(photoRefs);
+        }
     }
 
     public record CarPage(List<CarListRow> rows, long total) {
@@ -49,8 +54,11 @@ public class CarRepository {
         this.jdbc = jdbc;
         this.json = json;
         this.carMapper = new CarRowMapper(json);
-        this.listRowMapper = (rs, n) -> new CarListRow(carMapper.mapRow(rs, n), rs.getString("cover_path"),
-                rs.getString("cover_url"));
+        this.listRowMapper = (rs, n) -> {
+            java.sql.Array refs = rs.getArray("photo_refs");
+            return new CarListRow(carMapper.mapRow(rs, n),
+                    refs == null ? List.of() : Arrays.asList((String[]) refs.getArray()));
+        };
     }
 
     // ---------------------------------------------------------------- queries

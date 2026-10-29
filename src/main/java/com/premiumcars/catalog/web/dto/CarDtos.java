@@ -47,7 +47,9 @@ public final class CarDtos {
             Origin origin,
             CarStatus status,
             BigDecimal totalPriceEur,
-            String coverImageUrl
+            String coverImageUrl,
+            /* the first photos in order, cover first, to swipe through on the card */
+            List<String> imageUrls
     ) {
     }
 

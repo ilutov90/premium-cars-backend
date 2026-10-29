@@ -123,15 +123,24 @@ final class CarSearchSql {
         return new Sql("SELECT count(*) FROM car c " + where, params);
     }
 
-    /** One page of cars, each with its cover photo: storage path, or null and the linked URL (or both null). */
+    /** How many photos a car in a list brings along (the card's photos to swipe through). */
+    static final int LIST_PHOTOS = 8;
+
+    /**
+     * One page of cars, each with its first {@value #LIST_PHOTOS} photos in order, cover first: "s:" + storage path,
+     * or "u:" + the URL of a linked photo.
+     */
     Sql page(CarSort sort, int page, int size) {
         var p = new LinkedHashMap<>(params);
         p.put("limit", size);
         p.put("offset", page * size);
-        String text = "SELECT " + CAR_COLUMNS + ", cover.storage_path AS cover_path, cover.source_url AS cover_url\n"
+        p.put("listPhotos", LIST_PHOTOS);
+        String text = "SELECT " + CAR_COLUMNS + ", photos.refs AS photo_refs\n"
                 + "FROM car c\n"
-                + "LEFT JOIN LATERAL (SELECT i.storage_path, i.source_url FROM car_image i WHERE i.car_id = c.id\n"
-                + "                   ORDER BY i.position LIMIT 1) cover ON true\n"
+                + "LEFT JOIN LATERAL (SELECT array_agg(f.ref ORDER BY f.position) AS refs FROM (\n"
+                + "    SELECT i.position, COALESCE('s:' || i.storage_path, 'u:' || i.source_url) AS ref\n"
+                + "    FROM car_image i WHERE i.car_id = c.id ORDER BY i.position LIMIT :listPhotos) f\n"
+                + "    WHERE f.ref IS NOT NULL) photos ON true\n"
                 + where + "\n"
                 + "ORDER BY " + sort.orderBy() + "\n"
                 + "LIMIT :limit OFFSET :offset";
