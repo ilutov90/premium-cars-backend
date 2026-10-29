@@ -38,16 +38,18 @@ public class CarMapper {
     public CarSummary toSummary(CarListRow row) {
         Car c = row.car();
         CarSpecs s = c.specs();
-        String cover = coverUrl(row);
+        List<String> photos = photoUrls(row);
         return new CarSummary(c.id(), c.slug(), s.title(), s.make(), s.model(), s.year(), s.mileageKm(),
                 s.fuelType(), s.transmission(), s.powerHp(), s.batteryKwh(), s.electricRangeKm(),
-                Origin.of(c.source()), c.status(), c.totalPriceEur(), cover);
+                Origin.of(c.source()), c.status(), c.totalPriceEur(), photos.isEmpty() ? null : photos.getFirst(),
+                photos);
     }
 
     public AdminCarSummary toAdminSummary(CarListRow row) {
         Car c = row.car();
         CarSpecs s = c.specs();
-        String cover = coverUrl(row);
+        List<String> photos = photoUrls(row);
+        String cover = photos.isEmpty() ? null : photos.getFirst();
         return new AdminCarSummary(c.id(), c.slug(), s.title(), s.year(), s.mileageKm(), c.status(),
                 c.totalPriceEur(), cover, c.source(), c.sourceRef(), c.sourceUrl());
     }
@@ -65,8 +67,11 @@ public class CarMapper {
         return "/media/photo/" + imageId;
     }
 
-    private String coverUrl(CarListRow row) {
-        return row.coverPath() != null ? storage.publicUrl(row.coverPath()) : row.coverUrl();
+    /** Where browsers load a list row's photos from (see {@link CarListRow}). */
+    private List<String> photoUrls(CarListRow row) {
+        return row.photoRefs().stream()
+                .map(ref -> ref.startsWith("s:") ? storage.publicUrl(ref.substring(2)) : ref.substring(2))
+                .toList();
     }
 
     public CarDetail toDetail(Car c, List<CarImage> images) {

@@ -55,7 +55,7 @@ Always run `mvn test` before finishing a change.
 
 | Package | What |
 |---|---|
-| `catalog` | cars and photos: domain records, `CarRepository`, `CarImageRepository`, `CarService`, public + admin controllers. The public catalog filters by make and model (`FilterOptions.models`: make -> models of the public cars). The admin list (`GET /api/admin/cars`: status, text, source site, sort `updated`/`created`/`price_desc`/`price_asc`, pages of up to 48) and its counts per status (`GET /api/admin/cars/counts`) |
+| `catalog` | cars and photos: domain records, `CarRepository`, `CarImageRepository`, `CarService`, public + admin controllers. Public list rows bring the first 8 photos (`CarSummary.imageUrls`, cover first) for the cards. The public catalog filters by make and model (`FilterOptions.models`: make -> models of the public cars). The admin list (`GET /api/admin/cars`: status, text, source site, sort `updated`/`created`/`price_desc`/`price_asc`, pages of up to 48) and its counts per status (`GET /api/admin/cars/counts`) |
 | `importing` | import by link: `ImportService`, one `SourceAdapter` per site, `PageFetcher` |
 | `importing.extract` | `NextFlightData` (the `self.__next_f.push` data of Next.js App Router pages: autohome, guazi), `GenericPageExtractor` (JSON-LD, `__NEXT_DATA__`, Open Graph, text), `EvSpecsExtractor`, `TitleParser`, `LabelValues`, `FeatureMapper` (equipment text of both sites -> `CarFeature`, Euro class, steering side) |
 | `importing.browser` | `PageRenderer` / `PlaywrightPageRenderer`: headless Chromium for JS-rendered pages (`app.importer.browser.enabled`) |
