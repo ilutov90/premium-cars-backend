@@ -12,29 +12,38 @@ import jakarta.validation.constraints.NotNull;
  *
  * <pre>
  *   duty and VAT = dutyVatPct % of (FOB + sea freight)
- *   profit       = profitPct % of FOB, at least profitMin
- *   final price  = FOB + sea freight + land transport + commission + duty and VAT + profit
+ *   step         = stepBase + stepPct % of the FOB above stepFrom
+ *   markup       = markupLow up to markupThreshold FOB (inclusive), markupHigh above it
+ *   final price  = FOB + sea freight + land transport + commission + duty and VAT + step + markup
  * </pre>
  *
- * China (autohome, guazi), FOB 21 450: 21 450 + 2000 + 1600 + 500 + 20 % of 23 450 (4690) + 10 % of 21 450 (2145)
- * = 32 385.
+ * Korea (autowini), FOB 17 000: 17 000 + 1200 + 1600 + 500 + step 2400 (1700 + 10 % of 7000) + 1000 = 23 700.
+ * China (autohome, guazi), FOB 21 450: 21 450 + 2000 + 1600 + 500 + 20 % of 23 450 (4690) + 1000 = 31 240.
  *
- * @param seaFreight    shipping to the European port
- * @param landTransport from the port to Bulgaria
- * @param commission    the buying agent's commission
- * @param profitPct     our profit per car, percent of FOB (a car may have its own amount)
- * @param profitMin     the least profit per car, EUR
- * @param dutyVatPct    customs duty and VAT together, percent of FOB + sea freight (20 = 20 %)
- * @param updatedAt     ignored on update
+ * @param seaFreight      shipping to the European port
+ * @param landTransport   from the port to Bulgaria
+ * @param commission      the buying agent's commission
+ * @param dutyVatPct      customs duty and VAT together, percent of FOB + sea freight (20 = 20 %; autowini 0)
+ * @param stepBase        the step's fixed part (autowini 1700; 0 = no step)
+ * @param stepFrom        the FOB from which the step's percent counts (10 000)
+ * @param stepPct         percent of the FOB above {@code stepFrom} (10 = 10 %)
+ * @param markupLow       our markup per car up to {@code markupThreshold} FOB (a car may have its own amount)
+ * @param markupHigh      our markup per car above it
+ * @param markupThreshold FOB in EUR that separates the two markups
+ * @param updatedAt       ignored on update
  */
 public record PricingProfile(
         PriceProfile id,
         @NotNull @DecimalMin("0") BigDecimal seaFreight,
         @NotNull @DecimalMin("0") BigDecimal landTransport,
         @NotNull @DecimalMin("0") BigDecimal commission,
-        @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal profitPct,
-        @NotNull @DecimalMin("0") BigDecimal profitMin,
         @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal dutyVatPct,
+        @NotNull @DecimalMin("0") BigDecimal stepBase,
+        @NotNull @DecimalMin("0") BigDecimal stepFrom,
+        @NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal stepPct,
+        @NotNull @DecimalMin("0") BigDecimal markupLow,
+        @NotNull @DecimalMin("0") BigDecimal markupHigh,
+        @NotNull @DecimalMin("0") BigDecimal markupThreshold,
         Instant updatedAt
 ) {
 }

@@ -88,6 +88,23 @@ public class CarRepository {
         return jdbc.sql(SELECT_CAR + "ORDER BY c.id").query(carMapper).list();
     }
 
+    /** Every car's id, oldest first; of one source site, or all when {@code source} is null. */
+    public List<Long> findIds(CarSource source) {
+        return jdbc.sql("SELECT id FROM car" + (source == null ? "" : " WHERE source = :source") + " ORDER BY id")
+                .params(source == null ? Map.of() : Map.of("source", source.name()))
+                .query(Long.class)
+                .list();
+    }
+
+    /** The price as the source shows it now (a recalculation that read the listing again). */
+    public void updateSourcePrice(long id, BigDecimal price, String currency) {
+        jdbc.sql("UPDATE car SET source_price = :price, source_currency = :currency, updated_at = now() WHERE id = :id")
+                .param("price", price)
+                .param("currency", currency)
+                .param("id", id)
+                .update();
+    }
+
     public CarPage search(CarFilter filter, Collection<CarStatus> statuses, CarSort sort, int page, int size) {
         return search(CarSearchSql.of(filter, statuses), sort, page, size);
     }

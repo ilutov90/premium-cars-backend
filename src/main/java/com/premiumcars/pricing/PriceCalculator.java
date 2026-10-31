@@ -11,11 +11,12 @@ import org.springframework.stereotype.Component;
  * <pre>
  *   FOB in EUR   = source price * exchange rate
  *   duty and VAT = duty/VAT % of (FOB + sea freight)
- *   profit       = profit % of FOB, at least the minimum profit
- *   final price  = FOB + sea freight + land transport + commission + duty and VAT + profit
+ *   step         = step base + step % of the FOB above "step from"
+ *   markup       = markup low up to the threshold FOB, markup high above it
+ *   final price  = FOB + sea freight + land transport + commission + duty and VAT + step + markup
  * </pre>
  *
- * rounded to whole euros. Per car, the admin may set another profit or the final price by hand.
+ * rounded to whole euros. Per car, the admin may set another markup or the final price by hand.
  * The same number is shown on the site and in the Facebook/Instagram/Viber post.
  */
 @Component
@@ -36,7 +37,7 @@ public class PriceCalculator {
     }
 
     /**
-     * @param profitOverride profit for this car instead of the profile's (null = the profile's)
+     * @param profitOverride markup for this car instead of the profile's (null = the profile's)
      * @param fixedTotal     final price set by hand (null = calculated); used even when nothing can be calculated
      * @return null when nothing can be calculated and no price was set by hand
      */
@@ -49,28 +50,37 @@ public class PriceCalculator {
             }
             return new PriceBreakdown(profile == null ? null : profile.id(), sourcePrice, sourceCurrency, null, null,
                     null, null, null, null, null, null, null, profitOverride == null ? null : round(profitOverride),
-                    profitOverride != null, null, fixed, true, null, null, null);
+                    profitOverride != null, null, fixed, true, null, null, null, null, null, null, null, null, null,
+                    null);
         }
         String currency = sourceCurrency == null ? "EUR" : sourceCurrency;
         BigDecimal rate = rates.eurPerUnit(currency);
         BigDecimal fob = round(sourcePrice.multiply(rate));
-        BigDecimal profit = profitOverride == null ? profit(fob, profile) : profitOverride;
+        BigDecimal markup = profitOverride == null ? markup(fob, profile) : profitOverride;
 
         BigDecimal dutyVat = round(fob.add(profile.seaFreight()).multiply(profile.dutyVatPct()).divide(HUNDRED));
+        BigDecimal step = step(fob, profile);
         BigDecimal calculated = whole(fob.add(profile.seaFreight()).add(profile.landTransport())
-                .add(profile.commission()).add(dutyVat).add(profit));
+                .add(profile.commission()).add(dutyVat).add(step).add(markup));
 
+        boolean own = profitOverride != null;
         return new PriceBreakdown(profile.id(), sourcePrice, currency, fob, round(profile.seaFreight()),
                 round(profile.landTransport()), round(profile.commission()), plain(profile.dutyVatPct()), dutyVat,
-                null, null, null, round(profit), profitOverride != null, calculated,
-                fixed == null ? calculated : fixed, fixed != null, rate,
-                profitOverride == null ? plain(profile.profitPct()) : null,
-                profitOverride == null ? round(profile.profitMin()) : null);
+                null, null, null, round(markup), own, calculated, fixed == null ? calculated : fixed, fixed != null,
+                rate, null, null, step, round(profile.stepBase()), round(profile.stepFrom()),
+                plain(profile.stepPct()), own ? null : round(profile.markupLow()),
+                own ? null : round(profile.markupHigh()), own ? null : round(profile.markupThreshold()));
     }
 
-    /** The formula's profit: a percent of FOB, at least the minimum (FOB 8000 at 10 %, minimum 1000: 1000). */
-    static BigDecimal profit(BigDecimal fob, PricingProfile profile) {
-        return round(fob.multiply(profile.profitPct()).divide(HUNDRED)).max(round(profile.profitMin()));
+    /** The markup: low up to the threshold FOB (inclusive), high above it (25 000: 1000, 25 000.01: 1500). */
+    static BigDecimal markup(BigDecimal fob, PricingProfile profile) {
+        return round(fob.compareTo(profile.markupThreshold()) <= 0 ? profile.markupLow() : profile.markupHigh());
+    }
+
+    /** The step: its base, plus its percent of the FOB above "step from" (1700 + 10 % of 17 000 - 10 000 = 2400). */
+    static BigDecimal step(BigDecimal fob, PricingProfile profile) {
+        BigDecimal above = fob.subtract(profile.stepFrom()).max(BigDecimal.ZERO);
+        return round(profile.stepBase().add(above.multiply(profile.stepPct()).divide(HUNDRED)));
     }
 
     /** Rounded to whole euros, kept with two decimals like the other amounts. */

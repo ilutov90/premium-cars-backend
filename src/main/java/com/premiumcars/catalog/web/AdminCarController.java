@@ -1,6 +1,5 @@
 package com.premiumcars.catalog.web;
 
-import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -100,11 +99,5 @@ public class AdminCarController {
     @PostMapping("/cars/{id}/recalculate-price")
     public AdminCar recalculatePrice(@PathVariable long id) {
         return carService.recalculatePrice(id);
-    }
-
-    /** Every car's price with today's rates and formulas. Changes prices that may be posted already. */
-    @PostMapping("/cars/recalculate-prices")
-    public Map<String, Integer> recalculatePrices() {
-        return Map.of("updated", carService.recalculateAllPrices());
     }
 }

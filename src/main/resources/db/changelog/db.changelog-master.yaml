@@ -51,3 +51,7 @@ databaseChangeLog:
       file: db/changelog/changes/025-admin-list-indexes.sql
   - include:
       file: db/changelog/changes/026-auto-import-max-mileage.sql
+  - include:
+      file: db/changelog/changes/027-step-and-markup.sql
+  - include:
+      file: db/changelog/changes/028-price-recalculations.sql

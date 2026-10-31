@@ -32,6 +32,7 @@ import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.catalog.service.CarService;
+import com.premiumcars.catalog.service.PriceRecalcService;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
 import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.CarUpdateRequest;
@@ -79,6 +80,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     CarService carService;
+
+    @Autowired
+    PriceRecalcService priceRecalc;
 
     @Autowired
     InquiryService inquiryService;
@@ -167,9 +171,9 @@ class JdbcRepositoriesTest {
                 new SpecGroup.Item("Front Seat Features", "Heating"), new SpecGroup.Item("Paddle Shifters", ""));
         assertThat(draft.sourceLocation()).isEqualTo("xian");
         // 20000 USD * 0.86 = 17200 EUR; autohome: + 2000 sea + 1600 land + 500 commission
-        // + 20 % of (17200 + 2000) = 3840 + 10 % of 17200 = 1720 profit = 26860
+        // + 20 % of (17200 + 2000) = 3840 + markup 1000 (FOB up to 25 000) = 26140
         assertThat(draft.pricing().profile()).isEqualTo(PriceProfile.AUTOHOME);
-        assertThat(draft.price().totalEur()).isEqualByComparingTo("26860");
+        assertThat(draft.price().totalEur()).isEqualByComparingTo("26140");
         assertThat(draft.price().dutyVatEur()).isEqualByComparingTo("3840");
         assertThat(carService.findBySourceUrl(url)).isPresent();
 
@@ -220,7 +224,7 @@ class JdbcRepositoriesTest {
         AdminCar updated = carService.update(draft.id(), update);
         assertThat(updated.pricing().sourceCurrency()).isEqualTo("USD");
         assertThat(updated.pricing().profile()).isEqualTo(PriceProfile.AUTOHOME); // null = keep the site's formula
-        assertThat(updated.price().totalEur()).isEqualByComparingTo("27978"); // 18060 + 2000 + 1600 + 500 + 4012 + 1806
+        assertThat(updated.price().totalEur()).isEqualByComparingTo("27172"); // 18060 + 2000 + 1600 + 500 + 4012 + 1000
         assertThat(updated.slug()).isEqualTo("bmw-x3-2022-" + draft.id());
         CarSpecs saved = updated.specs();
         assertThat(saved.trim()).isEqualTo("M Sport");
@@ -245,7 +249,7 @@ class JdbcRepositoriesTest {
         assertThat(published.publishedAt()).isNotNull();
         var publicCar = carService.getPublic(published.slug());
         assertThat(publicCar.imageUrls()).hasSize(3).contains("https://cdn.example.com/d.jpg");
-        assertThat(publicCar.priceEur()).isEqualByComparingTo("27978");
+        assertThat(publicCar.priceEur()).isEqualByComparingTo("27172");
         assertThat(publicCar.specs().batteryKwh()).isEqualByComparingTo("19.7");
         assertThat(publicCar.specs().sheet()).hasSize(2);
         assertThat(carService.searchPublic(null, null, 0, 48).items())
@@ -276,43 +280,40 @@ class JdbcRepositoriesTest {
         var imported = new ImportedCar("IC1", null, CarSpecs.builder().title("Kia K5 2021").build(),
                 new BigDecimal("25000"), "EUR", List.of(), List.of());
         AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
-        // 25000 + 1200 sea + 1600 land + 500 commission + 17 % of 26200 (4454) + 10 % of 25000 (2500)
-        assertThat(car.price().totalEur()).isEqualByComparingTo("35254");
+        // 25000 + 1200 sea + 1600 land + 500 commission + step 1700 + 10 % of 15000 (3200) + markup 1000 (up to 25 000)
+        assertThat(car.price().totalEur()).isEqualByComparingTo("32500");
+        assertThat(car.price().stepEur()).isEqualByComparingTo("3200");
         assertThat(car.price().eurPerUnit()).isEqualByComparingTo("1");
 
         PricingProfile original = carService.pricingProfiles().stream()
                 .filter(p -> p.id() == PriceProfile.AUTOWINI).findFirst().orElseThrow();
         try {
-            carService.updatePricingProfile(PriceProfile.AUTOWINI, new PricingProfile(null,
-                    new BigDecimal("1300"), new BigDecimal("1600"), new BigDecimal("500"), new BigDecimal("12"),
-                    new BigDecimal("1000"), new BigDecimal("17"), null));
+            carService.updatePricingProfile(PriceProfile.AUTOWINI, withSeaAndMarkup(original, "1300", "1200"));
             // a new formula does not touch existing prices (they may be posted already)
-            assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("35254");
+            assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("32500");
             assertThat(carService.getAdmin(car.id()).price().seaFreightEur()).isEqualByComparingTo("1200");
 
             // saving other fields keeps the price, also with amounts written differently (25000 vs 25000.00)
             var renamed = carService.update(car.id(), new CarUpdateRequest(
                     car.specs().toBuilder().title("Kia K5 2021 GT").build(),
                     new PricingInputs(new BigDecimal("25000.0"), "EUR", PriceProfile.AUTOWINI, null, null)));
-            assertThat(renamed.price().totalEur()).isEqualByComparingTo("35254");
+            assertThat(renamed.price().totalEur()).isEqualByComparingTo("32500");
 
             // changing the car's own price fields recalculates it, with today's formula
             var withProfit = carService.update(car.id(), new CarUpdateRequest(car.specs(),
                     new PricingInputs(new BigDecimal("25000"), "EUR", null, new BigDecimal("4000"), null)));
-            assertThat(withProfit.price().totalEur()).isEqualByComparingTo("36871"); // 25000 + 1300 + 1600 + 500 + 4471 + 4000
+            assertThat(withProfit.price().totalEur()).isEqualByComparingTo("35600"); // 25000 + 1300 + 1600 + 500 + 3200 + 4000
 
             // recalculating by hand: today's rate and formula
             var back = carService.update(car.id(), new CarUpdateRequest(car.specs(),
                     new PricingInputs(new BigDecimal("25000"), "EUR", null, null, null)));
-            assertThat(back.price().totalEur()).isEqualByComparingTo("35871"); // 25000 + 1300 + 1600 + 500 + 4471 + 12 % of 25000
-            assertThat(carService.recalculatePrice(car.id()).price().totalEur()).isEqualByComparingTo("35871");
+            assertThat(back.price().totalEur()).isEqualByComparingTo("32800"); // 25000 + 1300 + 1600 + 500 + 3200 + 1200
+            assertThat(carService.recalculatePrice(car.id()).price().totalEur()).isEqualByComparingTo("32800");
 
             var fixed = carService.update(car.id(), new CarUpdateRequest(car.specs(),
                     new PricingInputs(new BigDecimal("25000"), "EUR", null, null, new BigDecimal("29990"))));
             assertThat(fixed.price().totalEur()).isEqualByComparingTo("29990");
             assertThat(fixed.pricing().fixedTotalEur()).isEqualByComparingTo("29990");
-            carService.recalculateAllPrices();
-            assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("29990");
         } finally {
             carService.updatePricingProfile(PriceProfile.AUTOWINI, original);
             carService.delete(car.id());
@@ -637,8 +638,55 @@ class JdbcRepositoriesTest {
         carService.delete(car.id());
     }
 
+    private static PricingProfile withSeaAndMarkup(PricingProfile p, String sea, String markupLow) {
+        return new PricingProfile(null, new BigDecimal(sea), p.landTransport(), p.commission(), p.dutyVatPct(),
+                p.stepBase(), p.stepFrom(), p.stepPct(), new BigDecimal(markupLow), p.markupHigh(),
+                p.markupThreshold(), null);
+    }
+
     @Test
-    void recalculatesAllPrices() {
-        assertThat(carService.recalculateAllPrices()).isGreaterThanOrEqualTo(3);
+    void recalculationsRepriceByHandAndReportWhereTheChangedCarsArePosted() throws InterruptedException {
+        var posted = carService.createDraft(new ImportedCar("ICR1", null, CarSpecs.builder().title("Kia K5 R1").build(),
+                new BigDecimal("25000"), "EUR", List.of(), List.of()), CarSource.AUTOWINI,
+                "https://www.autowini.com/test/" + UUID.randomUUID());
+        var handPriced = carService.createDraft(new ImportedCar("ICR2", null, CarSpecs.builder().title("Kia K5 R2")
+                .build(), new BigDecimal("20000"), "EUR", List.of(), List.of()), CarSource.AUTOWINI,
+                "https://www.autowini.com/test/" + UUID.randomUUID());
+        carService.update(handPriced.id(), new CarUpdateRequest(handPriced.specs(),
+                new PricingInputs(new BigDecimal("20000"), "EUR", PriceProfile.AUTOWINI, null, new BigDecimal("27000"))));
+        mobileBg.saveListing(posted.id(), "1234", "https://www.mobile.bg/obiava-1234", java.time.Instant.now(), "admin");
+        assertThat(posted.price().totalEur()).isEqualByComparingTo("32500");
+
+        PricingProfile original = carService.pricingProfiles().stream()
+                .filter(p -> p.id() == PriceProfile.AUTOWINI).findFirst().orElseThrow();
+        try {
+            carService.updatePricingProfile(PriceProfile.AUTOWINI, withSeaAndMarkup(original, "1200", "1200"));
+            assertThat(carService.getAdmin(posted.id()).price().totalEur()).isEqualByComparingTo("32500"); // by hand only
+
+            var run = priceRecalc.start(CarSource.AUTOWINI, PriceRecalcService.Mode.STORED, "admin");
+            for (int i = 0; i < 300 && priceRecalc.recent().getFirst().status().equals("RUNNING"); i++) {
+                Thread.sleep(100);
+            }
+            var done = priceRecalc.recent().getFirst();
+            assertThat(done.id()).isEqualTo(run.id());
+            assertThat(done.status()).isEqualTo("DONE");
+            assertThat(done.scope()).isEqualTo("AUTOWINI");
+            assertThat(done.processed()).isEqualTo(done.total());
+            assertThat(done.fixedPrice()).isGreaterThanOrEqualTo(1);
+
+            assertThat(carService.getAdmin(posted.id()).price().totalEur()).isEqualByComparingTo("32700");
+            assertThat(carService.getAdmin(handPriced.id()).price().totalEur()).isEqualByComparingTo("27000");
+            var report = priceRecalc.items(run.id(), "CHANGED", true, 0, 50);
+            assertThat(report.items()).filteredOn(i -> Long.valueOf(posted.id()).equals(i.carId())).singleElement()
+                    .satisfies(i -> assertThat(i.oldPriceEur()).isEqualByComparingTo("32500"))
+                    .satisfies(i -> assertThat(i.newPriceEur()).isEqualByComparingTo("32700"))
+                    .satisfies(i -> assertThat(i.posted()).extracting(p -> p.network()).containsExactly("MOBILE_BG"));
+            assertThat(priceRecalc.items(run.id(), null, false, 0, 50).items())
+                    .noneMatch(i -> Long.valueOf(handPriced.id()).equals(i.carId())); // its final price did not change
+        } finally {
+            carService.updatePricingProfile(PriceProfile.AUTOWINI, original);
+            carService.delete(posted.id());
+            carService.delete(handPriced.id());
+        }
     }
 }
