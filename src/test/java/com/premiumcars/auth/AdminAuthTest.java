@@ -85,9 +85,14 @@ class AdminAuthTest {
         mvc.perform(get("/api/admin/cars").session(b.session())).andExpect(status().isOk());
 
         // a changing request without the CSRF header is refused, with it allowed
-        mvc.perform(post("/api/admin/cars/recalculate-prices").session(b.session()))
+        String limit = "{\"maxMileageKm\": 200000}";
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/api/admin/auto-import/max-mileage").session(b.session())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(limit))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/api/admin/cars/recalculate-prices").session(b.session())
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/api/admin/auto-import/max-mileage").session(b.session())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(limit)
                         .cookie(b.xsrf()).header("X-XSRF-TOKEN", b.xsrf().getValue()))
                 .andExpect(status().isOk());
 
