@@ -185,6 +185,26 @@ public class CarRepository {
         return out;
     }
 
+    /**
+     * A make + model with its number of cars (all but those taken off the source) and of public ones, for the page
+     * that maps our models to the listing sites'.
+     */
+    public record MakeModelCount(String make, String model, int cars, int publicCars) {
+    }
+
+    public List<MakeModelCount> countMakeModels() {
+        return jdbc.sql("""
+                        SELECT make, model, count(*) AS cars,
+                            count(*) FILTER (WHERE status IN ('PUBLISHED', 'RESERVED')) AS public_cars
+                        FROM car
+                        WHERE status <> 'REMOVED' AND make IS NOT NULL AND make <> ''
+                            AND model IS NOT NULL AND model <> ''
+                        GROUP BY make, model""")
+                .query((rs, n) -> new MakeModelCount(rs.getString("make"), rs.getString("model"), rs.getInt("cars"),
+                        rs.getInt("public_cars")))
+                .list();
+    }
+
     // ---------------------------------------------------------------- writes
 
     /** Inserts a car and returns its generated id. */

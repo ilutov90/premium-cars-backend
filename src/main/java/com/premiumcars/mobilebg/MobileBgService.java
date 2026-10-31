@@ -17,6 +17,9 @@ import com.premiumcars.catalog.domain.CarFeature;
 import com.premiumcars.catalog.repo.CarRepository;
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.common.NotFoundException;
+import com.premiumcars.marketplace.MarketplaceService;
+import com.premiumcars.marketplace.ModelMatch;
+import com.premiumcars.marketplace.Site;
 
 /** The admin panel's mobile.bg module: the form filled in from a car, mobile.bg's lists, where a car was posted. */
 @Service
@@ -37,18 +40,23 @@ public class MobileBgService {
 
     private final CarRepository cars;
     private final MobileBgRepository repo;
+    private final MarketplaceService marketplace;
     private final Clock clock;
 
-    public MobileBgService(CarRepository cars, MobileBgRepository repo, Clock clock) {
+    public MobileBgService(CarRepository cars, MobileBgRepository repo, MarketplaceService marketplace,
+                           Clock clock) {
         this.cars = cars;
         this.repo = repo;
+        this.marketplace = marketplace;
         this.clock = clock;
     }
 
     public Form form(long carId) {
         Car car = cars.findById(carId).orElseThrow(() -> new NotFoundException("Car not found: " + carId));
         MobileBgCatalog catalog = repo.catalog();
-        MobileBgMapper.Result r = MobileBgMapper.map(car, catalog);
+        ModelMatch match = marketplace.match(Site.MOBILE_BG, catalog.toSiteCatalog(), car.specs().make(),
+                car.specs().model(), car.specs().trim());
+        MobileBgMapper.Result r = MobileBgMapper.map(car, catalog, match);
         Map<CarFeature, String> values = new LinkedHashMap<>();
         Arrays.stream(CarFeature.values()).forEach(f -> values.put(f, f.mobileBgLabel()));
         return new Form(r.draft(), r.warnings(), values, repo.listing(carId).orElse(null), catalog.capturedAt());
@@ -72,6 +80,7 @@ public class MobileBgService {
                 : new MobileBgCatalog(catalog.brands(), catalog.selects(), catalog.extras(), clock.instant());
         repo.saveCatalog(stamped, by);
         log.info("Admin '{}' sent mobile.bg's lists ({} brands)", by, stamped.brands().size());
+        marketplace.catalogChanged(Site.MOBILE_BG);
         return stamped;
     }
 

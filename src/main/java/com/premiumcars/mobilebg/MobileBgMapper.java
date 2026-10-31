@@ -2,7 +2,6 @@ package com.premiumcars.mobilebg;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -14,11 +13,13 @@ import java.util.regex.Pattern;
 import com.premiumcars.catalog.domain.Car;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.FuelType;
+import com.premiumcars.marketplace.ModelMatch;
+import com.premiumcars.marketplace.ModelMatcher;
 
 /**
- * Fills mobile.bg's "Добави обява" form from a car, in mobile.bg's values. Brands and models are matched against
- * mobile.bg's own lists ({@link MobileBgCatalog}) when an admin's browser has sent them; what cannot be matched is
- * reported as a {@link Warning} and left to the admin. Pure: no database, no network.
+ * Fills mobile.bg's "Добави обява" form from a car, in mobile.bg's values. The brand and model come from the
+ * {@link ModelMatch} against mobile.bg's own lists ({@link MobileBgCatalog}, with the admins' choices); what cannot
+ * be matched is reported as a {@link Warning} and left to the admin. Pure: no database, no network.
  */
 public final class MobileBgMapper {
 
@@ -29,6 +30,10 @@ public final class MobileBgMapper {
             CATALOG_MISSING,
             BRAND_NOT_FOUND,
             MODEL_NOT_FOUND,
+            /** The model was guessed (value: mobile.bg's): check it, or confirm it on the mapping page. */
+            MODEL_SUGGESTED,
+            /** An admin said mobile.bg has no model for it. */
+            MODEL_UNAVAILABLE,
             /** mobile.bg has no "range extender": sent as plug-in hybrid. */
             RANGE_EXTENDER,
             CATEGORY_UNKNOWN,
@@ -45,23 +50,6 @@ public final class MobileBgMapper {
 
     static final List<String> MONTHS = List.of("януари", "февруари", "март", "април", "май", "юни", "юли", "август",
             "септември", "октомври", "ноември", "декември");
-
-    /** The car's make as the sources write it -> mobile.bg's brand. */
-    private static final Map<String, String> BRAND_ALIASES = Map.ofEntries(
-            Map.entry("mercedes", "Mercedes-Benz"),
-            Map.entry("mercedesbenz", "Mercedes-Benz"),
-            Map.entry("benz", "Mercedes-Benz"),
-            Map.entry("volkswagen", "VW"),
-            Map.entry("vw", "VW"),
-            Map.entry("landrover", "Land Rover"),
-            Map.entry("rangerover", "Land Rover"),
-            Map.entry("chevy", "Chevrolet"),
-            Map.entry("ssangyong", "SsangYong"),
-            Map.entry("kgmobility", "SsangYong"),
-            Map.entry("kgm", "SsangYong"),
-            Map.entry("lynkco", "Lynk & Co"),
-            Map.entry("liauto", "Li Auto"),
-            Map.entry("lixiang", "Li Auto"));
 
     /** Words in the source's body type -> mobile.bg's category (first match wins). */
     private static final List<Map.Entry<Pattern, String>> CATEGORIES = List.of(
@@ -96,26 +84,46 @@ public final class MobileBgMapper {
     private MobileBgMapper() {
     }
 
+    /** Without the admins' choices (tests). */
     public static Result map(Car car, MobileBgCatalog catalog) {
+        CarSpecs s = car.specs();
+        return map(car, catalog, ModelMatcher.match(catalog == null ? null : catalog.toSiteCatalog(), s.make(),
+                s.model(), s.trim(), Optional.empty()));
+    }
+
+    /** @param match the car's make + model in mobile.bg's lists (with the admins' choices) */
+    public static Result map(Car car, MobileBgCatalog catalog, ModelMatch match) {
         CarSpecs s = car.specs();
         List<Warning> warnings = new ArrayList<>();
 
+        // without mobile.bg's lists the car's own names are sent; else mobile.bg's or none
         String brand = s.make();
         String model = s.model();
-        if (catalog == null || catalog.isEmpty()) {
-            warnings.add(new Warning(Warning.Code.CATALOG_MISSING, null));
-        } else {
-            Optional<MobileBgCatalog.Brand> b = brand(catalog, s.make());
-            if (b.isEmpty()) {
+        switch (match.status()) {
+            case NO_CATALOG -> warnings.add(new Warning(Warning.Code.CATALOG_MISSING, null));
+            case BRAND_MISSING -> {
                 warnings.add(new Warning(Warning.Code.BRAND_NOT_FOUND, s.make()));
                 brand = null;
                 model = null;
-            } else {
-                brand = b.get().name();
-                model = model(b.get(), s.model(), s.trim()).orElse(null);
-                if (model == null) {
-                    warnings.add(new Warning(Warning.Code.MODEL_NOT_FOUND, s.model()));
-                }
+            }
+            case UNAVAILABLE -> {
+                warnings.add(new Warning(Warning.Code.MODEL_UNAVAILABLE, s.model()));
+                brand = null;
+                model = null;
+            }
+            case MODEL_MISSING -> {
+                warnings.add(new Warning(Warning.Code.MODEL_NOT_FOUND, s.model()));
+                brand = match.brand().name();
+                model = null;
+            }
+            case SUGGESTED -> {
+                warnings.add(new Warning(Warning.Code.MODEL_SUGGESTED, match.model().name()));
+                brand = match.brand().name();
+                model = match.model().name();
+            }
+            case AUTO, MANUAL -> {
+                brand = match.brand().name();
+                model = match.model().name();
             }
         }
 
@@ -204,50 +212,6 @@ public final class MobileBgMapper {
         };
     }
 
-    static Optional<MobileBgCatalog.Brand> brand(MobileBgCatalog catalog, String make) {
-        if (make == null) {
-            return Optional.empty();
-        }
-        String key = key(make);
-        String alias = BRAND_ALIASES.get(key);
-        for (MobileBgCatalog.Brand b : catalog.brands()) {
-            if (key(b.name()).equals(key) || (alias != null && b.name().equalsIgnoreCase(alias))) {
-                return Optional.of(b);
-            }
-        }
-        return Optional.empty();
-    }
-
-    /**
-     * The model in mobile.bg's list: same name ignoring case, spaces and dashes ("SantaFe" = "Santa Fe"), else the
-     * longest mobile.bg model the car's model (or model + trim) starts with ("Sportage R" -> "Sportage"), else one
-     * that starts with the car's model.
-     */
-    static Optional<String> model(MobileBgCatalog.Brand brand, String model, String trim) {
-        if (model == null || model.isBlank()) {
-            return Optional.empty();
-        }
-        String key = key(model);
-        String full = key(model + " " + (trim == null ? "" : trim));
-        String best = null;
-        for (String m : brand.models()) {
-            String k = key(m);
-            if (k.isEmpty()) {
-                continue;
-            }
-            if (k.equals(key)) {
-                return Optional.of(m);
-            }
-            if ((key.startsWith(k) || full.startsWith(k)) && (best == null || k.length() > key(best).length())) {
-                best = m;
-            }
-        }
-        if (best != null) {
-            return Optional.of(best);
-        }
-        return brand.models().stream().filter(m -> key(m).startsWith(key)).findFirst();
-    }
-
     static String category(String bodyType) {
         if (bodyType == null) {
             return null;
@@ -278,15 +242,6 @@ public final class MobileBgMapper {
                 .filter(v -> v != null && v.toLowerCase(Locale.ROOT).startsWith(stem))
                 .findFirst()
                 .orElse(null);
-    }
-
-    /** "Santa Fe", "SantaFe" and "santa-fe" -> "santafe" */
-    static String key(String s) {
-        if (s == null) {
-            return "";
-        }
-        String n = Normalizer.normalize(s, Normalizer.Form.NFKD).replaceAll("\\p{M}", "");
-        return n.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private static String cut(String s, int max) {

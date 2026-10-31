@@ -10,6 +10,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import com.premiumcars.marketplace.Site;
+import com.premiumcars.marketplace.SiteCatalog;
+
 /**
  * mobile.bg's lists for the "Добави обява" form (category "Автомобили и Джипове"), as the browser extension reads
  * them from the form itself: brands with their models (the page's {@code cmm} array), the options of the selects
@@ -35,6 +38,14 @@ public record MobileBgCatalog(
 
     public boolean isEmpty() {
         return brands.isEmpty();
+    }
+
+    /** The brands and models for matching (mobile.bg works with names: no ids). */
+    public SiteCatalog toSiteCatalog() {
+        return new SiteCatalog(Site.MOBILE_BG, brands.stream()
+                .map(b -> new SiteCatalog.SiteBrand(null, b.name(), b.models().stream()
+                        .map(m -> new SiteCatalog.SiteModel(null, m)).toList()))
+                .toList(), capturedAt);
     }
 
     /** A select's options; empty when the catalog does not have that field. */
