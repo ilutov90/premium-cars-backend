@@ -83,8 +83,7 @@ public class GuaziSearch implements SourceSearch {
     public BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
         Set<String> seen = new HashSet<>();
         Consumer<FoundListing> once = l -> {
-            // listings without a fixed price (auctions show guazi's stand-in) count as read but are not imported
-            if (seen.add(l.id()) && GuaziPageParser.realPrice(l.price())) {
+            if (seen.add(l.id())) {
                 found.accept(l);
             }
         };
@@ -121,6 +120,12 @@ public class GuaziSearch implements SourceSearch {
         complete = complete && seen.size() >= expected * 0.98;
         return new BrandPass(brand.code(), brand.name(), expected, seen.size(), complete,
                 complete ? null : "read " + seen.size() + " of " + expected);
+    }
+
+    /** Auctions show guazi's stand-in price ("$9,999,999"): not imported, but still at the source. */
+    @Override
+    public boolean priced(FoundListing listing) {
+        return GuaziPageParser.realPrice(listing.price());
     }
 
     /** One search: a make, maybe some models, a year range. */

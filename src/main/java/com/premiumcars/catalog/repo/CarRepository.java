@@ -96,6 +96,23 @@ public class CarRepository {
                 .list();
     }
 
+    /** A car as the automatic import checks it at its source. */
+    public record CheckedCar(long id, CarStatus status, String make, Integer year, String sourceUrl, String title,
+                             String slug) {
+    }
+
+    /** The cars of a source site that have a listing link, for the automatic import's check. */
+    public List<CheckedCar> findForSourceCheck(CarSource source) {
+        return jdbc.sql("""
+                        SELECT id, status, make, model_year, source_url, title, slug FROM car
+                        WHERE source = :source AND source_url IS NOT NULL ORDER BY id""")
+                .param("source", source.name())
+                .query((rs, n) -> new CheckedCar(rs.getLong("id"), CarStatus.valueOf(rs.getString("status")),
+                        rs.getString("make"), rs.getObject("model_year", Integer.class), rs.getString("source_url"),
+                        rs.getString("title"), rs.getString("slug")))
+                .list();
+    }
+
     /** The price as the source shows it now (a recalculation that read the listing again). */
     public void updateSourcePrice(long id, BigDecimal price, String currency) {
         jdbc.sql("UPDATE car SET source_price = :price, source_currency = :currency, updated_at = now() WHERE id = :id")

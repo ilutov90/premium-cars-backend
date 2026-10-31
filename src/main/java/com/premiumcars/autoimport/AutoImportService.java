@@ -14,6 +14,8 @@ import com.premiumcars.autoimport.AutoImportDtos.BrandUpdate;
 import com.premiumcars.autoimport.AutoImportDtos.BrandView;
 import com.premiumcars.autoimport.AutoImportDtos.CatalogEntry;
 import com.premiumcars.autoimport.AutoImportDtos.Failure;
+import com.premiumcars.autoimport.AutoImportDtos.FailureDelete;
+import com.premiumcars.autoimport.AutoImportDtos.Failures;
 import com.premiumcars.autoimport.AutoImportDtos.Overview;
 import com.premiumcars.autoimport.AutoImportDtos.Preview;
 import com.premiumcars.autoimport.AutoImportDtos.SourceUpdate;
@@ -27,6 +29,7 @@ import com.premiumcars.autoimport.AutoImportTypes.SourceFilters;
 import com.premiumcars.autoimport.SourceSearch.SearchException;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.common.BadRequestException;
+import com.premiumcars.common.PageResponse;
 import com.premiumcars.common.NotFoundException;
 
 /** The admin panel's "Автоматичен импорт": settings, the sources' makes and models, preview, runs. */
@@ -59,12 +62,35 @@ public class AutoImportService {
             sources.add(new SourceView(s.source(), s.enabled(), s.filters(), brands,
                     queues.getOrDefault(s.source().name(), Map.of())));
         }
-        List<Failure> failures = listings.failures(30).stream()
-                .map(l -> new Failure(l.source(), l.listingId(), l.url(), l.title(), l.price(), l.state(),
-                        l.attempts(), l.lastError()))
-                .toList();
         return new Overview(settings.enabled(), runner.running(), settings.maxMileageKm(), sources,
-                runs.recent(30), failures);
+                runs.recent(30));
+    }
+
+    /** The failures tab: a page of failed listings (filtered) and the reasons of all of them. */
+    public Failures failures(CarSource source, String text, int page, int size) {
+        int p = Math.max(page, 0);
+        int s = Math.min(Math.max(size, 1), 200);
+        var rows = listings.failures(source, text, p, s);
+        return new Failures(PageResponse.of(rows, p, s, listings.countFailures(source, text),
+                l -> new Failure(l.source(), l.listingId(), l.url(), l.title(), l.price(), l.state(), l.attempts(),
+                        l.lastError(), l.updatedAt())),
+                listings.failureReasons(source));
+    }
+
+    public List<AutoImportRunRepository.Removed> removed(long runId) {
+        return runs.removed(runId);
+    }
+
+    /** @return how many were deleted */
+    public int deleteFailures(FailureDelete d) {
+        if (d.all()) {
+            return listings.deleteFailures(d.source(), d.text());
+        }
+        if (d.items() == null || d.items().isEmpty()) {
+            return 0;
+        }
+        return listings.deleteFailures(d.items().stream()
+                .map(i -> new AutoImportListingRepository.FailureKey(i.source(), i.listingId())).toList());
     }
 
     /** Applies to the queue at once (the worker checks it) and to the next run's new listings. */
