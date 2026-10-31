@@ -2,6 +2,7 @@ package com.premiumcars.pricing;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
 
 import org.springframework.stereotype.Component;
 
@@ -10,10 +11,9 @@ import org.springframework.stereotype.Component;
  *
  * <pre>
  *   FOB in EUR   = source price * exchange rate
- *   duty and VAT = duty/VAT % of (FOB + sea freight)
- *   step         = step base + step % of the FOB above "step from"
+ *   duty and VAT = the formula's table row for the FOB (autowini), or duty/VAT % of (FOB + sea freight)
  *   markup       = markup low up to the threshold FOB, markup high above it
- *   final price  = FOB + sea freight + land transport + commission + duty and VAT + step + markup
+ *   final price  = FOB + sea freight + land transport + commission + duty and VAT + markup
  * </pre>
  *
  * rounded to whole euros. Per car, the admin may set another markup or the final price by hand.
@@ -51,36 +51,59 @@ public class PriceCalculator {
             return new PriceBreakdown(profile == null ? null : profile.id(), sourcePrice, sourceCurrency, null, null,
                     null, null, null, null, null, null, null, profitOverride == null ? null : round(profitOverride),
                     profitOverride != null, null, fixed, true, null, null, null, null, null, null, null, null, null,
-                    null);
+                    null, null, null);
         }
         String currency = sourceCurrency == null ? "EUR" : sourceCurrency;
         BigDecimal rate = rates.eurPerUnit(currency);
         BigDecimal fob = round(sourcePrice.multiply(rate));
         BigDecimal markup = profitOverride == null ? markup(fob, profile) : profitOverride;
 
-        BigDecimal dutyVat = round(fob.add(profile.seaFreight()).multiply(profile.dutyVatPct()).divide(HUNDRED));
-        BigDecimal step = step(fob, profile);
+        DutyBracket row = bracket(fob, profile.dutyBrackets());
+        boolean table = row != null;
+        BigDecimal dutyVat = table ? round(row.dutyVat())
+                : round(fob.add(profile.seaFreight()).multiply(profile.dutyVatPct()).divide(HUNDRED));
         BigDecimal calculated = whole(fob.add(profile.seaFreight()).add(profile.landTransport())
-                .add(profile.commission()).add(dutyVat).add(step).add(markup));
+                .add(profile.commission()).add(dutyVat).add(markup));
 
         boolean own = profitOverride != null;
         return new PriceBreakdown(profile.id(), sourcePrice, currency, fob, round(profile.seaFreight()),
-                round(profile.landTransport()), round(profile.commission()), plain(profile.dutyVatPct()), dutyVat,
-                null, null, null, round(markup), own, calculated, fixed == null ? calculated : fixed, fixed != null,
-                rate, null, null, step, round(profile.stepBase()), round(profile.stepFrom()),
-                plain(profile.stepPct()), own ? null : round(profile.markupLow()),
-                own ? null : round(profile.markupHigh()), own ? null : round(profile.markupThreshold()));
+                round(profile.landTransport()), round(profile.commission()),
+                table ? null : plain(profile.dutyVatPct()), dutyVat, null, null, null, round(markup), own,
+                calculated, fixed == null ? calculated : fixed, fixed != null, rate, null, null, null, null, null,
+                null, own ? null : round(profile.markupLow()), own ? null : round(profile.markupHigh()),
+                own ? null : round(profile.markupThreshold()), table,
+                table && row.fobUpTo() != null ? round(row.fobUpTo()) : null);
+    }
+
+    /**
+     * The table's row for a FOB: the first whose "up to" is at least the FOB (15 700 -> the 16 000 row), else the
+     * open row (no "up to"), else the last row; null without a table.
+     */
+    static DutyBracket bracket(BigDecimal fob, List<DutyBracket> rows) {
+        if (rows.isEmpty()) {
+            return null;
+        }
+        DutyBracket open = null;
+        DutyBracket best = null;
+        for (DutyBracket b : rows) {
+            if (b.fobUpTo() == null) {
+                open = b;
+            } else if (fob.compareTo(b.fobUpTo()) <= 0 && (best == null || b.fobUpTo().compareTo(best.fobUpTo()) < 0)) {
+                best = b;
+            }
+        }
+        if (best != null) {
+            return best;
+        }
+        if (open != null) {
+            return open;
+        }
+        return rows.stream().max(java.util.Comparator.comparing(DutyBracket::fobUpTo)).orElseThrow();
     }
 
     /** The markup: low up to the threshold FOB (inclusive), high above it (25 000: 1000, 25 000.01: 1500). */
     static BigDecimal markup(BigDecimal fob, PricingProfile profile) {
         return round(fob.compareTo(profile.markupThreshold()) <= 0 ? profile.markupLow() : profile.markupHigh());
-    }
-
-    /** The step: its base, plus its percent of the FOB above "step from" (1700 + 10 % of 17 000 - 10 000 = 2400). */
-    static BigDecimal step(BigDecimal fob, PricingProfile profile) {
-        BigDecimal above = fob.subtract(profile.stepFrom()).max(BigDecimal.ZERO);
-        return round(profile.stepBase().add(above.multiply(profile.stepPct()).divide(HUNDRED)));
     }
 
     /** Rounded to whole euros, kept with two decimals like the other amounts. */

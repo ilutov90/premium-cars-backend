@@ -36,6 +36,7 @@ import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.CarUpdateRequest;
 import com.premiumcars.catalog.web.dto.CarDtos.FilterOptions;
 import com.premiumcars.catalog.web.dto.CarFilter;
+import com.premiumcars.common.BadRequestException;
 import com.premiumcars.common.NotFoundException;
 import com.premiumcars.common.PageResponse;
 import com.premiumcars.importing.ImportedCar;
@@ -81,6 +82,19 @@ public class CarService {
      */
     @Transactional
     public PricingProfile updatePricingProfile(PriceProfile id, PricingProfile values) {
+        java.util.Set<java.math.BigDecimal> upTos = new java.util.HashSet<>();
+        int open = 0;
+        for (var row : values.dutyBrackets()) {
+            if (row.fobUpTo() == null) {
+                open++;
+            } else if (!upTos.add(row.fobUpTo().stripTrailingZeros())) {
+                throw new BadRequestException("The duty and VAT table has the FOB " + row.fobUpTo().toPlainString()
+                        + " twice");
+            }
+        }
+        if (open > 1) {
+            throw new BadRequestException("The duty and VAT table can have only one row for every FOB above the others");
+        }
         if (!profiles.update(id, values)) {
             throw new NotFoundException("Price profile not found: " + id);
         }
