@@ -84,6 +84,16 @@ class MobileBgMapperTest {
     }
 
     @Test
+    void aGuessedModelIsSentWithAWarning() {
+        CarSpecs kia = CarSpecs.builder().make("KIA").model("Sportage R").build();
+        MobileBgMapper.Result r = MobileBgMapper.map(car(kia, "20000"), CATALOG);
+        assertThat(r.warnings()).anySatisfy(w -> {
+            assertThat(w.code()).isEqualTo(Code.MODEL_SUGGESTED);
+            assertThat(w.value()).isEqualTo("Sportage");
+        });
+    }
+
+    @Test
     void unknownBrandOrModelIsLeftToTheAdmin() {
         CarSpecs zeekr = CarSpecs.builder().make("Zeekr").model("001").build();
         MobileBgMapper.Result r = MobileBgMapper.map(car(zeekr, "40000"), CATALOG);

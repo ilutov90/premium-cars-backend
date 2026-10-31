@@ -47,6 +47,13 @@ import com.premiumcars.inquiry.HeardFrom;
 import com.premiumcars.inquiry.Inquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 import com.premiumcars.inquiry.InquiryService;
+import com.premiumcars.carsbg.CarsBgCatalog;
+import com.premiumcars.carsbg.CarsBgListing;
+import com.premiumcars.carsbg.CarsBgRepository;
+import com.premiumcars.carsbg.CarsBgService;
+import com.premiumcars.marketplace.MarketplaceService;
+import com.premiumcars.marketplace.ModelMatch;
+import com.premiumcars.marketplace.Site;
 import com.premiumcars.mobilebg.MobileBgCatalog;
 import com.premiumcars.mobilebg.MobileBgListing;
 import com.premiumcars.mobilebg.MobileBgRepository;
@@ -104,6 +111,18 @@ class JdbcRepositoriesTest {
 
     @Autowired
     MobileBgRepository mobileBg;
+
+    @Autowired
+    CarsBgRepository carsBgRepo;
+
+    @Autowired
+    CarsBgService carsBg;
+
+    @Autowired
+    MarketplaceService marketplace;
+
+    @Autowired
+    com.premiumcars.social.PostedChannels postedChannels;
 
     @Autowired
     PostSettingsRepository postSettings;
@@ -497,6 +516,54 @@ class JdbcRepositoriesTest {
         assertThat(listing.publishedBy()).isEqualTo("maria");
         carService.delete(car.id());
         assertThat(mobileBg.listing(car.id())).isEmpty(); // goes with the car
+    }
+
+    @Test
+    void carsBgFormMappingsAndListings() {
+        carsBgRepo.saveCatalog(new CarsBgCatalog(List.of(new CarsBgCatalog.Brand("161", "Geely", List.of(
+                new CarsBgCatalog.Model("7001", "EX5"), new CarsBgCatalog.Model("7002", "Monjaro")))),
+                java.time.Instant.parse("2026-10-30T10:00:00Z")), "admin");
+
+        String url = "https://en.guazi.com/test/" + UUID.randomUUID();
+        var imported = new ImportedCar("G1", null, CarSpecs.builder().title("Geely Galaxy E5 2025")
+                .make("Geely Galaxy").model("E5").year(2025).build(), new BigDecimal("15000"), "USD", List.of(),
+                List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.GUAZI, url);
+        assertThat(car.specs().make()).isEqualTo("Geely"); // one name per make
+        assertThat(car.specs().model()).isEqualTo("Galaxy E5");
+
+        var row = marketplace.overview().rows().stream()
+                .filter(r -> r.make().equals("Geely") && r.model().equals("Galaxy E5")).findFirst().orElseThrow();
+        assertThat(row.cars()).isGreaterThanOrEqualTo(1);
+        assertThat(row.sites().get(Site.CARS_BG).status()).isEqualTo(ModelMatch.Status.SUGGESTED);
+        assertThat(row.sites().get(Site.CARS_BG).model()).isEqualTo("EX5");
+
+        marketplace.choose(Site.CARS_BG, "Geely", "Galaxy E5", "ex5", false, "admin");
+        var form = carsBg.form(car.id());
+        assertThat(form.match()).isEqualTo(ModelMatch.Status.MANUAL);
+        assertThat(form.draft().brandId()).isEqualTo("161");
+        assertThat(form.draft().modelId()).isEqualTo("7001");
+        assertThat(form.listing()).isNull();
+        assertThatThrownBy(() -> marketplace.choose(Site.CARS_BG, "Geely", "Galaxy E5", "Atto2", false, "admin"))
+                .isInstanceOf(BadRequestException.class); // only models of the matched make
+
+        marketplace.choose(Site.CARS_BG, "Geely", "Galaxy E5", null, true, "admin");
+        assertThat(carsBg.form(car.id()).match()).isEqualTo(ModelMatch.Status.UNAVAILABLE);
+        marketplace.reset(Site.CARS_BG, "Geely", "Galaxy E5", "admin");
+        assertThat(carsBg.form(car.id()).match()).isEqualTo(ModelMatch.Status.SUGGESTED);
+
+        CarsBgListing l = carsBg.recordListing(car.id(), null,
+                "https://www.cars.bg/offer/68F0C1E2A4B5C6D7E8F90123?myoffer=1", "admin");
+        assertThat(l.offerId()).isEqualTo("68f0c1e2a4b5c6d7e8f90123");
+        assertThat(l.url()).isEqualTo("https://www.cars.bg/offer/68f0c1e2a4b5c6d7e8f90123");
+        assertThat(carsBg.form(car.id()).listing()).isNotNull();
+        assertThat(postedChannels.of(car.id())).extracting(com.premiumcars.social.PostedChannels.Post::network)
+                .containsExactly("CARS_BG");
+        assertThatThrownBy(() -> carsBg.recordListing(car.id(), null, "https://evil.example/offer/1", "admin"))
+                .isInstanceOf(BadRequestException.class);
+        carsBg.forgetListing(car.id(), "admin");
+        assertThat(carsBg.form(car.id()).listing()).isNull();
+        carService.delete(car.id());
     }
 
     @Test
