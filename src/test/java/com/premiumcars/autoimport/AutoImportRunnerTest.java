@@ -33,6 +33,7 @@ import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.service.CarService;
 import com.premiumcars.importing.ImportedCar;
+import com.premiumcars.social.PostedChannels;
 
 /**
  * The run's bookkeeping against PostgreSQL 17 in Docker, with a made-up search instead of the sites: new listings
@@ -63,6 +64,12 @@ class AutoImportRunnerTest {
 
     @Autowired
     AutoImportWorker worker;
+
+    @Autowired
+    AutoImportRunRepository runs;
+
+    @Autowired
+    com.premiumcars.mobilebg.MobileBgRepository mobileBg;
 
     /** Answers per make code; a make not in the map has no listings (read whole). */
     static class FakeSearch implements SourceSearch {
@@ -217,8 +224,83 @@ class AutoImportRunnerTest {
         settings.setMaxMileageKm(50_000);
         worker.importOne(listings.find(CarSource.AUTOWINI, "km2").orElseThrow());
         assertThat(state("km2")).isEqualTo("SKIPPED");
-        assertThat(service.overview().failures()).noneMatch(f -> f.listingId().startsWith("km"));
+        assertThat(service.failures(CarSource.AUTOWINI, "km", 0, 50).page().items()).isEmpty(); // skipped, not failed
         settings.setMaxMileageKm(200_000);
+    }
+
+    @Test
+    void carsAddedByHandAreCheckedByTheirMakeAndHiddenWhenGoneTwice() {
+        settings.saveCatalog(CarSource.GUAZI, List.of(new CatalogBrand("777", "Testmake", null)));
+        String url = "https://en.guazi.com/products/test-car-hand1.html";
+        var car = carService.createDraft(new ImportedCar("hand1", null, CarSpecs.builder().title("Testmake X 2023")
+                .make("Testmake").year(2023).build(), new BigDecimal("15000"), "USD", List.of(), List.of()),
+                CarSource.GUAZI, url);
+        carService.changeStatus(car.id(), CarStatus.PUBLISHED);
+        mobileBg.saveListing(car.id(), "99", "https://www.mobile.bg/obiava-99", Instant.now(), "admin");
+
+        FakeSearch search = new FakeSearch();
+        search.results.put("777", List.of(listing("hand1"))); // the make is not imported: only the check reads it
+        Result present = runner.pass(search, GUAZI, false);
+        assertThat(present.manualChecked()).isGreaterThanOrEqualTo(1);
+        assertThat(present.manualGone()).isZero();
+        assertThat(listings.find(CarSource.GUAZI, "hand1")).isEmpty(); // not queued: it is in the catalog
+
+        search.results.put("777", List.of());
+        assertThat(runner.pass(search, GUAZI, true).manualGone()).isZero(); // a dry run: missing once so far
+        runner.pass(search, GUAZI, false); // missing once
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        long runId = runs.start(CarSource.GUAZI, false);
+        Result gone = runner.pass(search, GUAZI, false, runId); // missing twice
+        assertThat(gone.manualGone()).isEqualTo(1);
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.REMOVED);
+        assertThat(runs.removed(runId)).singleElement()
+                .satisfies(r -> assertThat(r.manual()).isTrue())
+                .satisfies(r -> assertThat(r.title()).isEqualTo("Testmake X 2023"))
+                .satisfies(r -> assertThat(r.posted()).extracting(PostedChannels.Post::network)
+                        .containsExactly("MOBILE_BG"));
+
+        // back at the source: published again
+        search.results.put("777", List.of(listing("hand1")));
+        runner.pass(search, GUAZI, false);
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        carService.delete(car.id());
+    }
+
+    @Test
+    void failuresAreTriedThreeTimesPerRunAndListedWhole() {
+        var autowini = new SourceSettings(CarSource.AUTOWINI, true, new SourceFilters(false, false, List.of()),
+                Instant.now());
+        service.save(CarSource.AUTOWINI, new SourceUpdate(true, new SourceFilters(false, false, List.of()),
+                List.of(new BrandUpdate("C9991", "Failmake", true, 2018, List.of()))));
+        FakeSearch search = new FakeSearch();
+        search.results.put("C9991", List.of(listing("f1"), listing("f2")));
+        runner.pass(search, autowini, false);
+        for (int i = 0; i < 3; i++) {
+            listings.failed(CarSource.AUTOWINI, "f1", "autowini returned HTTP 404 for https://x/" + i);
+            listings.failed(CarSource.AUTOWINI, "f2", "autowini returned HTTP 404 for https://y/" + i);
+        }
+        assertThat(state("f1")).isEqualTo("FAILED");
+        var tab = service.failures(CarSource.AUTOWINI, null, 0, 1);
+        assertThat(tab.page().totalItems()).isEqualTo(2);
+        assertThat(tab.page().items()).hasSize(1);
+        assertThat(tab.reasons()).singleElement()
+                .satisfies(r -> assertThat(r.reason()).isEqualTo("autowini returned HTTP N for …"))
+                .satisfies(r -> assertThat(r.count()).isEqualTo(2));
+
+        // the next run: three new attempts while the source has it
+        runner.pass(search, autowini, false);
+        assertThat(state("f1")).isEqualTo("QUEUED");
+        assertThat(listings.find(CarSource.AUTOWINI, "f1").orElseThrow().attempts()).isZero();
+
+        for (int i = 0; i < 3; i++) {
+            listings.failed(CarSource.AUTOWINI, "f1", "boom");
+            listings.failed(CarSource.AUTOWINI, "f2", "boom");
+        }
+        assertThat(service.deleteFailures(new AutoImportDtos.FailureDelete(
+                List.of(new AutoImportDtos.FailureRef(CarSource.AUTOWINI, "f1")), false, null, null))).isEqualTo(1);
+        assertThat(service.deleteFailures(new AutoImportDtos.FailureDelete(null, true, CarSource.AUTOWINI, "boom")))
+                .isEqualTo(1);
+        assertThat(service.failures(CarSource.AUTOWINI, null, 0, 50).page().totalItems()).isZero();
     }
 
     private String state(String listingId) {

@@ -5,8 +5,6 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -254,23 +252,6 @@ public class CarService {
         cars.savePrice(id, b == null ? null : b.totalEur(), b);
         log.info("Car {} recalculated by hand: {} € (was {} €)", id, b == null ? null : b.totalEur(), c.totalPriceEur());
         return loadAdmin(id);
-    }
-
-    /**
-     * Every car with today's exchange rates and formulas. Only by hand (POST /api/admin/cars/recalculate-prices):
-     * it changes prices that may be posted already. Returns the number of cars.
-     */
-    @Transactional
-    public int recalculateAllPrices() {
-        Map<PriceProfile, PricingProfile> byId = profiles.findAll().stream()
-                .collect(Collectors.toMap(PricingProfile::id, Function.identity()));
-        List<Car> all = cars.findAll();
-        for (Car c : all) {
-            PricingProfile profile = c.pricing().profile() == null ? null : byId.get(c.pricing().profile());
-            PriceBreakdown b = mapper.breakdown(c.pricing(), profile);
-            cars.savePrice(c.id(), b == null ? null : b.totalEur(), b);
-        }
-        return all.size();
     }
 
     // ---------------------------------------------------------------- helpers

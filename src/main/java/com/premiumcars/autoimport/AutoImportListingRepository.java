@@ -2,6 +2,8 @@ package com.premiumcars.autoimport;
 
 import java.math.BigDecimal;
 import java.sql.Types;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,26 +25,26 @@ public class AutoImportListingRepository {
     public static final String QUEUED = "QUEUED";
     /** In our catalog: {@code carId}. */
     public static final String IMPORTED = "IMPORTED";
-    /** Failed {@value #MAX_ATTEMPTS} times in a row; queued again by the next run until {@value #GIVE_UP_ATTEMPTS}. */
+    /** Failed {@value #MAX_ATTEMPTS} times in a row in a run; the next run queues it again while the source has it. */
     public static final String FAILED = "FAILED";
     /** Over the mileage limit ({@code mileageKm}): not imported; queued again when the limit goes above it. */
     public static final String SKIPPED = "SKIPPED";
     static final int MAX_ATTEMPTS = 3;
-    static final int GIVE_UP_ATTEMPTS = 6;
 
     public record Listing(CarSource source, String listingId, String url, String brandCode, String title,
                           BigDecimal price, String state, int attempts, String lastError, int missedPasses,
-                          Long carId, Integer mileageKm) {
+                          Long carId, Integer mileageKm, Instant updatedAt) {
     }
 
     private static final String COLUMNS = "source, listing_id, url, brand_code, title, price, state, attempts,"
-            + " last_error, missed_passes, car_id, mileage_km";
+            + " last_error, missed_passes, car_id, mileage_km, updated_at";
 
     private static final RowMapper<Listing> MAPPER = (rs, n) -> new Listing(
             CarSource.valueOf(rs.getString("source")), rs.getString("listing_id"), rs.getString("url"),
             rs.getString("brand_code"), rs.getString("title"), rs.getBigDecimal("price"), rs.getString("state"),
             rs.getInt("attempts"), rs.getString("last_error"), rs.getInt("missed_passes"),
-            rs.getObject("car_id", Long.class), rs.getObject("mileage_km", Integer.class));
+            rs.getObject("car_id", Long.class), rs.getObject("mileage_km", Integer.class),
+            rs.getObject("updated_at", OffsetDateTime.class).toInstant());
 
     private final JdbcClient jdbc;
 
@@ -76,7 +78,7 @@ public class AutoImportListingRepository {
     }
 
     /**
-     * Seen again: stamps it, queues a failed one again unless it failed too often, and follows the mileage limit
+     * Seen again: stamps it, queues a failed one again (with {@value #MAX_ATTEMPTS} new attempts), and follows the mileage limit
      * ({@code maxKm}, null = none): a queued listing over it is skipped, a skipped one under it queued again.
      */
     public void seen(CarSource source, FoundListing l, String brandCode, Integer maxKm) {
@@ -89,8 +91,9 @@ public class AutoImportListingRepository {
                                     THEN 'SKIPPED'
                                 WHEN state = 'SKIPPED' AND NOT (:maxKm > 0 AND COALESCE(:km, mileage_km) > :maxKm)
                                     THEN 'QUEUED'
-                                WHEN state = 'FAILED' AND attempts < :giveUp THEN 'QUEUED'
+                                WHEN state = 'FAILED' THEN 'QUEUED'
                                 ELSE state END,
+                            attempts = CASE WHEN state = 'FAILED' THEN 0 ELSE attempts END,
                             updated_at = now()
                         WHERE source = :source AND listing_id = :id""")
                 .param("km", l.mileageKm(), Types.INTEGER)
@@ -98,7 +101,6 @@ public class AutoImportListingRepository {
                 .param("brand", brandCode)
                 .param("title", cut(l.title(), 300), Types.VARCHAR)
                 .param("price", l.price(), Types.NUMERIC)
-                .param("giveUp", GIVE_UP_ATTEMPTS)
                 .param("source", source.name())
                 .param("id", l.id())
                 .update();
@@ -203,13 +205,118 @@ public class AutoImportListingRepository {
         return out;
     }
 
-    /** The latest failures, for the report. */
-    public List<Listing> failures(int limit) {
-        return jdbc.sql("SELECT " + COLUMNS + " FROM auto_import_listing WHERE last_error IS NOT NULL"
-                        + " AND state NOT IN ('IMPORTED', 'SKIPPED') ORDER BY updated_at DESC LIMIT :limit")
-                .param("limit", limit)
+    // ---------------------------------------------------------------- cars checked outside the listings
+
+    /** A car checked by its make's search was found: its missed runs start again. */
+    public void manualSeen(long carId) {
+        jdbc.sql("""
+                        INSERT INTO auto_import_manual_check (car_id, missed_passes, last_checked) VALUES (:id, 0, now())
+                        ON CONFLICT (car_id) DO UPDATE SET missed_passes = 0, last_checked = now()""")
+                .param("id", carId)
+                .update();
+    }
+
+    /** It was missing once more. @return how many runs in a row it was missing */
+    public int manualMissed(long carId) {
+        return jdbc.sql("""
+                        INSERT INTO auto_import_manual_check (car_id, missed_passes, last_checked) VALUES (:id, 1, now())
+                        ON CONFLICT (car_id) DO UPDATE SET missed_passes = auto_import_manual_check.missed_passes + 1,
+                            last_checked = now()
+                        RETURNING missed_passes""")
+                .param("id", carId)
+                .query(Integer.class)
+                .single();
+    }
+
+    /** How many runs in a row it was missing so far (a dry run reads, never writes). */
+    public int manualMissedSoFar(long carId) {
+        return jdbc.sql("SELECT missed_passes FROM auto_import_manual_check WHERE car_id = :id")
+                .param("id", carId)
+                .query(Integer.class)
+                .optional()
+                .orElse(0);
+    }
+
+    /** A reason of the failures with how many listings failed for it (URLs and numbers left out to group them). */
+    public record Reason(String reason, long count) {
+    }
+
+    private static final String REASON = "regexp_replace(regexp_replace(coalesce(last_error, ''),"
+            + " 'https?://[^ )]+', '…', 'g'), '[0-9]+', 'N', 'g')";
+
+    /**
+     * A page of the failed listings (state FAILED), the latest first.
+     *
+     * @param source null = both sites
+     * @param text   part of the error, title or listing id; null = all
+     */
+    public List<Listing> failures(CarSource source, String text, int page, int size) {
+        return jdbc.sql("SELECT " + COLUMNS + " FROM auto_import_listing" + failureWhere(source, text)
+                        + " ORDER BY updated_at DESC, listing_id LIMIT :limit OFFSET :offset")
+                .params(failureParams(source, text))
+                .param("limit", size)
+                .param("offset", page * size)
                 .query(MAPPER)
                 .list();
+    }
+
+    public long countFailures(CarSource source, String text) {
+        return jdbc.sql("SELECT count(*) FROM auto_import_listing" + failureWhere(source, text))
+                .params(failureParams(source, text))
+                .query(Long.class)
+                .single();
+    }
+
+    /** The failures grouped by reason, most first. */
+    public List<Reason> failureReasons(CarSource source) {
+        return jdbc.sql("SELECT " + REASON + " AS reason, count(*) AS n FROM auto_import_listing"
+                        + failureWhere(source, null) + " GROUP BY 1 ORDER BY n DESC, reason LIMIT 30")
+                .params(failureParams(source, null))
+                .query((rs, n) -> new Reason(rs.getString("reason"), rs.getLong("n")))
+                .list();
+    }
+
+    /**
+     * Deletes failed listings from the report. One still at the source is found again by the next run and queued
+     * as new.
+     */
+    public int deleteFailures(Collection<FailureKey> keys) {
+        int n = 0;
+        for (FailureKey k : keys) {
+            n += jdbc.sql("DELETE FROM auto_import_listing WHERE state = 'FAILED' AND source = :source AND listing_id = :id")
+                    .param("source", k.source().name())
+                    .param("id", k.listingId())
+                    .update();
+        }
+        return n;
+    }
+
+    /** Deletes every failure matching the filter (as {@link #failures}). */
+    public int deleteFailures(CarSource source, String text) {
+        return jdbc.sql("DELETE FROM auto_import_listing" + failureWhere(source, text))
+                .params(failureParams(source, text))
+                .update();
+    }
+
+    public record FailureKey(CarSource source, String listingId) {
+    }
+
+    /** Fixed fragments only; the values are parameters. */
+    private static String failureWhere(CarSource source, String text) {
+        return " WHERE state = 'FAILED'" + (source == null ? "" : " AND source = :source")
+                + (text == null || text.isBlank() ? ""
+                : " AND (last_error ILIKE :text OR title ILIKE :text OR listing_id ILIKE :text)");
+    }
+
+    private static Map<String, Object> failureParams(CarSource source, String text) {
+        Map<String, Object> p = new LinkedHashMap<>();
+        if (source != null) {
+            p.put("source", source.name());
+        }
+        if (text != null && !text.isBlank()) {
+            p.put("text", "%" + text.trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%");
+        }
+        return p;
     }
 
     private static String cut(String s, int max) {

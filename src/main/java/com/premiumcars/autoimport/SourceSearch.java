@@ -28,8 +28,16 @@ public interface SourceSearch {
     /** How many listings match: the make, its year, its chosen models and the source's filters. */
     int count(Brand brand, SourceFilters filters);
 
-    /** Reads every matching listing (each one once) and says whether the whole result was read. */
+    /**
+     * Reads every matching listing (each one once, priced or not) and says whether the whole result was read.
+     * Only {@link #priced} listings are imported; the others still count as present at the source.
+     */
     BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found);
+
+    /** The listing shows a price we can import with. */
+    default boolean priced(FoundListing listing) {
+        return listing.price() != null && listing.price().signum() > 0;
+    }
 
     /** The site answered, but not with data (blocked, changed, error). */
     class SearchException extends RuntimeException {

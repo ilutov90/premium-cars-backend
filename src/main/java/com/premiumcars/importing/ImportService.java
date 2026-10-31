@@ -68,6 +68,19 @@ public class ImportService {
                 maxMileageKm);
     }
 
+    /**
+     * Reads a listing again without saving anything (no photos): for a recalculation from the source's current price.
+     * Throws when the site has no importer or the page cannot be read.
+     */
+    public ImportedCar readListing(String rawUrl) {
+        URI url = normalize(rawUrl);
+        SourceAdapter adapter = adapters.stream()
+                .filter(a -> a.supports(url))
+                .findFirst()
+                .orElseThrow(() -> new BadRequestException("No importer for " + url.getHost()));
+        return adapter.importFrom(adapter.canonicalUrl(url));
+    }
+
     private ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html, int maxImages,
                                        Integer maxMileageKm) {
         URI url = normalize(rawUrl);

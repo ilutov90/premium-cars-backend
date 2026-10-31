@@ -1,6 +1,7 @@
 package com.premiumcars.autoimport;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -16,6 +17,7 @@ import com.premiumcars.autoimport.AutoImportTypes.BrandCount;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogModel;
 import com.premiumcars.autoimport.AutoImportTypes.SourceFilters;
 import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.common.PageResponse;
 
 /** Requests and responses of {@code /api/admin/auto-import} (mirrored in the frontend's types.ts). */
 public final class AutoImportDtos {
@@ -31,7 +33,7 @@ public final class AutoImportDtos {
      * @param maxMileageKm listings with more km are not imported (both sources); null = no limit
      */
     public record Overview(boolean enabled, String running, Integer maxMileageKm, List<SourceView> sources,
-                           List<Run> runs, List<Failure> failures) {
+                           List<Run> runs) {
     }
 
     /** The mileage limit; null = no limit. */
@@ -50,9 +52,23 @@ public final class AutoImportDtos {
     public record BrandView(String code, String name, boolean enabled, int yearFrom, List<CatalogModel> models) {
     }
 
-    /** A listing whose import failed, for the report. */
+    /** A listing whose import failed {@code attempts} times in the last run (the next run tries it again). */
     public record Failure(CarSource source, String listingId, String url, String title, BigDecimal price,
-                          String state, int attempts, String error) {
+                          String state, int attempts, String error, Instant updatedAt) {
+    }
+
+    /** The failures tab: a page of them and the reasons with their counts. */
+    public record Failures(PageResponse<Failure> page, List<AutoImportListingRepository.Reason> reasons) {
+    }
+
+    /**
+     * Deleting failures from the report: the chosen ones, or all that match the filter when {@code all}.
+     */
+    public record FailureDelete(@Size(max = 1000) List<@Valid FailureRef> items, boolean all, CarSource source,
+                                @Size(max = 200) String text) {
+    }
+
+    public record FailureRef(@NotNull CarSource source, @NotBlank @Size(max = 60) String listingId) {
     }
 
     public record SwitchRequest(boolean enabled) {

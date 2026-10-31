@@ -1,6 +1,7 @@
 package com.premiumcars.autoimport;
 
 import java.util.List;
+import java.util.Map;
 
 import jakarta.validation.Valid;
 
@@ -16,6 +17,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.premiumcars.autoimport.AutoImportDtos.CatalogEntry;
+import com.premiumcars.autoimport.AutoImportDtos.FailureDelete;
+import com.premiumcars.autoimport.AutoImportDtos.Failures;
 import com.premiumcars.autoimport.AutoImportDtos.MaxMileageRequest;
 import com.premiumcars.autoimport.AutoImportDtos.Overview;
 import com.premiumcars.autoimport.AutoImportDtos.Preview;
@@ -51,6 +54,27 @@ public class AutoImportController {
     @PutMapping("/max-mileage")
     public Overview setMaxMileage(@Valid @RequestBody MaxMileageRequest request) {
         return service.setMaxMileage(request.maxMileageKm());
+    }
+
+    /** All failed listings, a page at a time: by site, by text in the error, title or listing id. */
+    @GetMapping("/failures")
+    public Failures failures(@RequestParam(required = false) CarSource source,
+                             @RequestParam(required = false) String q,
+                             @RequestParam(defaultValue = "0") int page,
+                             @RequestParam(defaultValue = "50") int size) {
+        return service.failures(source, q, page, size);
+    }
+
+    /** The cars a run hid, with where each one was posted (to take those posts down). */
+    @GetMapping("/runs/{id}/removed")
+    public List<AutoImportRunRepository.Removed> removed(@PathVariable long id) {
+        return service.removed(id);
+    }
+
+    /** Deletes failures from the report (chosen ones or all matching the filter). */
+    @PostMapping("/failures/delete")
+    public Map<String, Integer> deleteFailures(@Valid @RequestBody FailureDelete request) {
+        return Map.of("deleted", service.deleteFailures(request));
     }
 
     @PutMapping("/{source}")
