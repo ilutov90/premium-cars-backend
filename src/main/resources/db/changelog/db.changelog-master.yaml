@@ -61,3 +61,5 @@ databaseChangeLog:
       file: db/changelog/changes/030-duty-vat-table.sql
   - include:
       file: db/changelog/changes/031-marketplace-cars-bg.sql
+  - include:
+      file: db/changelog/changes/032-auto-import-fuel-types.sql

@@ -47,6 +47,35 @@ class SearchParsingTest {
     }
 
     @Test
+    void autowiniFuelTypesLeftOut() throws Exception {
+        Brand niro = new Brand("C0810", "Kia", true, 2018, List.of(new CatalogModel("C1300", "Niro",
+                List.of("Gasoline+Electric", "Electric Vehicle (EV)")), new CatalogModel("C1150", "Carnival")));
+        List<AutowiniSearch.Unit> units = AutowiniSearch.units(niro, new SourceFilters(true, true, List.of()));
+        assertThat(units).extracting(AutowiniSearch.Unit::excluded)
+                .containsExactly(List.of("Gasoline+Electric", "Electric Vehicle (EV)"), List.of());
+
+        // the make's own exclusions count when no model is chosen
+        Brand audi = new Brand("C0040", "Audi", true, 2015, List.of(), List.of("Others"));
+        assertThat(AutowiniSearch.units(audi, new SourceFilters(false, false, List.of())).getFirst().excluded())
+                .containsExactly("Others");
+
+        var fuels = AutowiniSearch.fuelFacet(tree("""
+                {"fuelType":[{"code":"Gasoline+Electric","name":"Gasoline+Electric","count":993},
+                  {"code":"EV","name":"Electric Vehicle (EV)","count":529},{"name":"Diesel","count":1}]}"""));
+        assertThat(fuels).extracting(AutoImportTypes.FuelOption::name)
+                .containsExactly("Gasoline+Electric", "Electric Vehicle (EV)", "Diesel");
+        assertThat(fuels.get(2).code()).isEqualTo("Diesel");
+        assertThat(AutowiniSearch.withFuels(Map.of("make", "C0810"), fuels.subList(1, 3)).get("fuelType"))
+                .isEqualTo("EV,Diesel");
+
+        List<String> out = List.of("Gasoline+Electric", "Electric Vehicle (EV)");
+        assertThat(AutowiniSearch.excluded(out, null, "gasoline + electric")).isTrue();
+        assertThat(AutowiniSearch.excluded(out, "EV", "Electric Vehicle (EV)")).isTrue();
+        assertThat(AutowiniSearch.excluded(out, null, "Gasoline")).isFalse();
+        assertThat(AutowiniSearch.excluded(out, null, "Diesel")).isFalse();
+    }
+
+    @Test
     void autowiniItem() throws Exception {
         FoundListing l = AutowiniSearch.listing(tree("""
                 {"code":"CI202610130005388121","listingId":"IC5577815","detailUrl":"/items/Used-2020-Kia-K3-IC5577815",

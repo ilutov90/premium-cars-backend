@@ -49,7 +49,9 @@ public final class AutoImportDtos {
                              Map<String, Integer> queue) {
     }
 
-    public record BrandView(String code, String name, boolean enabled, int yearFrom, List<CatalogModel> models) {
+    /** @param excludedFuels the whole make's fuel types not imported (no model chosen) */
+    public record BrandView(String code, String name, boolean enabled, int yearFrom, List<CatalogModel> models,
+                            List<String> excludedFuels) {
     }
 
     /** A listing whose import failed {@code attempts} times in the last run (the next run tries it again). */
@@ -81,10 +83,13 @@ public final class AutoImportDtos {
 
     public record BrandUpdate(@NotBlank @Size(max = 40) String code, @NotBlank @Size(max = 100) String name,
                               boolean enabled, @Min(1990) @Max(2100) int yearFrom,
-                              @Size(max = 300) List<@Valid ModelRef> models) {
+                              @Size(max = 300) List<@Valid ModelRef> models,
+                              @Size(max = 20) List<@NotBlank @Size(max = 60) String> excludedFuels) {
     }
 
-    public record ModelRef(@NotBlank @Size(max = 40) String code, @NotBlank @Size(max = 100) String name) {
+    /** @param excludedFuels the source's fuel types of this model not to import (autowini); empty = all */
+    public record ModelRef(@NotBlank @Size(max = 40) String code, @NotBlank @Size(max = 100) String name,
+                           @Size(max = 20) List<@NotBlank @Size(max = 60) String> excludedFuels) {
     }
 
     /** A make of the source's own list (models loaded separately). */

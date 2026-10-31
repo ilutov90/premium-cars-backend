@@ -3,6 +3,8 @@ package com.premiumcars.autoimport;
 import java.math.BigDecimal;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 /** Small value types of the automatic import. */
 public final class AutoImportTypes {
 
@@ -20,8 +22,26 @@ public final class AutoImportTypes {
         }
     }
 
-    /** A model as the source names it. For autowini the "sub-model" (e.g. Carnival), for guazi the series. */
-    public record CatalogModel(String code, String name) {
+    /**
+     * A model as the source names it. For autowini the "sub-model" (e.g. Carnival), for guazi the series.
+     *
+     * @param excludedFuels for a chosen model: the source's fuel types not to import (autowini's "Fuel Type" names,
+     *                      e.g. "Electric Vehicle (EV)"); empty = all
+     */
+    public record CatalogModel(String code, String name,
+                               @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> excludedFuels) {
+
+        public CatalogModel {
+            excludedFuels = excludedFuels == null ? List.of() : List.copyOf(excludedFuels);
+        }
+
+        public CatalogModel(String code, String name) {
+            this(code, name, List.of());
+        }
+    }
+
+    /** One of the source's fuel types for a make or model, with its number of listings (autowini's facet). */
+    public record FuelOption(String code, String name, int count) {
     }
 
     /** A make in the source's own list; {@code models} null when not loaded yet. */
@@ -31,12 +51,19 @@ public final class AutoImportTypes {
     /**
      * A make to import.
      *
-     * @param models the chosen models; empty = all models of the make
+     * @param models        the chosen models (each with its own excluded fuel types); empty = all models of the make
+     * @param excludedFuels when no model is chosen: the fuel types of the whole make not to import; empty = all
      */
-    public record Brand(String code, String name, boolean enabled, int yearFrom, List<CatalogModel> models) {
+    public record Brand(String code, String name, boolean enabled, int yearFrom, List<CatalogModel> models,
+                        List<String> excludedFuels) {
 
         public Brand {
             models = models == null ? List.of() : List.copyOf(models);
+            excludedFuels = excludedFuels == null ? List.of() : List.copyOf(excludedFuels);
+        }
+
+        public Brand(String code, String name, boolean enabled, int yearFrom, List<CatalogModel> models) {
+            this(code, name, enabled, yearFrom, models, List.of());
         }
     }
 

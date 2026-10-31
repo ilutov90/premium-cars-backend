@@ -25,6 +25,8 @@ public class AutoImportSettingsRepository {
 
     private static final TypeReference<List<CatalogModel>> MODELS = new TypeReference<>() {
     };
+    private static final TypeReference<List<String>> STRINGS = new TypeReference<>() {
+    };
 
     /** A source's switch and filters. */
     public record SourceSettings(CarSource source, boolean enabled, SourceFilters filters, Instant updatedAt) {
@@ -93,11 +95,13 @@ public class AutoImportSettingsRepository {
 
     public List<Brand> brands(CarSource source) {
         return jdbc.sql("""
-                        SELECT code, name, enabled, year_from, models::text AS models
+                        SELECT code, name, enabled, year_from, models::text AS models,
+                            excluded_fuels::text AS excluded_fuels
                         FROM auto_import_brand WHERE source = :source ORDER BY name""")
                 .param("source", source.name())
                 .query((rs, n) -> new Brand(rs.getString("code"), rs.getString("name"), rs.getBoolean("enabled"),
-                        rs.getInt("year_from"), readModels(rs.getString("models"))))
+                        rs.getInt("year_from"), readModels(rs.getString("models")),
+                        readStrings(rs.getString("excluded_fuels"))))
                 .list();
     }
 
@@ -106,14 +110,17 @@ public class AutoImportSettingsRepository {
         jdbc.sql("DELETE FROM auto_import_brand WHERE source = :source").param("source", source.name()).update();
         for (Brand b : brands) {
             jdbc.sql("""
-                            INSERT INTO auto_import_brand (source, code, name, enabled, year_from, models)
-                            VALUES (:source, :code, :name, :enabled, :yearFrom, CAST(:models AS jsonb))""")
+                            INSERT INTO auto_import_brand (source, code, name, enabled, year_from, models,
+                                excluded_fuels)
+                            VALUES (:source, :code, :name, :enabled, :yearFrom, CAST(:models AS jsonb),
+                                CAST(:excludedFuels AS jsonb))""")
                     .param("source", source.name())
                     .param("code", b.code())
                     .param("name", b.name())
                     .param("enabled", b.enabled())
                     .param("yearFrom", b.yearFrom())
                     .param("models", write(b.models()))
+                    .param("excludedFuels", write(b.excludedFuels()))
                     .update();
         }
     }
@@ -152,6 +159,14 @@ public class AutoImportSettingsRepository {
     }
 
     // ---------------------------------------------------------------- json
+
+    private List<String> readStrings(String text) {
+        try {
+            return text == null ? List.of() : json.readValue(text, STRINGS);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Invalid fuel types in the database: " + e.getMessage(), e);
+        }
+    }
 
     private List<CatalogModel> readModels(String text) {
         try {

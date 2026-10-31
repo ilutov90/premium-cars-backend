@@ -25,6 +25,7 @@ import com.premiumcars.autoimport.AutoImportTypes.Brand;
 import com.premiumcars.autoimport.AutoImportTypes.BrandCount;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogBrand;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogModel;
+import com.premiumcars.autoimport.AutoImportTypes.FuelOption;
 import com.premiumcars.autoimport.AutoImportTypes.SourceFilters;
 import com.premiumcars.autoimport.SourceSearch.SearchException;
 import com.premiumcars.catalog.domain.CarSource;
@@ -58,7 +59,8 @@ public class AutoImportService {
         List<SourceView> sources = new ArrayList<>();
         for (SourceSettings s : settings.sources()) {
             List<BrandView> brands = settings.brands(s.source()).stream()
-                    .map(b -> new BrandView(b.code(), b.name(), b.enabled(), b.yearFrom(), b.models())).toList();
+                    .map(b -> new BrandView(b.code(), b.name(), b.enabled(), b.yearFrom(), b.models(),
+                            b.excludedFuels())).toList();
             sources.add(new SourceView(s.source(), s.enabled(), s.filters(), brands,
                     queues.getOrDefault(s.source().name(), Map.of())));
         }
@@ -195,6 +197,24 @@ public class AutoImportService {
         return s;
     }
 
+    private static List<String> fuels(List<String> names) {
+        return names == null ? List.of() : names.stream().map(String::trim).filter(n -> !n.isEmpty()).distinct()
+                .toList();
+    }
+
+    /**
+     * The fuel types of a make, or of one of its models, with their numbers of listings under the source's saved
+     * filters: what the "Двигател" column offers to leave out. Asks the site.
+     */
+    public List<FuelOption> fuels(CarSource source, String brandCode, String modelCode, int yearFrom) {
+        SourceSettings s = settingsOf(source);
+        try {
+            return search(source).fuels(brandCode, modelCode, yearFrom, s.filters());
+        } catch (SearchException e) {
+            throw new BadRequestException("Could not read the fuel types from " + source + ": " + e.getMessage(), e);
+        }
+    }
+
     private static SourceFilters check(SourceFilters f) {
         for (String g : f.grades()) {
             if (!GRADES.contains(g)) {
@@ -212,8 +232,11 @@ public class AutoImportService {
                 throw new BadRequestException("Make " + b.name() + " is listed twice");
             }
             List<CatalogModel> models = b.models() == null ? List.of()
-                    : b.models().stream().map(m -> new CatalogModel(m.code(), m.name())).toList();
-            out.add(new Brand(b.code(), b.name().trim(), b.enabled(), b.yearFrom(), models));
+                    : b.models().stream().map(m -> new CatalogModel(m.code(), m.name(), fuels(m.excludedFuels())))
+                            .toList();
+            // the make's own exclusions count only while no model is chosen
+            out.add(new Brand(b.code(), b.name().trim(), b.enabled(), b.yearFrom(), models,
+                    models.isEmpty() ? fuels(b.excludedFuels()) : List.of()));
         }
         return out;
     }
