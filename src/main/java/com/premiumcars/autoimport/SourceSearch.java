@@ -8,6 +8,7 @@ import com.premiumcars.autoimport.AutoImportTypes.BrandPass;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogBrand;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogModel;
 import com.premiumcars.autoimport.AutoImportTypes.FoundListing;
+import com.premiumcars.autoimport.AutoImportTypes.FuelOption;
 import com.premiumcars.autoimport.AutoImportTypes.SourceFilters;
 import com.premiumcars.catalog.domain.CarSource;
 
@@ -25,7 +26,18 @@ public interface SourceSearch {
 
     List<CatalogModel> models(String brandCode);
 
-    /** How many listings match: the make, its year, its chosen models and the source's filters. */
+    /**
+     * The fuel types of a make or of one of its models (null = the whole make) from {@code yearFrom}, with their
+     * numbers of listings under the filters. Empty when the site has no such filter (guazi).
+     */
+    default List<FuelOption> fuels(String brandCode, String modelCode, int yearFrom, SourceFilters filters) {
+        return List.of();
+    }
+
+    /**
+     * How many listings match: the make, its year, its chosen models, the fuel types left out and the source's
+     * filters.
+     */
     int count(Brand brand, SourceFilters filters);
 
     /**

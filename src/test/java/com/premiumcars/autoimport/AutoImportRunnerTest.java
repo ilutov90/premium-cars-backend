@@ -196,7 +196,7 @@ class AutoImportRunnerTest {
     void listingsOverTheMileageLimitAreSkippedUntilTheLimitAllowsThem() {
         assertThat(settings.maxMileageKm()).isEqualTo(200_000); // the default
         service.save(CarSource.AUTOWINI, new SourceUpdate(true, new SourceFilters(false, false, List.of()),
-                List.of(new BrandUpdate("C9990", "Testmake", true, 2018, List.of()))));
+                List.of(new BrandUpdate("C9990", "Testmake", true, 2018, List.of(), null))));
         var autowini = new SourceSettings(CarSource.AUTOWINI, true, new SourceFilters(false, false, List.of()),
                 Instant.now());
         FakeSearch search = new FakeSearch();
@@ -271,7 +271,7 @@ class AutoImportRunnerTest {
         var autowini = new SourceSettings(CarSource.AUTOWINI, true, new SourceFilters(false, false, List.of()),
                 Instant.now());
         service.save(CarSource.AUTOWINI, new SourceUpdate(true, new SourceFilters(false, false, List.of()),
-                List.of(new BrandUpdate("C9991", "Failmake", true, 2018, List.of()))));
+                List.of(new BrandUpdate("C9991", "Failmake", true, 2018, List.of(), null))));
         FakeSearch search = new FakeSearch();
         search.results.put("C9991", List.of(listing("f1"), listing("f2")));
         runner.pass(search, autowini, false);
@@ -310,8 +310,10 @@ class AutoImportRunnerTest {
     @Test
     void settingsAreSavedWhole() {
         var update = new SourceUpdate(true, new SourceFilters(true, true, List.of()), List.of(
-                new BrandUpdate("C0810", "Kia", true, 2019, List.of(new AutoImportDtos.ModelRef("C1150", "Carnival"))),
-                new BrandUpdate("C0120", "BMW", false, 2016, List.of())));
+                new BrandUpdate("C0810", "Kia", true, 2019, List.of(new AutoImportDtos.ModelRef("C1150", "Carnival",
+                        null), new AutoImportDtos.ModelRef("C1300", "Niro", List.of("Electric Vehicle (EV)",
+                        " Gasoline+Electric "))), List.of("Diesel")),
+                new BrandUpdate("C0120", "BMW", false, 2016, List.of(), List.of("Others"))));
         var overview = service.save(CarSource.AUTOWINI, update);
         var autowini = overview.sources().stream().filter(s -> s.source() == CarSource.AUTOWINI).findFirst()
                 .orElseThrow();
@@ -319,7 +321,12 @@ class AutoImportRunnerTest {
         assertThat(autowini.brands()).hasSize(2);
         assertThat(autowini.brands()).filteredOn(b -> b.code().equals("C0810")).singleElement()
                 .satisfies(b -> assertThat(b.yearFrom()).isEqualTo(2019))
-                .satisfies(b -> assertThat(b.models()).containsExactly(new CatalogModel("C1150", "Carnival")));
+                .satisfies(b -> assertThat(b.models()).containsExactly(new CatalogModel("C1150", "Carnival"),
+                        new CatalogModel("C1300", "Niro", List.of("Electric Vehicle (EV)", "Gasoline+Electric"))))
+                // the make's own exclusions only while no model is chosen
+                .satisfies(b -> assertThat(b.excludedFuels()).isEmpty());
+        assertThat(autowini.brands()).filteredOn(b -> b.code().equals("C0120")).singleElement()
+                .satisfies(b -> assertThat(b.excludedFuels()).containsExactly("Others"));
         assertThat(overview.sources().getFirst().source()).isEqualTo(CarSource.GUAZI); // guazi first
 
         settings.saveCatalog(CarSource.AUTOWINI, List.of(new CatalogBrand("C0810", "Kia", null)));

@@ -22,6 +22,7 @@ import com.premiumcars.autoimport.AutoImportTypes.BrandPass;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogBrand;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogModel;
 import com.premiumcars.autoimport.AutoImportTypes.FoundListing;
+import com.premiumcars.autoimport.AutoImportTypes.FuelOption;
 import com.premiumcars.autoimport.AutoImportTypes.SourceFilters;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.config.AppProperties;
@@ -73,11 +74,38 @@ public class AutowiniSearch implements SourceSearch {
         return out;
     }
 
+    /** A make's or model's fuel types: the "fuelType" facet of {@code /items/cars/filters} under the filters. */
+    @Override
+    public List<FuelOption> fuels(String brandCode, String modelCode, int yearFrom, SourceFilters filters) {
+        Map<String, String> q = base(brandCode, yearFrom, filters);
+        if (modelCode != null && !modelCode.isBlank()) {
+            q.put("subModel", modelCode);
+        }
+        return fuelFacet(ok(http.get(uri("/items/cars/filters", q))));
+    }
+
+    static List<FuelOption> fuelFacet(JsonNode data) {
+        List<FuelOption> out = new ArrayList<>();
+        for (JsonNode f : data.path("fuelType")) {
+            String name = f.path("name").asText(f.path("code").asText(""));
+            if (!name.isBlank()) {
+                out.add(new FuelOption(f.path("code").asText(name), name, f.path("count").asInt()));
+            }
+        }
+        return out;
+    }
+
     @Override
     public int count(Brand brand, SourceFilters filters) {
         int total = 0;
-        for (Map<String, String> q : queries(brand, filters)) {
-            total += ok(http.get(uri("/items/cars/count", q))).asInt();
+        for (Unit u : units(brand, filters)) {
+            if (u.excluded().isEmpty()) {
+                total += ok(http.get(uri("/items/cars/count", u.query()))).asInt();
+            } else {
+                total += fuelFacet(ok(http.get(uri("/items/cars/filters", u.query())))).stream()
+                        .filter(f -> !excluded(u.excluded(), f.code(), f.name()))
+                        .mapToInt(FuelOption::count).sum();
+            }
         }
         return total;
     }
@@ -87,7 +115,27 @@ public class AutowiniSearch implements SourceSearch {
         Set<String> seen = new HashSet<>();
         int expected = 0;
         try {
-            for (Map<String, String> q : queries(brand, filters)) {
+            for (Unit u : units(brand, filters)) {
+                Map<String, String> q = u.query();
+                boolean check = !u.excluded().isEmpty();
+                boolean siteFilters = false;
+                int keptCount = 0;
+                if (check) {
+                    List<FuelOption> kept = fuelFacet(ok(http.get(uri("/items/cars/filters", q)))).stream()
+                            .filter(f -> !excluded(u.excluded(), f.code(), f.name())).toList();
+                    if (kept.isEmpty()) {
+                        continue; // every fuel type of it is left out
+                    }
+                    keptCount = kept.stream().mapToInt(FuelOption::count).sum();
+                    // the site filters by the kept fuel types when it takes the filter: its count says so
+                    Map<String, String> withFuels = withFuels(q, kept);
+                    siteFilters = ok(http.get(uri("/items/cars/count", withFuels))).asInt() == keptCount;
+                    if (siteFilters) {
+                        q = withFuels;
+                    }
+                }
+                List<FoundListing> unit = new ArrayList<>();
+                int left = 0;
                 int total = -1;
                 for (int page = 1; page <= MAX_PAGES; page++) {
                     Map<String, String> p = new LinkedHashMap<>(q);
@@ -101,14 +149,27 @@ public class AutowiniSearch implements SourceSearch {
                     JsonNode items = data.path("items");
                     for (JsonNode item : items) {
                         FoundListing l = listing(item);
-                        if (l != null && seen.add(l.id())) {
-                            found.accept(l);
+                        if (l == null || !seen.add(l.id())) {
+                            continue;
+                        }
+                        // each listing's own fuel type is checked too
+                        if (check && excluded(u.excluded(), null, item.path("fuelType").asText(""))) {
+                            left++;
+                        } else {
+                            unit.add(l);
                         }
                     }
                     if (items.size() < PAGE_SIZE || (long) page * PAGE_SIZE >= total) {
                         break;
                     }
                 }
+                if (check && !siteFilters && total > keptCount && left == 0) {
+                    // the site ignored the filter and no listing's fuel type matched the left-out names: nothing of
+                    // it is passed on rather than the fuel types left out
+                    throw new SearchException("the fuel types left out could not be applied to " + brand.name()
+                            + (q.containsKey("subModel") ? " (" + q.get("subModel") + ")" : ""));
+                }
+                unit.forEach(found);
             }
         } catch (SearchException e) {
             return new BrandPass(brand.code(), brand.name(), expected, seen.size(), false, e.getMessage());
@@ -120,27 +181,62 @@ public class AutowiniSearch implements SourceSearch {
                 complete ? null : "read " + seen.size() + " of " + expected);
     }
 
-    /** One query per chosen model (autowini's sub-model filter takes one), or one for the whole make. */
+    /** One search: its query and the fuel types it leaves out. */
+    record Unit(Map<String, String> query, List<String> excluded) {
+    }
+
+    /** One per chosen model (autowini's sub-model filter takes one) with its fuel types left out, or the make. */
+    static List<Unit> units(Brand brand, SourceFilters filters) {
+        Map<String, String> base = base(brand.code(), brand.yearFrom(), filters);
+        if (brand.models().isEmpty()) {
+            return List.of(new Unit(base, brand.excludedFuels()));
+        }
+        List<Unit> out = new ArrayList<>();
+        for (CatalogModel m : brand.models()) {
+            Map<String, String> q = new LinkedHashMap<>(base);
+            q.put("subModel", m.code());
+            out.add(new Unit(q, m.excludedFuels()));
+        }
+        return out;
+    }
+
     static List<Map<String, String>> queries(Brand brand, SourceFilters filters) {
+        return units(brand, filters).stream().map(Unit::query).toList();
+    }
+
+    private static Map<String, String> base(String make, int yearFrom, SourceFilters filters) {
         Map<String, String> base = new LinkedHashMap<>();
-        base.put("make", brand.code());
-        base.put("modelYearFrom", String.valueOf(brand.yearFrom()));
+        base.put("make", make);
+        base.put("modelYearFrom", String.valueOf(yearFrom));
         if (filters.inspected()) {
             base.put("inspectionReportUploaded", "true");
         }
         if (filters.actualMileage()) {
             base.put("actualMileage", "true");
         }
-        if (brand.models().isEmpty()) {
-            return List.of(base);
+        return base;
+    }
+
+    /** The query for these fuel types only (autowini's list filters take several values joined by commas). */
+    static Map<String, String> withFuels(Map<String, String> query, List<FuelOption> fuels) {
+        Map<String, String> q = new LinkedHashMap<>(query);
+        q.put("fuelType", fuels.stream().map(FuelOption::code).collect(Collectors.joining(",")));
+        return q;
+    }
+
+    /** The fuel type (by its code or its name) is one of those left out; names compared without case and spaces. */
+    static boolean excluded(List<String> excluded, String code, String name) {
+        for (String e : excluded) {
+            String k = fuelKey(e);
+            if (!k.isEmpty() && (k.equals(fuelKey(code)) || k.equals(fuelKey(name)))) {
+                return true;
+            }
         }
-        List<Map<String, String>> out = new ArrayList<>();
-        for (CatalogModel m : brand.models()) {
-            Map<String, String> q = new LinkedHashMap<>(base);
-            q.put("subModel", m.code());
-            out.add(q);
-        }
-        return out;
+        return false;
+    }
+
+    static String fuelKey(String s) {
+        return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}+]", "");
     }
 
     static FoundListing listing(JsonNode item) {

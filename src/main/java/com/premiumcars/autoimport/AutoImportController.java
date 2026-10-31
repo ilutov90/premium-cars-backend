@@ -26,6 +26,7 @@ import com.premiumcars.autoimport.AutoImportDtos.RunRequest;
 import com.premiumcars.autoimport.AutoImportDtos.SourceUpdate;
 import com.premiumcars.autoimport.AutoImportDtos.SwitchRequest;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogModel;
+import com.premiumcars.autoimport.AutoImportTypes.FuelOption;
 import com.premiumcars.catalog.domain.CarSource;
 
 /** "Автоматичен импорт" in the admin panel. */
@@ -97,6 +98,14 @@ public class AutoImportController {
     public List<CatalogModel> models(@PathVariable CarSource source, @PathVariable String brandCode,
                                      @RequestParam(defaultValue = "false") boolean refresh) {
         return service.models(source, brandCode, refresh);
+    }
+
+    /** A make's (or one model's) fuel types with their counts, for the "Двигател" column. */
+    @GetMapping("/{source}/catalog/{brandCode}/fuels")
+    public List<FuelOption> fuels(@PathVariable CarSource source, @PathVariable String brandCode,
+                                  @RequestParam(required = false) String model,
+                                  @RequestParam(defaultValue = "1990") int yearFrom) {
+        return service.fuels(source, brandCode, model, yearFrom);
     }
 
     @PostMapping("/{source}/preview")
