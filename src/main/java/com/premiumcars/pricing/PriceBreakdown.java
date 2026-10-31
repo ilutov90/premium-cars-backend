@@ -24,10 +24,11 @@ import java.math.BigDecimal;
  * @param totalEur           the final price: {@code calculatedTotalEur}, or the price set by hand
  * @param fixedTotal         {@code totalEur} was set by hand
  * @param eurPerUnit         the exchange rate used: EUR per 1 unit of {@code sourceCurrency} (null when not calculated)
- * @param stepEur            the step: {@code stepBaseEur} + {@code stepPct} % of the FOB above {@code stepFromEur}
- *                           (null before 027)
+ * @param stepEur            the 027 formula's step for autowini (only prices calculated with it, until recalculated)
  * @param markupThresholdEur the FOB up to which {@code markupLowEur} applies, {@code markupHighEur} above (null when
  *                           the markup was set for this car, or before 027)
+ * @param dutyVatTable       duty and VAT came from the formula's table (since 030)
+ * @param dutyVatFobUpToEur  the table row used ("FOB up to"); null for the open row above all
  */
 public record PriceBreakdown(
         PriceProfile profile,
@@ -56,7 +57,9 @@ public record PriceBreakdown(
         BigDecimal stepPct,
         BigDecimal markupLowEur,
         BigDecimal markupHighEur,
-        BigDecimal markupThresholdEur
+        BigDecimal markupThresholdEur,
+        Boolean dutyVatTable,
+        BigDecimal dutyVatFobUpToEur
 ) {
 
     /** The same breakdown with another final price. */
@@ -64,6 +67,7 @@ public record PriceBreakdown(
         return new PriceBreakdown(profile, sourcePrice, sourceCurrency, carPriceEur, seaFreightEur, landTransportEur,
                 commissionEur, dutyVatPct, dutyVatEur, baseCostsEur, steps, stepCostsEur, profitEur,
                 profitOverridden, calculatedTotalEur, total, fixedTotal, eurPerUnit, profitPct, profitMinEur, stepEur,
-                stepBaseEur, stepFromEur, stepPct, markupLowEur, markupHighEur, markupThresholdEur);
+                stepBaseEur, stepFromEur, stepPct, markupLowEur, markupHighEur, markupThresholdEur, dutyVatTable,
+                dutyVatFobUpToEur);
     }
 }
