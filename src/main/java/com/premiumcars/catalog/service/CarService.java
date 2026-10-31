@@ -20,6 +20,7 @@ import com.premiumcars.catalog.domain.CarSort;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.domain.MakeNames;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.NewCarImage;
 import com.premiumcars.catalog.domain.Origin;
@@ -186,7 +187,8 @@ public class CarService {
     /** Creates a DRAFT from imported data. The slug needs the generated id, so it is set right after the insert. */
     @Transactional
     public AdminCar createDraft(ImportedCar data, CarSource source, String sourceUrl) {
-        CarSpecs specs = data.specs().toBuilder().build();
+        MakeNames.Name name = MakeNames.canonical(data.specs().make(), data.specs().model());
+        CarSpecs specs = data.specs().toBuilder().make(name.make()).model(name.model()).build();
         PricingInputs pricing = PricingInputs.EMPTY.withSourcePrice(data.price(), data.currency())
                 .withProfile(defaultProfile(source));
         PriceBreakdown price = mapper.breakdown(pricing);

@@ -59,3 +59,5 @@ databaseChangeLog:
       file: db/changelog/changes/029-auto-import-manual-cars.sql
   - include:
       file: db/changelog/changes/030-duty-vat-table.sql
+  - include:
+      file: db/changelog/changes/031-marketplace-cars-bg.sql

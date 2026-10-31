@@ -34,6 +34,7 @@ import com.premiumcars.autoimport.AutoImportTypes.SourceFilters;
 import com.premiumcars.catalog.domain.Car;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.domain.MakeNames;
 import com.premiumcars.catalog.repo.CarRepository;
 import com.premiumcars.catalog.repo.CarRepository.CheckedCar;
 import com.premiumcars.catalog.service.CarService;
@@ -302,8 +303,10 @@ public class AutoImportRunner {
         if (others.isEmpty()) {
             return new ManualCheck(0, 0, 0, false);
         }
-        Map<String, CatalogBrand> byName = new HashMap<>();
-        settings.catalog(source).forEach(b -> byName.putIfAbsent(key(b.name()), b));
+        // our make -> the source's makes it covers ("Geely" = guazi's "Geely Auto" + "Geely Galaxy": MakeNames)
+        Map<String, List<CatalogBrand>> byName = new HashMap<>();
+        settings.catalog(source).forEach(b -> byName.computeIfAbsent(
+                key(MakeNames.canonical(b.name(), null).make()), k -> new ArrayList<>()).add(b));
         Map<String, List<CheckedCar>> byMake = others.stream()
                 .collect(Collectors.groupingBy(c -> key(c.make()), LinkedHashMap::new, Collectors.toList()));
 
@@ -312,19 +315,25 @@ public class AutoImportRunner {
         int unknownMake = 0;
         List<CheckedCar> toRemove = new ArrayList<>();
         for (var group : byMake.entrySet()) {
-            CatalogBrand make = byName.get(group.getKey());
-            if (make == null) {
+            List<CatalogBrand> makes = byName.get(group.getKey());
+            if (makes == null) {
                 unknownMake += group.getValue().size();
                 continue;
             }
             int yearFrom = group.getValue().stream().map(CheckedCar::year).filter(java.util.Objects::nonNull)
                     .mapToInt(Integer::intValue).min().orElse(1990);
             Set<String> urls = new HashSet<>();
-            BrandPass p = search.list(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990), List.of()),
-                    NO_FILTERS, l -> urls.add(l.url()));
-            if (!p.complete()) {
-                notes.add("cars added by hand, " + make.name() + ": "
-                        + (p.error() == null ? "not read whole" : p.error()) + " (nothing of it removed)");
+            String incomplete = null;
+            for (CatalogBrand make : makes) {
+                BrandPass p = search.list(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
+                        List.of()), NO_FILTERS, l -> urls.add(l.url()));
+                if (!p.complete()) {
+                    incomplete = make.name() + ": " + (p.error() == null ? "not read whole" : p.error());
+                    break;
+                }
+            }
+            if (incomplete != null) {
+                notes.add("cars added by hand, " + incomplete + " (nothing of it removed)");
                 continue;
             }
             for (CheckedCar c : group.getValue()) {
