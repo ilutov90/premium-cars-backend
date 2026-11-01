@@ -17,6 +17,12 @@ server:
 spring:
   application:
     name: premium-cars-backend
+  task:
+    scheduling:
+      # more than one: a slow job (a run, a post) must not hold the others (the nightly run at 03:00 waited for the
+      # import queue on the single default thread)
+      pool:
+        size: 4
   config:
     import:
       # Local, non-secret overrides (e.g. VAULT_ADDR) from a git-ignored .env next to pom.xml. No secrets in it.
