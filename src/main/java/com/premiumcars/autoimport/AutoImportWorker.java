@@ -2,6 +2,8 @@ package com.premiumcars.autoimport;
 
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -40,6 +42,15 @@ public class AutoImportWorker {
     private final ImportService importService;
     private final CarService carService;
     private final AtomicBoolean busy = new AtomicBoolean();
+    /**
+     * The queue is imported on a thread of its own: a long queue (hours) must not hold the scheduler's threads, or
+     * the nightly run at 03:00, the scheduled posts and the exchange rates would wait for it.
+     */
+    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "auto-import-worker");
+        t.setDaemon(true);
+        return t;
+    });
 
     public AutoImportWorker(AutoImportSettingsRepository settings, AutoImportListingRepository listings,
                             ImportService importService, CarService carService) {
@@ -53,8 +64,18 @@ public class AutoImportWorker {
             initialDelayString = "${app.auto-import.worker-initial-delay:PT1M}")
     public void work() {
         if (!busy.compareAndSet(false, true)) {
-            return;
+            return; // still importing
         }
+        try {
+            executor.submit(this::drain);
+        } catch (RuntimeException e) {
+            busy.set(false);
+            throw e;
+        }
+    }
+
+    /** Imports the queue one listing at a time until it is empty or the import is turned off. */
+    void drain() {
         try {
             while (settings.enabled()) {
                 Set<CarSource> on = settings.sources().stream().filter(SourceSettings::enabled)
@@ -68,6 +89,8 @@ public class AutoImportWorker {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } catch (RuntimeException e) {
+            log.warn("Auto-import queue stopped (tried again in a moment): {}", e.toString());
         } finally {
             busy.set(false);
         }
