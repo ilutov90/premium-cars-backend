@@ -104,7 +104,18 @@ public class GuaziSourceAdapter implements SourceAdapter {
             throw new BadRequestException("Not a guazi car page (expected https://en.guazi.com/products/...html): "
                     + url);
         }
-        String html = fetcher.fetchHtml(page);
+        String html;
+        try {
+            html = fetcher.fetchHtml(page);
+        } catch (BadRequestException e) {
+            // guazi answers the server's plain request with its check page, lately as HTTP 567 instead of 200:
+            // the browser passes the check like a visitor's does
+            if (!renderer.enabled()) {
+                throw e;
+            }
+            log.info("guazi {}: plain download refused ({}), opening it in the browser", id, e.getMessage());
+            html = "";
+        }
         if (GuaziPageParser.hasListing(html) || !renderer.enabled()) {
             return fromPage(html, id, false);
         }

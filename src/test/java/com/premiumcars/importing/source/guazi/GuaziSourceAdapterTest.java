@@ -31,10 +31,14 @@ class GuaziSourceAdapterTest {
         }
 
         String answer; // what guazi sends instead of the listing, when set
+        RuntimeException refusal; // thrown instead, when set (the check page with an error status)
 
         @Override
         public String fetchHtml(URI url) {
             requested.add(url);
+            if (refusal != null) {
+                throw refusal;
+            }
             if (answer != null) {
                 return answer;
             }
@@ -141,6 +145,24 @@ class GuaziSourceAdapterTest {
         assertThat(car.sourceRef()).isEqualTo("bxrayk2hvc");
         assertThat(car.price()).isEqualByComparingTo("37899");
         assertThat(car.imageUrls()).hasSize(26);
+    }
+
+    @Test
+    void aCheckPageWithAnErrorStatusGoesToTheBrowserToo() {
+        URI tesla = URI.create(
+                "https://en.guazi.com/products/tesla-model-y-2025-00l-gray-37900km-at-4wd-5-seats-bxrayk2hvc.html");
+        String listing = pages.fetchHtml(tesla);
+        pages.refusal = new BadRequestException("Source page returned HTTP 567 for " + tesla);
+
+        assertThatThrownBy(() -> adapter.importFrom(tesla)) // browser off: the refusal as it was
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("HTTP 567");
+
+        browser.on = true;
+        browser.html = listing;
+        ImportedCar car = adapter.importFrom(tesla);
+        assertThat(browser.opened).containsExactly(tesla.toString());
+        assertThat(car.sourceRef()).isEqualTo("bxrayk2hvc");
     }
 
     @Test
