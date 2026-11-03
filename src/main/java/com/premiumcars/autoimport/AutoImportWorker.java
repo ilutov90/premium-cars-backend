@@ -61,14 +61,17 @@ public class AutoImportWorker {
     private final Map<CarSource, Instant> pausedUntil = new ConcurrentHashMap<>();
     private final Map<CarSource, Integer> refusals = new ConcurrentHashMap<>();
     private final PriceLimit priceLimit;
+    private final AutoImportRunner runner;
 
     public AutoImportWorker(AutoImportSettingsRepository settings, AutoImportListingRepository listings,
-                            ImportService importService, CarService carService, PriceLimit priceLimit) {
+                            ImportService importService, CarService carService, PriceLimit priceLimit,
+                            AutoImportRunner runner) {
         this.settings = settings;
         this.listings = listings;
         this.importService = importService;
         this.carService = carService;
         this.priceLimit = priceLimit;
+        this.runner = runner;
     }
 
     @Scheduled(fixedDelayString = "${app.auto-import.worker-delay:PT30S}",
@@ -79,8 +82,8 @@ public class AutoImportWorker {
         }
         for (SourceSettings s : settings.sources()) {
             CarSource source = s.source();
-            if (!s.enabled() || paused(source) || !busy.add(source)) {
-                continue; // off, refused us lately, or still importing
+            if (!s.enabled() || paused(source) || runner.running(source) || !busy.add(source)) {
+                continue; // off, refused us lately, its run is reading the site, or still importing
             }
             try {
                 executors.computeIfAbsent(source, x -> Executors.newSingleThreadExecutor(r -> {
@@ -98,8 +101,9 @@ public class AutoImportWorker {
     /** Imports the source's queue one listing at a time until it is empty or the source is turned off. */
     void drain(CarSource source) {
         try {
+            // one thing at a time per site: while the source's run reads its search, its queue waits
             while (settings.enabled() && settings.source(source).map(SourceSettings::enabled).orElse(false)
-                    && !paused(source)) {
+                    && !paused(source) && !runner.running(source)) {
                 Optional<Listing> next = listings.nextQueued(List.of(source));
                 if (next.isEmpty()) {
                     break;
