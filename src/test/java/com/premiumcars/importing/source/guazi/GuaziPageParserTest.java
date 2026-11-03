@@ -81,7 +81,6 @@ class GuaziPageParserTest {
         assertThat(s.model()).isEqualTo("Model Y");
         assertThat(s.trim()).isEqualTo("Long-Range All-Wheel-Drive Version");
         assertThat(s.year()).isEqualTo(2025);
-        assertThat(s.firstRegistration()).isEqualTo("2025-04");
         assertThat(s.mileageKm()).isEqualTo(37_900);
         assertThat(s.fuelType()).isEqualTo(FuelType.ELECTRIC);
         assertThat(s.transmission()).isEqualTo(Transmission.AUTOMATIC);
@@ -141,7 +140,6 @@ class GuaziPageParserTest {
         assertThat(s.title()).isEqualTo("BYD Song MAX 2021 Upgraded Model 1.5T Automatic Luxury 6-Seater");
         assertThat(s.make()).isEqualTo("BYD");
         assertThat(s.model()).isEqualTo("Song MAX");
-        assertThat(s.firstRegistration()).isEqualTo("2020-11");
         assertThat(s.mileageKm()).isEqualTo(103_700);
         assertThat(s.fuelType()).isEqualTo(FuelType.PETROL);
         assertThat(s.drivetrain()).isEqualTo(Drivetrain.FWD);

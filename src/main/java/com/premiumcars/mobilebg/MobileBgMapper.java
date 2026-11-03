@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.premiumcars.catalog.domain.Car;
@@ -40,7 +39,6 @@ public final class MobileBgMapper {
             COLOR_UNKNOWN,
             /** The car's electric range is not WLTP (e.g. CLTC), but mobile.bg asks for WLTP. */
             RANGE_NOT_WLTP,
-            PRODUCTION_MONTH_UNKNOWN,
             NO_PRICE
         }
     }
@@ -79,7 +77,6 @@ public final class MobileBgMapper {
             Map.entry(Pattern.compile("gold|златист"), "Златист"),
             Map.entry(Pattern.compile("purple|violet|лилав|виолет"), "Виолетов"));
 
-    private static final Pattern YEAR_MONTH = Pattern.compile("^((?:19|20)\\d{2})-(\\d{2})");
 
     private MobileBgMapper() {
     }
@@ -147,20 +144,9 @@ public final class MobileBgMapper {
             warnings.add(new Warning(Warning.Code.COLOR_UNKNOWN, s.color()));
         }
 
-        // "Дата на производство": the first registration when the source gives it, else the model year
-        String month = null;
+        // "Дата на производство": the model year, January (the sources' month is not kept)
         Integer year = s.year();
-        Matcher ym = s.firstRegistration() == null ? null : YEAR_MONTH.matcher(s.firstRegistration());
-        if (ym != null && ym.find()) {
-            int m = Integer.parseInt(ym.group(2));
-            if (m >= 1 && m <= 12) {
-                month = MONTHS.get(m - 1);
-                year = Integer.valueOf(ym.group(1));
-            }
-        }
-        if (month == null) {
-            warnings.add(new Warning(Warning.Code.PRODUCTION_MONTH_UNKNOWN, null));
-        }
+        String month = year == null ? null : MONTHS.getFirst();
 
         BigDecimal price = car.totalPriceEur() == null ? null
                 : car.totalPriceEur().setScale(0, RoundingMode.HALF_UP);

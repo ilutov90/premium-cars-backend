@@ -53,11 +53,6 @@ public final class AutowiniPageParser {
 
     private static final Pattern ITEM_ID = Pattern.compile("(IC\\d+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern SIZED = Pattern.compile("^(.*?)_(?:320|1024)\\.(jpe?g)(\\?.*)?$", Pattern.CASE_INSENSITIVE);
-    /** "19th Sep. 2023", "1st Jan 2020" */
-    private static final Pattern DAY_MONTH_YEAR = Pattern.compile(
-            "(?:\\d{1,2}(?:st|nd|rd|th)?\\s+)?([A-Za-z]{3})[a-z]*\\.?\\s+((?:19|20)\\d{2})");
-    private static final List<String> MONTHS =
-            List.of("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec");
     private static final Pattern MONEY = Pattern.compile("(US\\$|USD|\\$|€|EUR)\\s*([\\d][\\d,]*(?:\\.\\d+)?)",
             Pattern.CASE_INSENSITIVE);
 
@@ -198,7 +193,6 @@ public final class AutowiniPageParser {
                 .model(model)
                 .trim(trim)
                 .year(ValueParsers.parseYear(f.get("year")))
-                .firstRegistration(yearMonth(f.get("reg_date")))
                 .mileageKm(ValueParsers.parseMileageKm(f.get("km")))
                 .fuelType(FuelType.detect(f.get("fuel")))
                 .transmission(Transmission.detect(f.get("transmission")))
@@ -239,21 +233,6 @@ public final class AutowiniPageParser {
 
     private static String clean(String text) {
         return text.replace('\u00a0', ' ').replaceAll("\\s+", " ").trim();
-    }
-
-    /** "19th Sep. 2023" -> "2023-09"; the text as it is when it has another shape; null when empty. */
-    static String yearMonth(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        Matcher m = DAY_MONTH_YEAR.matcher(raw);
-        if (m.find()) {
-            int month = MONTHS.indexOf(m.group(1).toLowerCase(Locale.ROOT)) + 1;
-            if (month > 0) {
-                return m.group(2) + "-" + String.format("%02d", month);
-            }
-        }
-        return raw.trim();
     }
 
     /** Photos from imagebox.autowini.com: the 1024 px version of sized photos, new-style URLs as they are. */

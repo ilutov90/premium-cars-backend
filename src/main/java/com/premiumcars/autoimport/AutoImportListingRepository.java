@@ -165,6 +165,55 @@ public class AutoImportListingRepository {
         return out;
     }
 
+    /**
+     * Our cars of a source against what the import knows (the page's "Проверка на колите"): why the catalog can hold
+     * more cars than the site's search shows. One listing link is one car at most ({@code car.source_url} is unique).
+     *
+     * @param cars          our cars of the source on the site or as drafts (not REMOVED, SOLD or ARCHIVED)
+     * @param withoutListing of them, cars the import has no listing of (added by hand, or before the import)
+     * @param notSeen       of them, cars whose listing the searches have not seen for 2 days or more (still shown:
+     *                      only makes read whole remove cars)
+     * @param lookAlike     cars with the same title, year and km as another car (maybe one car listed twice)
+     */
+    public record CatalogCheck(int cars, int withoutListing, int notSeen, int lookAlike,
+                               List<LookAlike> lookAlikes) {
+    }
+
+    /** One group of cars that look the same. */
+    public record LookAlike(String title, Integer year, Integer mileageKm, List<Long> carIds) {
+    }
+
+    private static final String CHECKED_CARS = """
+            FROM car c WHERE c.source = :source AND c.status IN ('PUBLISHED', 'RESERVED', 'DRAFT')""";
+
+    public CatalogCheck check(CarSource source) {
+        int cars = count("SELECT count(*) " + CHECKED_CARS, source);
+        int without = count("SELECT count(*) " + CHECKED_CARS + """
+                 AND NOT EXISTS (SELECT 1 FROM auto_import_listing l
+                                 WHERE l.source = c.source AND l.car_id = c.id)""", source);
+        int notSeen = count("SELECT count(*) " + CHECKED_CARS + """
+                 AND EXISTS (SELECT 1 FROM auto_import_listing l WHERE l.source = c.source AND l.car_id = c.id
+                             AND l.last_seen < now() - INTERVAL '2 days')""", source);
+        List<LookAlike> groups = jdbc.sql("""
+                        SELECT c.title, c.model_year, c.mileage_km, array_agg(c.id ORDER BY c.id) AS ids
+                        """ + CHECKED_CARS + """
+                         AND c.title IS NOT NULL AND c.mileage_km IS NOT NULL
+                        GROUP BY c.title, c.model_year, c.mileage_km HAVING count(*) > 1
+                        ORDER BY count(*) DESC, c.title""")
+                .param("source", source.name())
+                .query((rs, n) -> new LookAlike(rs.getString("title"), rs.getObject("model_year", Integer.class),
+                        rs.getObject("mileage_km", Integer.class),
+                        List.of((Long[]) rs.getArray("ids").getArray())))
+                .list();
+        int lookAlike = groups.stream().mapToInt(g -> g.carIds().size() - 1).sum();
+        return new CatalogCheck(cars, without, notSeen, lookAlike,
+                groups.size() > 100 ? groups.subList(0, 100) : groups);
+    }
+
+    private int count(String sql, CarSource source) {
+        return jdbc.sql(sql).param("source", source.name()).query(Integer.class).single();
+    }
+
     /** The cars the automatic import knows a listing of (whatever the make). */
     public Set<Long> carIds(CarSource source) {
         return new HashSet<>(jdbc.sql("""

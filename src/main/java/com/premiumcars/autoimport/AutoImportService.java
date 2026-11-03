@@ -102,6 +102,12 @@ public class AutoImportService {
         return overview();
     }
 
+    /** Our cars of the source against the import's listings: stale ones, ones not from the import, look-alikes. */
+    public AutoImportListingRepository.CatalogCheck check(CarSource source) {
+        settingsOf(source);
+        return listings.check(source);
+    }
+
     /** Applies to the queue at once (the worker checks it) and to the next run (both ways). */
     public Overview setMaxPrice(Integer eur) {
         settings.setMaxPriceEur(eur);

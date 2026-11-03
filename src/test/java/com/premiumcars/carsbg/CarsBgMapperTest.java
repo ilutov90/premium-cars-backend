@@ -36,7 +36,7 @@ class CarsBgMapperTest {
     @Test
     void fillsTheFormInCarsBgsIds() {
         CarSpecs specs = CarSpecs.builder().make("Hyundai").model("SantaFe").trim("2.5T 2WD Prestige").year(2024)
-                .firstRegistration("2023-09").mileageKm(116_710).fuelType(FuelType.PETROL)
+                .mileageKm(116_710).fuelType(FuelType.PETROL)
                 .transmission(Transmission.AUTOMATIC).engineCc(2497).powerHp(281).euroStandard(6).bodyType("SUV")
                 .doors(5).color("Silver Metallic")
                 .features(List.of(CarFeature.HEATED_SEATS, CarFeature.ESP, CarFeature.DYNAMIC_STABILITY,
@@ -55,8 +55,8 @@ class CarsBgMapperTest {
         assertThat(d.fuelId()).isEqualTo(1);
         assertThat(d.gearId()).isEqualTo(2);
         assertThat(d.cubature()).isEqualTo(2497);
-        assertThat(d.productionYear()).isEqualTo(2023);
-        assertThat(d.monthId()).isEqualTo(9);
+        assertThat(d.productionYear()).isEqualTo(2024); // the model year
+        assertThat(d.monthId()).isEqualTo(1); // January: the sources' month is not kept
         assertThat(d.run()).isEqualTo(116_710);
         assertThat(d.doorId()).isEqualTo(2);
         assertThat(d.colorId()).isEqualTo(13);
@@ -84,7 +84,7 @@ class CarsBgMapperTest {
         assertThat(r.draft().categoryId()).isEqualTo(9);
         assertThat(r.warnings()).extracting(CarsBgMapper.Warning::code).containsExactlyInAnyOrder(
                 Code.MODEL_SUGGESTED, Code.YEAR_ADJUSTED, Code.CATEGORY_MPV, Code.COLOR_UNKNOWN, Code.DOORS_UNKNOWN,
-                Code.PRODUCTION_MONTH_UNKNOWN, Code.NO_PRICE);
+                Code.NO_PRICE);
 
         CarsBgMapper.Result avatr = CarsBgMapper.map(car(CarSpecs.builder().make("Avatr").model("11").build(), "1"),
                 CATALOG, 2026);

@@ -81,7 +81,6 @@ class AutowiniPageParserTest {
         assertThat(specs.fuelType()).isEqualTo(FuelType.PETROL);
         assertThat(specs.transmission()).isEqualTo(Transmission.AUTOMATIC);
         assertThat(specs.color()).isEqualTo("Black");
-        assertThat(specs.firstRegistration()).isEqualTo("2023-09"); // "19th Sep. 2023", without the tooltip
 
         // the seller's options, as mobile.bg extras (LHD: no "Десен волан")
         assertThat(page.options()).containsExactly("Park Assist Sensor", "Full Auto Air Conditioner", "Heating Seat",
@@ -112,15 +111,6 @@ class AutowiniPageParserTest {
         assertThat(specs.sheet().get(1).items()).extracting(SpecGroup.Item::name).contains("Memory Seat");
         assertThat(specs.sheet().get(1).items()).allSatisfy(i -> assertThat(i.value()).isEmpty());
         assertThat(specs.year()).isEqualTo(2021);
-        assertThat(specs.firstRegistration()).isEqualTo("2020-11");
-    }
-
-    @Test
-    void firstRegistrationDates() {
-        assertThat(AutowiniPageParser.yearMonth("19th Sep. 2023")).isEqualTo("2023-09");
-        assertThat(AutowiniPageParser.yearMonth("1st January 2020")).isEqualTo("2020-01");
-        assertThat(AutowiniPageParser.yearMonth("2021")).isEqualTo("2021");
-        assertThat(AutowiniPageParser.yearMonth(" ")).isNull();
     }
 
     @Test

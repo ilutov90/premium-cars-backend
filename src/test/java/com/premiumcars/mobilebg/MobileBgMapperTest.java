@@ -41,7 +41,7 @@ class MobileBgMapperTest {
     @Test
     void fillsTheFormInMobileBgsValues() {
         CarSpecs specs = CarSpecs.builder().title("Hyundai SantaFe").make("Hyundai").model("SantaFe")
-                .trim("(MX5) Gasoline 2.5T 2WD Prestige").year(2024).firstRegistration("2023-09").mileageKm(116_710)
+                .trim("(MX5) Gasoline 2.5T 2WD Prestige").year(2024).mileageKm(116_710)
                 .fuelType(FuelType.PETROL).transmission(Transmission.AUTOMATIC).engineCc(2497).powerHp(281)
                 .euroStandard(6).bodyType("SUV").color("Black Pearl").features(List.of(CarFeature.HEATED_SEATS))
                 .build();
@@ -59,8 +59,8 @@ class MobileBgMapperTest {
         assertThat(d.price()).isEqualByComparingTo("26110");
         assertThat(d.vat()).isEqualTo("2");
         assertThat(d.currency()).isEqualTo("EUR");
-        assertThat(d.month()).isEqualTo("септември");
-        assertThat(d.year()).isEqualTo(2023); // the first registration, not the model year
+        assertThat(d.month()).isEqualTo("януари"); // the sources' month is not kept
+        assertThat(d.year()).isEqualTo(2024); // the model year
         assertThat(d.region()).isEqualTo("София");
         assertThat(d.city()).isEqualTo("гр. София");
         assertThat(d.rangeKm()).isNull();
@@ -120,7 +120,7 @@ class MobileBgMapperTest {
         assertThat(r.draft().color()).isEqualTo("Бял"); // our guess, matched by text in mobile.bg
         assertThat(r.draft().price()).isNull();
         assertThat(r.warnings()).extracting(MobileBgMapper.Warning::code)
-                .contains(Code.CATALOG_MISSING, Code.NO_PRICE, Code.PRODUCTION_MONTH_UNKNOWN, Code.CATEGORY_UNKNOWN);
+                .contains(Code.CATALOG_MISSING, Code.NO_PRICE, Code.CATEGORY_UNKNOWN);
     }
 
     @Test

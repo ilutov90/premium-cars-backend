@@ -44,7 +44,6 @@ class AutohomePageParserTest {
         assertThat(specs.model()).isEqualTo("Han");
         assertThat(specs.trim()).isEqualTo("EV Extended Range Premium");
         assertThat(specs.year()).isEqualTo(2020);
-        assertThat(specs.firstRegistration()).isEqualTo("2020-10");
         assertThat(specs.mileageKm()).isEqualTo(102_300);
         assertThat(specs.transmission()).isEqualTo(Transmission.AUTOMATIC);
         assertThat(specs.drivetrain()).isEqualTo(Drivetrain.FWD);
