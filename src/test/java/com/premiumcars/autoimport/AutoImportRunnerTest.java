@@ -258,22 +258,17 @@ class AutoImportRunnerTest {
         assertThat(state("pr1")).isEqualTo("QUEUED");
         settings.setMaxPriceEur(100_000);
 
-        // no FOB price on the page: read again for 3 runs in a row, then left alone while its price stays
-        for (int run = 1; run <= AutoImportListingRepository.NO_PRICE_RUNS; run++) {
-            listings.noPrice(CarSource.AUTOWINI, "pr2", "No price");
-            assertThat(state("pr2")).isEqualTo(AutoImportListingRepository.NO_PRICE);
-            runner.pass(search, autowini, false);
-            assertThat(state("pr2")).isEqualTo(run < AutoImportListingRepository.NO_PRICE_RUNS
-                    ? "QUEUED" : AutoImportListingRepository.NO_PRICE);
-        }
-        assertThat(listings.leftOutByBrand(CarSource.AUTOWINI)).containsEntry("C9993", 2);
-        var check = service.check(CarSource.AUTOWINI);
-        assertThat(check.cars()).isGreaterThanOrEqualTo(0);
-        // a new price at the source: read again
+        // no FOB price on the page: set aside by its listing id for good, even when its search price changes
+        listings.noPrice(CarSource.AUTOWINI, "pr2", "No price");
+        runner.pass(search, autowini, false);
+        assertThat(state("pr2")).isEqualTo(AutoImportListingRepository.NO_PRICE);
         search.results.put("C9993", List.of(dear, new FoundListing("pr2", cheap.url(), "Cheap",
                 new BigDecimal("21000"), null)));
-        runner.pass(search, autowini, false);
-        assertThat(state("pr2")).isEqualTo("QUEUED");
+        Result again = runner.pass(search, autowini, false);
+        assertThat(again.newCount()).isZero();
+        assertThat(state("pr2")).isEqualTo(AutoImportListingRepository.NO_PRICE);
+        assertThat(listings.leftOutByBrand(CarSource.AUTOWINI)).containsEntry("C9993", 2);
+        assertThat(service.check(CarSource.AUTOWINI).cars()).isGreaterThanOrEqualTo(0);
     }
 
     @Test
