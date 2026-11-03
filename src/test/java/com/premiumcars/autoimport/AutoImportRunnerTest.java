@@ -273,6 +273,28 @@ class AutoImportRunnerTest {
     }
 
     @Test
+    void aRefusingSiteKeepsTheListingQueuedAndPausesItsQueue() {
+        service.save(CarSource.AUTOWINI, new SourceUpdate(true, new SourceFilters(false, false, List.of()),
+                List.of(new BrandUpdate("C9994", "Blockmake", true, 2018, List.of(), null))));
+        var autowini = new SourceSettings(CarSource.AUTOWINI, true, new SourceFilters(false, false, List.of()),
+                Instant.now());
+        FakeSearch search = new FakeSearch();
+        search.results.put("C9994", List.of(new FoundListing("bl1", "https://www.autowini.com/items/bl1", "Blocked",
+                new BigDecimal("20000"), 50_000)));
+        runner.pass(search, autowini, false);
+        assertThat(state("bl1")).isEqualTo("QUEUED");
+
+        assertThat(worker.pausedUntil(CarSource.AUTOWINI)).isNull();
+        listings.retryLater(CarSource.AUTOWINI, "bl1", "autowini returned HTTP 403");
+        worker.refused(CarSource.AUTOWINI, new com.premiumcars.importing.SourceBlockedException(403, "HTTP 403"));
+        assertThat(state("bl1")).isEqualTo("QUEUED");
+        assertThat(listings.find(CarSource.AUTOWINI, "bl1").orElseThrow().attempts()).isZero();
+        assertThat(worker.pausedUntil(CarSource.AUTOWINI)).isAfter(Instant.now().plusSeconds(14 * 60));
+        assertThat(service.overview().sources()).filteredOn(v -> v.source() == CarSource.AUTOWINI).singleElement()
+                .satisfies(v -> assertThat(v.pausedUntil()).isNotNull());
+    }
+
+    @Test
     void carsAddedByHandAreCheckedByTheirMakeAndHiddenWhenGoneTwice() {
         settings.saveCatalog(CarSource.GUAZI, List.of(new CatalogBrand("777", "Testmake", null)));
         String url = "https://en.guazi.com/products/test-car-hand1.html";

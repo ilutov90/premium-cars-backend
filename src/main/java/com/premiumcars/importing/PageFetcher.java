@@ -33,6 +33,10 @@ public class PageFetcher {
                     .execute()
                     .body();
         } catch (HttpStatusException e) {
+            if (SourceBlockedException.blocking(e.getStatusCode())) {
+                throw new SourceBlockedException(e.getStatusCode(),
+                        "Source page returned HTTP " + e.getStatusCode() + " for " + url, e);
+            }
             throw new BadRequestException("Source page returned HTTP " + e.getStatusCode() + " for " + url, e);
         } catch (IOException e) {
             throw new BadRequestException("Could not load " + url + ": " + e.getMessage(), e);

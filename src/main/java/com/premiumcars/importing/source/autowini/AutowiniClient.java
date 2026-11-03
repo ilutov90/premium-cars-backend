@@ -38,6 +38,7 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.premiumcars.common.BadRequestException;
+import com.premiumcars.importing.SourceBlockedException;
 import com.premiumcars.config.AppProperties;
 import com.premiumcars.importing.browser.PageRenderer.BrowserCookie;
 
@@ -105,6 +106,11 @@ public class AutowiniClient {
             ensureLoggedIn();
             page = get(desktopUrl);
             mobile = false;
+        }
+        if (SourceBlockedException.blocking(page.status())) {
+            // the desktop and the mobile site both refused: autowini's bot protection, not this listing
+            throw new SourceBlockedException(page.status(),
+                    "autowini returned HTTP " + page.status() + " for " + desktopUrl);
         }
         if (page.status() != 200) {
             throw new BadRequestException("autowini returned HTTP " + page.status() + " for " + desktopUrl);

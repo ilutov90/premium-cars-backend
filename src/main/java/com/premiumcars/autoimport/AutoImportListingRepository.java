@@ -138,6 +138,17 @@ public class AutoImportListingRepository {
                 .update();
     }
 
+    /** The site refused us, not the listing: it stays queued, no attempt counted. */
+    public void retryLater(CarSource source, String listingId, String note) {
+        jdbc.sql("""
+                        UPDATE auto_import_listing SET state = 'QUEUED', last_error = :note, updated_at = now()
+                        WHERE source = :source AND listing_id = :id""")
+                .param("note", cut(note, 1000), Types.VARCHAR)
+                .param("source", source.name())
+                .param("id", listingId)
+                .update();
+    }
+
     /** Over the highest FOB price (found out at the import). */
     public void priceSkipped(CarSource source, String listingId, String note) {
         jdbc.sql("""
