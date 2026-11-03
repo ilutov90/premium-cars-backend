@@ -402,6 +402,28 @@ class AutoImportRunnerTest {
         return listings.find(CarSource.AUTOWINI, listingId).orElseThrow().state();
     }
 
+    @Autowired
+    AutoImportExport exporter;
+
+    @Test
+    void theExportHoldsTheListingsAndTheRuns() throws Exception {
+        FakeSearch search = new FakeSearch();
+        search.results.put("1212", List.of(listing("exp1")));
+        long runId = runs.start(CarSource.GUAZI, false);
+        runs.finish(runId, runner.pass(search, GUAZI, false, runId));
+        var bytes = new java.io.ByteArrayOutputStream();
+        exporter.write(CarSource.GUAZI, bytes);
+        Map<String, String> files = new HashMap<>();
+        try (var zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray()))) {
+            for (var e = zip.getNextEntry(); e != null; e = zip.getNextEntry()) {
+                files.put(e.getName(), new String(zip.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+        assertThat(files.get("listings.csv")).startsWith("\uFEFFlisting_id,state,").contains("exp1,");
+        assertThat(files.get("runs.csv")).startsWith("\uFEFFid,dry_run,status").contains(String.valueOf(runId));
+        assertThat(AutoImportExport.cell("a,\"b\"")).isEqualTo("\"a,\"\"b\"\"\"");
+    }
+
     @Test
     void settingsAreSavedWhole() {
         var update = new SourceUpdate(true, new SourceFilters(true, true, List.of()), List.of(
