@@ -114,17 +114,10 @@ public class AutoImportController {
         return service.fuels(source, brandCode, model, yearFrom);
     }
 
-    /** Our cars of the source against what the import knows (duplicates, stale cars). */
+    /** How many cars of the source are on the site or drafts. */
     @GetMapping("/{source}/check")
     public AutoImportListingRepository.CatalogCheck check(@PathVariable CarSource source) {
         return service.check(source);
-    }
-
-    /** Deletes the cars whose listing the searches have not seen for {@code days} days. */
-    @PostMapping("/{source}/stale/delete")
-    public AutoImportService.StaleDeleted deleteStale(@PathVariable CarSource source,
-                                                      @RequestParam(defaultValue = "3") int days) {
-        return service.deleteStale(source, days);
     }
 
     /** Cars that are one listing more than once, and which one would stay. */

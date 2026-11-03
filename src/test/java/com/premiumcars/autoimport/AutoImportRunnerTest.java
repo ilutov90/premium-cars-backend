@@ -269,7 +269,6 @@ class AutoImportRunnerTest {
         assertThat(listings.leftOutByBrand(CarSource.AUTOWINI)).containsEntry("C9993", 2);
         var check = service.check(CarSource.AUTOWINI);
         assertThat(check.cars()).isGreaterThanOrEqualTo(0);
-        assertThat(check.withoutListing()).isLessThanOrEqualTo(check.cars());
         // a new price at the source: read again
         search.results.put("C9993", List.of(dear, new FoundListing("pr2", cheap.url(), "Cheap",
                 new BigDecimal("21000"), null)));
@@ -312,6 +311,7 @@ class AutoImportRunnerTest {
         assertThat(dupes.sample()).anySatisfy(g -> {
             assertThat(g.keep()).isEqualTo(second.id()); // the newest when none is followed or posted
             assertThat(g.delete()).containsExactly(first.id());
+            assertThat(g.cars()).extracting(AutoImportService.DuplicateCar::id).contains(first.id(), second.id());
         });
         service.deleteDuplicates(CarSource.GUAZI);
         assertThat(service.duplicates(CarSource.GUAZI).groups()).isZero();
@@ -322,14 +322,6 @@ class AutoImportRunnerTest {
                 .satisfies(c -> assertThat(c.id()).isEqualTo(second.id()))
                 .satisfies(c -> assertThat(c.sourceUrl()).isEqualTo(third));
         carService.delete(second.id());
-    }
-
-    @Test
-    void carsNotSeenForDaysCanBeDeletedByHand() {
-        assertThatThrownBy(() -> service.deleteStale(CarSource.GUAZI, 1))
-                .isInstanceOf(com.premiumcars.common.BadRequestException.class);
-        var deleted = service.deleteStale(CarSource.GUAZI, 3); // nothing that old in this database
-        assertThat(deleted.deleted()).isGreaterThanOrEqualTo(0);
     }
 
     @Test

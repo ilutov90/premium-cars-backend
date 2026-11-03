@@ -120,7 +120,13 @@ public class AutoImportService {
      * @param keep   the car that stays: the one the automatic import follows, else one already posted, else the newest
      * @param delete the others
      */
-    public record DuplicateGroup(String title, long keep, List<Long> delete, List<Long> posted) {
+    /** @param cars the group's cars (all of them, the kept one too), to open them on the site */
+    public record DuplicateGroup(String title, long keep, List<Long> delete, List<Long> posted,
+                                 List<DuplicateCar> cars) {
+    }
+
+    /** @param slug the car page's address on our site; status: only PUBLISHED and RESERVED cars are shown there */
+    public record DuplicateCar(long id, String slug, com.premiumcars.catalog.domain.CarStatus status) {
     }
 
     public record Duplicates(int groups, int cars, List<DuplicateGroup> sample) {
@@ -168,52 +174,15 @@ public class AutoImportService {
                     .orElse(ids.getLast());
             List<Long> delete = ids.stream().filter(id -> id != keep).toList();
             String title = cars.findById(keep).map(c -> c.specs().title()).orElse(null);
-            out.add(new DuplicateGroup(title, keep, delete, ids.stream().filter(posts::containsKey).toList()));
+            List<DuplicateCar> groupCars = ids.stream().map(cars::findById).flatMap(java.util.Optional::stream)
+                    .map(c -> new DuplicateCar(c.id(), c.slug(), c.status())).toList();
+            out.add(new DuplicateGroup(title, keep, delete, ids.stream().filter(posts::containsKey).toList(),
+                    groupCars));
         }
         return out;
     }
 
-    /**
-     * Cars deleted by hand because the searches have not seen their listing for some days (the runs delete them by
-     * themselves too, after {@value AutoImportRunner#STALE_DAYS} days). Reserved, sold and archived cars are kept.
-     * Each one goes into the report without a run, with its posts.
-     *
-     * @param posted the deleted cars posted through the panel (to take those posts down)
-     */
-    public record StaleDeleted(int deleted, List<StalePosted> posted) {
-    }
-
-    public record StalePosted(long carId, String title, String slug,
-                              List<com.premiumcars.social.PostedChannels.Post> posts) {
-    }
-
-    public StaleDeleted deleteStale(CarSource source, int days) {
-        settingsOf(source);
-        if (days < 2) {
-            throw new BadRequestException("At least 2 days: a listing can be missing from one run");
-        }
-        if (runner.running(source)) {
-            throw new BadRequestException("A run of " + source + " is going on: wait until it ends");
-        }
-        List<Long> ids = listings.staleCarIds(source, days);
-        Map<Long, List<com.premiumcars.social.PostedChannels.Post>> posts = posted.of(ids);
-        int deleted = 0;
-        List<StalePosted> withPosts = new ArrayList<>();
-        for (Long id : ids) {
-            var car = cars.findById(id).orElse(null);
-            if (car != null && runner.deleteGone(null, source, id, false)) {
-                deleted++;
-                if (posts.containsKey(id)) {
-                    withPosts.add(new StalePosted(id, car.specs().title(), car.slug(), posts.get(id)));
-                }
-            }
-        }
-        org.slf4j.LoggerFactory.getLogger(AutoImportService.class)
-                .info("{}: {} cars not seen for {} days deleted by hand", source, deleted, days);
-        return new StaleDeleted(deleted, withPosts);
-    }
-
-    /** Our cars of the source against the import's listings: stale ones, ones not from the import, look-alikes. */
+    /** How many cars of the source are on the site or drafts. */
     public AutoImportListingRepository.CatalogCheck check(CarSource source) {
         settingsOf(source);
         return listings.check(source);
