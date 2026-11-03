@@ -84,7 +84,13 @@ public final class AutoImportTypes {
     public record BrandPass(String code, String name, int expected, int found, boolean complete, String error) {
     }
 
-    /** A make's count for the preview. */
-    public record BrandCount(String code, String name, Integer count, String error) {
+    /**
+     * A make's count for the preview.
+     *
+     * @param count   the site's listings matching now
+     * @param leftOut of them, as far as the last runs saw, set aside (over the mileage or price limit, no FOB price for
+     *                good): not imported; null when the site was not read
+     */
+    public record BrandCount(String code, String name, Integer count, Integer leftOut, String error) {
     }
 }

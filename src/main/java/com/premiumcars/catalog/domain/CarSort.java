@@ -38,7 +38,10 @@ public enum CarSort {
         };
     }
 
-    /** Maps the public query value ("price_asc", ...) to a sort; unknown or empty values mean NEWEST. */
+    /**
+     * Maps the public query value ("price_asc", "newest", ...) to a sort; unknown or empty values mean NEWEST (the
+     * catalog page asks for "price_asc" itself when nothing is chosen; the home page's latest cars send nothing).
+     */
     public static CarSort fromParam(String value) {
         if (value == null) {
             return NEWEST;

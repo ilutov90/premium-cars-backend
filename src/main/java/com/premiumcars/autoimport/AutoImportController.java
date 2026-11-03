@@ -57,6 +57,12 @@ public class AutoImportController {
         return service.setMaxMileage(request.maxMileageKm());
     }
 
+    /** The highest FOB price of both sources. */
+    @PutMapping("/max-price")
+    public Overview setMaxPrice(@Valid @RequestBody AutoImportDtos.MaxPriceRequest request) {
+        return service.setMaxPrice(request.maxPriceEur());
+    }
+
     /** All failed listings, a page at a time: by site, by text in the error, title or listing id. */
     @GetMapping("/failures")
     public Failures failures(@RequestParam(required = false) CarSource source,

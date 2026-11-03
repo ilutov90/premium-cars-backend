@@ -31,9 +31,14 @@ public final class AutoImportDtos {
      * @param enabled  the main switch
      * @param running      the run going on now ("GUAZI", "AUTOWINI (dry run)") or null
      * @param maxMileageKm listings with more km are not imported (both sources); null = no limit
+     * @param maxPriceEur  listings with a higher FOB price (EUR) are not imported (both sources); null = no limit
      */
-    public record Overview(boolean enabled, String running, Integer maxMileageKm, List<SourceView> sources,
-                           List<Run> runs) {
+    public record Overview(boolean enabled, String running, Integer maxMileageKm, Integer maxPriceEur,
+                           List<SourceView> sources, List<Run> runs) {
+    }
+
+    /** The highest FOB price in EUR; null = no limit. */
+    public record MaxPriceRequest(@Min(1000) @Max(10_000_000) Integer maxPriceEur) {
     }
 
     /** The mileage limit; null = no limit. */
@@ -101,7 +106,8 @@ public final class AutoImportDtos {
      *
      * @param error the site could not be read (e.g. from the server); null when it answered
      */
-    public record Preview(CarSource source, List<BrandCount> brands, int total, String error) {
+    /** @param leftOut of the total, set aside by the limits as far as the last runs saw: not imported */
+    public record Preview(CarSource source, List<BrandCount> brands, int total, int leftOut, String error) {
     }
 
     public record RunRequest(boolean dryRun) {

@@ -229,6 +229,47 @@ class AutoImportRunnerTest {
     }
 
     @Test
+    void listingsOverTheHighestPriceOrWithoutAFobPriceAreSetAside() {
+        assertThat(settings.maxPriceEur()).isEqualTo(100_000); // the default
+        service.save(CarSource.AUTOWINI, new SourceUpdate(true, new SourceFilters(false, false, List.of()),
+                List.of(new BrandUpdate("C9993", "Pricemake", true, 2018, List.of(), null))));
+        var autowini = new SourceSettings(CarSource.AUTOWINI, true, new SourceFilters(false, false, List.of()),
+                Instant.now());
+        FakeSearch search = new FakeSearch();
+        FoundListing dear = new FoundListing("pr1", "https://www.autowini.com/items/pr1", "Dear", new BigDecimal("400000"),
+                null);
+        FoundListing cheap = new FoundListing("pr2", "https://www.autowini.com/items/pr2", "Cheap",
+                new BigDecimal("20000"), null);
+        search.results.put("C9993", List.of(dear, cheap));
+
+        Result first = runner.pass(search, autowini, false);
+        assertThat(first.message()).contains("1 over 100000 EUR FOB");
+        assertThat(state("pr1")).isEqualTo(AutoImportListingRepository.PRICE_SKIPPED);
+        assertThat(state("pr2")).isEqualTo("QUEUED");
+        assertThat(listings.leftOutByBrand(CarSource.AUTOWINI)).containsEntry("C9993", 1);
+
+        settings.setMaxPriceEur(null); // no limit: queued again
+        runner.pass(search, autowini, false);
+        assertThat(state("pr1")).isEqualTo("QUEUED");
+        settings.setMaxPriceEur(100_000);
+
+        // no FOB price on the page: read again for 3 runs in a row, then left alone while its price stays
+        for (int run = 1; run <= AutoImportListingRepository.NO_PRICE_RUNS; run++) {
+            listings.noPrice(CarSource.AUTOWINI, "pr2", "No price");
+            assertThat(state("pr2")).isEqualTo(AutoImportListingRepository.NO_PRICE);
+            runner.pass(search, autowini, false);
+            assertThat(state("pr2")).isEqualTo(run < AutoImportListingRepository.NO_PRICE_RUNS
+                    ? "QUEUED" : AutoImportListingRepository.NO_PRICE);
+        }
+        assertThat(listings.leftOutByBrand(CarSource.AUTOWINI)).containsEntry("C9993", 2);
+        // a new price at the source: read again
+        search.results.put("C9993", List.of(dear, new FoundListing("pr2", cheap.url(), "Cheap",
+                new BigDecimal("21000"), null)));
+        runner.pass(search, autowini, false);
+        assertThat(state("pr2")).isEqualTo("QUEUED");
+    }
+
+    @Test
     void carsAddedByHandAreCheckedByTheirMakeAndHiddenWhenGoneTwice() {
         settings.saveCatalog(CarSource.GUAZI, List.of(new CatalogBrand("777", "Testmake", null)));
         String url = "https://en.guazi.com/products/test-car-hand1.html";

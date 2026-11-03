@@ -107,9 +107,27 @@ public class GuaziSearch implements SourceSearch {
                     for (int year = brand.yearFrom(); year <= lastYear; year++) {
                         Slice oneYear = new Slice(brand, filters, List.of(s), year, year);
                         int m = total(oneYear);
-                        read(oneYear, m, once);
-                        if (m > WINDOW) {
-                            complete = false; // one model and one year with more than guazi shows
+                        if (m <= WINDOW) {
+                            read(oneYear, m, once);
+                            continue;
+                        }
+                        // one model and one year with more than guazi shows: one grade at a time
+                        List<List<String>> grades = filters.grades().isEmpty()
+                                ? List.of(List.of("S"), List.of("A"), List.of("B"), List.of("C"), List.of("D"))
+                                : filters.grades().stream().map(List::of).toList();
+                        int byGrade = 0;
+                        for (List<String> g : grades) {
+                            Slice oneGrade = new Slice(brand, new SourceFilters(filters.inspected(),
+                                    filters.actualMileage(), g), List.of(s), year, year);
+                            int k = total(oneGrade);
+                            byGrade += k;
+                            read(oneGrade, k, once);
+                            if (k > WINDOW) {
+                                complete = false; // still more than guazi shows
+                            }
+                        }
+                        if (filters.grades().isEmpty() && byGrade < m) {
+                            complete = false; // listings without a grade: not all reachable
                         }
                     }
                 }

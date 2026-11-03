@@ -47,6 +47,16 @@ class SearchParsingTest {
     }
 
     @Test
+    void autowiniMileageFromTheSearch() throws Exception {
+        assertThat(AutowiniSearch.mileage(tree("{\"mileage\":34099}"))).isEqualTo(34099);
+        assertThat(AutowiniSearch.mileage(tree("{\"mileage\":\"215,000\"}"))).isEqualTo(215000);
+        assertThat(AutowiniSearch.mileage(tree(
+                "{\"content\":\"IC5577815 · Gasoline · 1,598cc · AT · Front 2WD · 5seats · LHD · 34,099km (Actual)\"}")))
+                .isEqualTo(34099);
+        assertThat(AutowiniSearch.mileage(tree("{\"content\":\"IC1 · Diesel\"}"))).isNull();
+    }
+
+    @Test
     void autowiniFuelTypesLeftOut() throws Exception {
         Brand niro = new Brand("C0810", "Kia", true, 2018, List.of(new CatalogModel("C1300", "Niro",
                 List.of("Gasoline+Electric", "Electric Vehicle (EV)")), new CatalogModel("C1150", "Carnival")));

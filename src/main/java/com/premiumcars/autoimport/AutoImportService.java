@@ -64,7 +64,8 @@ public class AutoImportService {
             sources.add(new SourceView(s.source(), s.enabled(), s.filters(), brands,
                     queues.getOrDefault(s.source().name(), Map.of())));
         }
-        return new Overview(settings.enabled(), runner.running(), settings.maxMileageKm(), sources,
+        return new Overview(settings.enabled(), runner.running(), settings.maxMileageKm(), settings.maxPriceEur(),
+                sources,
                 runs.recent(30));
     }
 
@@ -98,6 +99,12 @@ public class AutoImportService {
     /** Applies to the queue at once (the worker checks it) and to the next run's new listings. */
     public Overview setMaxMileage(Integer km) {
         settings.setMaxMileageKm(km);
+        return overview();
+    }
+
+    /** Applies to the queue at once (the worker checks it) and to the next run (both ways). */
+    public Overview setMaxPrice(Integer eur) {
+        settings.setMaxPriceEur(eur);
         return overview();
     }
 
@@ -157,7 +164,9 @@ public class AutoImportService {
         SourceSearch search = search(source);
         SourceFilters filters = check(u.filters());
         List<BrandCount> counts = new ArrayList<>();
+        Map<String, Integer> leftOut = listings.leftOutByBrand(source);
         int total = 0;
+        int out = 0;
         String error = null;
         for (Brand b : brands(u)) {
             if (!b.enabled()) {
@@ -165,14 +174,16 @@ public class AutoImportService {
             }
             try {
                 int n = search.count(b, filters);
-                counts.add(new BrandCount(b.code(), b.name(), n, null));
+                int left = Math.min(n, leftOut.getOrDefault(b.code(), 0));
+                counts.add(new BrandCount(b.code(), b.name(), n, left, null));
                 total += n;
+                out += left;
             } catch (SearchException e) {
-                counts.add(new BrandCount(b.code(), b.name(), null, e.getMessage()));
+                counts.add(new BrandCount(b.code(), b.name(), null, null, e.getMessage()));
                 error = e.getMessage();
             }
         }
-        return new Preview(source, counts, total, error);
+        return new Preview(source, counts, total, out, error);
     }
 
     /** A run now: a dry run any time, a real one only while the main switch and the source are on. */
@@ -181,7 +192,9 @@ public class AutoImportService {
         if (!dryRun && (!settings.enabled() || !s.enabled())) {
             throw new BadRequestException("Turn on the automatic import and " + source + " first");
         }
-        runner.submit(source, dryRun);
+        if (!runner.submit(source, dryRun)) {
+            throw new BadRequestException("A run of " + source + " is going on already: wait until it ends");
+        }
         return overview();
     }
 

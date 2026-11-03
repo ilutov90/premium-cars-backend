@@ -21,6 +21,11 @@ public interface SourceSearch {
 
     CarSource source();
 
+    /** The currency of the prices in the search results (both sites: FOB in USD). */
+    default String currency() {
+        return "USD";
+    }
+
     /** The site's makes (models are loaded per make, see {@link #models}, unless the list already has them). */
     List<CatalogBrand> brands();
 

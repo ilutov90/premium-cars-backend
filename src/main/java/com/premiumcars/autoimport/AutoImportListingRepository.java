@@ -5,10 +5,13 @@ import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -29,6 +32,12 @@ public class AutoImportListingRepository {
     public static final String FAILED = "FAILED";
     /** Over the mileage limit ({@code mileageKm}): not imported; queued again when the limit goes above it. */
     public static final String SKIPPED = "SKIPPED";
+    /** Over the highest FOB price: queued again when the limit or its price allows it. */
+    public static final String PRICE_SKIPPED = "PRICE_SKIPPED";
+    /** Its page shows no FOB price (a guazi auction); read again next run, until {@value #NO_PRICE_RUNS} runs in a row. */
+    public static final String NO_PRICE = "NO_PRICE";
+    /** After so many runs in a row without a FOB price, a listing is not read again while its search price stays. */
+    public static final int NO_PRICE_RUNS = 3;
     static final int MAX_ATTEMPTS = 3;
 
     public record Listing(CarSource source, String listingId, String url, String brandCode, String title,
@@ -78,32 +87,91 @@ public class AutoImportListingRepository {
     }
 
     /**
-     * Seen again: stamps it, queues a failed one again (with {@value #MAX_ATTEMPTS} new attempts), and follows the mileage limit
-     * ({@code maxKm}, null = none): a queued listing over it is skipped, a skipped one under it queued again.
+     * Seen again: stamps it and decides whether it waits for the import. A failed one is queued again (with
+     * {@value #MAX_ATTEMPTS} new attempts); the limits are followed both ways: over the mileage limit ({@code maxKm},
+     * null = none) SKIPPED, over the highest price ({@code overPrice}, worked out by the caller) PRICE_SKIPPED, else
+     * queued. One without a FOB price on its page (NO_PRICE) is read again next run, unless that already happened
+     * {@value #NO_PRICE_RUNS} runs in a row and its price in the search is the same (an auction stays an auction).
      */
-    public void seen(CarSource source, FoundListing l, String brandCode, Integer maxKm) {
+    public void seen(CarSource source, FoundListing l, String brandCode, Integer maxKm, boolean overPrice) {
+        String target = """
+                CASE WHEN :maxKm > 0 AND COALESCE(:km, mileage_km) > :maxKm THEN 'SKIPPED'
+                     WHEN :overPrice THEN 'PRICE_SKIPPED'
+                     ELSE 'QUEUED' END""";
         jdbc.sql("""
                         UPDATE auto_import_listing SET
                             last_seen = now(), missed_passes = 0, brand_code = :brand, title = :title, price = :price,
                             mileage_km = COALESCE(:km, mileage_km),
                             state = CASE
-                                WHEN state = 'QUEUED' AND :maxKm > 0 AND COALESCE(:km, mileage_km) > :maxKm
-                                    THEN 'SKIPPED'
-                                WHEN state = 'SKIPPED' AND NOT (:maxKm > 0 AND COALESCE(:km, mileage_km) > :maxKm)
-                                    THEN 'QUEUED'
-                                WHEN state = 'FAILED' THEN 'QUEUED'
+                                WHEN state IN ('QUEUED', 'SKIPPED', 'PRICE_SKIPPED', 'FAILED') THEN %1$s
+                                WHEN state = 'NO_PRICE' AND no_price_count >= :noPriceRuns
+                                    AND price IS NOT DISTINCT FROM CAST(:price AS NUMERIC) THEN 'NO_PRICE'
+                                WHEN state = 'NO_PRICE' THEN %1$s
                                 ELSE state END,
-                            attempts = CASE WHEN state = 'FAILED' THEN 0 ELSE attempts END,
+                            no_price_count = CASE
+                                WHEN state = 'NO_PRICE' AND price IS DISTINCT FROM CAST(:price AS NUMERIC) THEN 0
+                                ELSE no_price_count END,
+                            attempts = CASE WHEN state IN ('FAILED', 'NO_PRICE') THEN 0 ELSE attempts END,
                             updated_at = now()
-                        WHERE source = :source AND listing_id = :id""")
+                        WHERE source = :source AND listing_id = :id""".formatted(target))
                 .param("km", l.mileageKm(), Types.INTEGER)
                 .param("maxKm", maxKm == null ? 0 : maxKm)
+                .param("overPrice", overPrice)
+                .param("noPriceRuns", NO_PRICE_RUNS)
                 .param("brand", brandCode)
                 .param("title", cut(l.title(), 300), Types.VARCHAR)
                 .param("price", l.price(), Types.NUMERIC)
                 .param("source", source.name())
                 .param("id", l.id())
                 .update();
+    }
+
+    /** The page showed no FOB price: one more run without it. */
+    public void noPrice(CarSource source, String listingId, String note) {
+        jdbc.sql("""
+                        UPDATE auto_import_listing SET state = 'NO_PRICE', no_price_count = no_price_count + 1,
+                            attempts = 0, last_error = :note, updated_at = now()
+                        WHERE source = :source AND listing_id = :id""")
+                .param("note", cut(note, 1000), Types.VARCHAR)
+                .param("source", source.name())
+                .param("id", listingId)
+                .update();
+    }
+
+    /** Over the highest FOB price (found out at the import). */
+    public void priceSkipped(CarSource source, String listingId, String note) {
+        jdbc.sql("""
+                        UPDATE auto_import_listing SET state = 'PRICE_SKIPPED', last_error = :note, updated_at = now()
+                        WHERE source = :source AND listing_id = :id""")
+                .param("note", cut(note, 1000), Types.VARCHAR)
+                .param("source", source.name())
+                .param("id", listingId)
+                .update();
+    }
+
+    /** How many listings of each make were left out lately (mileage, price, no FOB price for good): for the preview. */
+    public Map<String, Integer> leftOutByBrand(CarSource source) {
+        Map<String, Integer> out = new HashMap<>();
+        jdbc.sql("""
+                        SELECT brand_code, count(*) AS n FROM auto_import_listing
+                        WHERE source = :source AND last_seen > now() - INTERVAL '3 days'
+                          AND (state IN ('SKIPPED', 'PRICE_SKIPPED')
+                               OR (state = 'NO_PRICE' AND no_price_count >= :noPriceRuns))
+                        GROUP BY brand_code""")
+                .param("source", source.name())
+                .param("noPriceRuns", NO_PRICE_RUNS)
+                .query((rs, n) -> out.put(rs.getString("brand_code"), rs.getInt("n")))
+                .list();
+        return out;
+    }
+
+    /** The cars the automatic import knows a listing of (whatever the make). */
+    public Set<Long> carIds(CarSource source) {
+        return new HashSet<>(jdbc.sql("""
+                        SELECT car_id FROM auto_import_listing WHERE source = :source AND car_id IS NOT NULL""")
+                .param("source", source.name())
+                .query(Long.class)
+                .list());
     }
 
     /** The source's listings of these makes. */

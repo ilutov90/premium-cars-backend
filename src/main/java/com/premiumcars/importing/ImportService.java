@@ -110,7 +110,7 @@ public class ImportService {
             throw new MileageOverLimitException(km, maxMileageKm); // before anything is saved or downloaded
         }
         if ((data.price() == null || data.price().signum() <= 0) && adapter.requiresPrice()) {
-            throw new BadRequestException("No price could be read from the listing (" + adapter.source()
+            throw new NoPriceException("No price could be read from the listing (" + adapter.source()
                     + (adapter.source() == CarSource.GUAZI ? ": no fixed FOB price, an auction?" : "")
                     + "), so it was not imported. To import it anyway, enter the price in the import form.");
         }
