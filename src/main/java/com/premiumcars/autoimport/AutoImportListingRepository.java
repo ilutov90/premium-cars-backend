@@ -225,6 +225,17 @@ public class AutoImportListingRepository {
         return jdbc.sql(sql).param("source", source.name()).query(Integer.class).single();
     }
 
+    /** The listing rows of these cars point to {@code keep} instead (before the others are deleted). */
+    public void relinkCars(Collection<Long> from, long keep) {
+        if (from.isEmpty()) {
+            return;
+        }
+        jdbc.sql("UPDATE auto_import_listing SET car_id = :keep WHERE car_id IN (:from)")
+                .param("keep", keep)
+                .param("from", List.copyOf(from))
+                .update();
+    }
+
     /** The cars the automatic import knows a listing of (whatever the make). */
     public Set<Long> carIds(CarSource source) {
         return new HashSet<>(jdbc.sql("""

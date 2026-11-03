@@ -184,6 +184,21 @@ public class CarService {
         return cars.findBySourceUrl(sourceUrl).map(this::toAdmin);
     }
 
+    /**
+     * The car of this listing: by its link, else by the listing's own id (the link changed at the source); then
+     * the car takes the new link.
+     */
+    @Transactional
+    public Optional<AdminCar> findListing(CarSource source, String sourceUrl, String sourceRef) {
+        Optional<Car> byUrl = cars.findBySourceUrl(sourceUrl);
+        if (byUrl.isPresent()) {
+            return byUrl.map(this::toAdmin);
+        }
+        Optional<Car> byRef = cars.findBySourceRef(source, sourceRef);
+        byRef.ifPresent(c -> cars.updateSourceUrl(c.id(), sourceUrl));
+        return byRef.map(c -> loadAdmin(c.id()));
+    }
+
     /** Creates a DRAFT from imported data. The slug needs the generated id, so it is set right after the insert. */
     @Transactional
     public AdminCar createDraft(ImportedCar data, CarSource source, String sourceUrl) {

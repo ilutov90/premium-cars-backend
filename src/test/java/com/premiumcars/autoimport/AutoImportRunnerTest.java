@@ -295,6 +295,31 @@ class AutoImportRunnerTest {
     }
 
     @Test
+    void oneListingImportedTwiceIsFoundAndDeletedOnce() {
+        var first = carService.createDraft(new ImportedCar("dupe7x", null, CarSpecs.builder().title("BYD Dupe").build(),
+                new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI,
+                "https://en.guazi.com/products/byd-dupe-2023-gray-10000km-dupe7x.html");
+        // the same listing after its km changed: another link
+        var second = carService.createDraft(new ImportedCar("DUPE7X", null, CarSpecs.builder().title("BYD Dupe").build(),
+                new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI,
+                "https://en.guazi.com/products/byd-dupe-2023-gray-12000km-dupe7x.html");
+        var dupes = service.duplicates(CarSource.GUAZI);
+        assertThat(dupes.sample()).anySatisfy(g -> {
+            assertThat(g.keep()).isEqualTo(second.id()); // the newest when none is followed or posted
+            assertThat(g.delete()).containsExactly(first.id());
+        });
+        service.deleteDuplicates(CarSource.GUAZI);
+        assertThat(service.duplicates(CarSource.GUAZI).groups()).isZero();
+
+        // found again by its id under a third link: no new car, the car takes the link
+        String third = "https://en.guazi.com/products/byd-dupe-2023-gray-15000km-dupe7x.html";
+        assertThat(carService.findListing(CarSource.GUAZI, third, "dupe7x")).get()
+                .satisfies(c -> assertThat(c.id()).isEqualTo(second.id()))
+                .satisfies(c -> assertThat(c.sourceUrl()).isEqualTo(third));
+        carService.delete(second.id());
+    }
+
+    @Test
     void carsAddedByHandAreCheckedByTheirMakeAndHiddenWhenGoneTwice() {
         settings.saveCatalog(CarSource.GUAZI, List.of(new CatalogBrand("777", "Testmake", null)));
         String url = "https://en.guazi.com/products/test-car-hand1.html";

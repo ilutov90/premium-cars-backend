@@ -84,6 +84,42 @@ public class CarRepository {
                 .optional();
     }
 
+    /** A car of the source by the listing's own id ({@code source_ref}, case ignored): the newest when several. */
+    public Optional<Car> findBySourceRef(CarSource source, String sourceRef) {
+        if (sourceRef == null || sourceRef.isBlank()) {
+            return Optional.empty();
+        }
+        return jdbc.sql(SELECT_CAR + "WHERE c.source = :source AND lower(c.source_ref) = lower(:ref)"
+                        + " ORDER BY c.id DESC LIMIT 1")
+                .param("source", source.name())
+                .param("ref", sourceRef.trim())
+                .query(carMapper)
+                .optional();
+    }
+
+    /** The listing's link changed at the source (guazi's carries the km): the car follows it. */
+    public void updateSourceUrl(long id, String sourceUrl) {
+        jdbc.sql("UPDATE car SET source_url = :url WHERE id = :id AND NOT EXISTS"
+                        + " (SELECT 1 FROM car o WHERE o.source_url = :url AND o.id <> :id)")
+                .param("url", sourceUrl)
+                .param("id", id)
+                .update();
+    }
+
+    /**
+     * Cars of a source that are one listing more than once: the same listing id ({@code source_ref}, case
+     * ignored), ids oldest first.
+     */
+    public List<List<Long>> findSameListing(CarSource source) {
+        return jdbc.sql("""
+                        SELECT array_agg(id ORDER BY id) AS ids FROM car
+                        WHERE source = :source AND source_ref IS NOT NULL AND btrim(source_ref) <> ''
+                        GROUP BY lower(btrim(source_ref)) HAVING count(*) > 1""")
+                .param("source", source.name())
+                .query((rs, n) -> List.of((Long[]) rs.getArray("ids").getArray()))
+                .list();
+    }
+
     public List<Car> findAll() {
         return jdbc.sql(SELECT_CAR + "ORDER BY c.id").query(carMapper).list();
     }

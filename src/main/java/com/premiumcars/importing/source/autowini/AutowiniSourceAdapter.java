@@ -180,6 +180,11 @@ public class AutowiniSourceAdapter implements SourceAdapter {
     }
 
     @Override
+    public String listingRef(URI canonicalUrl) {
+        return AutowiniPageParser.itemId(canonicalUrl.toString());
+    }
+
+    @Override
     public ImportedCar importFrom(URI url) {
         String id = AutowiniPageParser.itemId(url.toString());
         if (id == null) {
