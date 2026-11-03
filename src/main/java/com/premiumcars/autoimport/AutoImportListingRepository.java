@@ -225,6 +225,20 @@ public class AutoImportListingRepository {
         return jdbc.sql(sql).param("source", source.name()).query(Integer.class).single();
     }
 
+    /** Our cars (on the site or drafts) whose listing the searches have not seen for {@code days} days or more. */
+    public List<Long> staleCarIds(CarSource source, int days) {
+        return jdbc.sql("""
+                        SELECT c.id FROM car c
+                        WHERE c.source = :source AND c.status IN ('PUBLISHED', 'RESERVED', 'DRAFT')
+                          AND EXISTS (SELECT 1 FROM auto_import_listing l WHERE l.source = c.source
+                                      AND l.car_id = c.id AND l.last_seen < now() - make_interval(days => :days))
+                        ORDER BY c.id""")
+                .param("source", source.name())
+                .param("days", days)
+                .query(Long.class)
+                .list();
+    }
+
     /** The listing rows of these cars point to {@code keep} instead (before the others are deleted). */
     public void relinkCars(Collection<Long> from, long keep) {
         if (from.isEmpty()) {

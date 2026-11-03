@@ -1,6 +1,7 @@
 package com.premiumcars.autoimport;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -317,6 +318,14 @@ class AutoImportRunnerTest {
                 .satisfies(c -> assertThat(c.id()).isEqualTo(second.id()))
                 .satisfies(c -> assertThat(c.sourceUrl()).isEqualTo(third));
         carService.delete(second.id());
+    }
+
+    @Test
+    void carsNotSeenForDaysCanBeHiddenByHand() {
+        assertThatThrownBy(() -> service.hideStale(CarSource.GUAZI, 1))
+                .isInstanceOf(com.premiumcars.common.BadRequestException.class);
+        var hidden = service.hideStale(CarSource.GUAZI, 3); // nothing that old in this database
+        assertThat(hidden.hidden()).isGreaterThanOrEqualTo(0);
     }
 
     @Test
