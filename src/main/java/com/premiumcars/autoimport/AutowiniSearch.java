@@ -245,9 +245,36 @@ public class AutowiniSearch implements SourceSearch {
             return null;
         }
         JsonNode price = item.path("price");
-        JsonNode km = item.path("mileage"); // when the answer has it; otherwise the import checks the page's
         return new FoundListing(id, AutowiniPageParser.desktopUrl(id), item.path("itemName").asText(null),
-                price.isNumber() ? price.decimalValue() : null, km.isIntegralNumber() ? km.asInt() : null);
+                price.isNumber() ? price.decimalValue() : null, mileage(item));
+    }
+
+    private static final java.util.regex.Pattern CONTENT_KM =
+            java.util.regex.Pattern.compile("([0-9][0-9,.]*)\\s*km\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * The km from the search result, so a listing over the limit is set aside without opening its page: the
+     * {@code mileage} field, else the summary line ("IC5577815 · Gasoline · … · 34,099km (Actual)"); null when
+     * neither has it (the import checks the page).
+     */
+    static Integer mileage(JsonNode item) {
+        JsonNode km = item.path("mileage");
+        if (km.isIntegralNumber()) {
+            return km.asInt();
+        }
+        if (km.isTextual() && km.asText().replaceAll("[^0-9]", "").length() > 0
+                && km.asText().replaceAll("[^0-9]", "").length() <= 7) {
+            return Integer.valueOf(km.asText().replaceAll("[^0-9]", ""));
+        }
+        java.util.regex.Matcher m = CONTENT_KM.matcher(item.path("content").asText(""));
+        Integer found = null;
+        while (m.find()) {
+            String digits = m.group(1).replaceAll("[^0-9]", "");
+            if (!digits.isEmpty() && digits.length() <= 7) {
+                found = Integer.valueOf(digits); // the last "…km" of the line is the mileage
+            }
+        }
+        return found;
     }
 
     /** {@code data} of a {"result":"SUCCESS","data":...} answer. */

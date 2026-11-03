@@ -65,6 +65,18 @@ public class AutoImportSettingsRepository {
                 .update();
     }
 
+    /** The highest FOB price in EUR the automatic import takes (both sources); null = no limit. */
+    public Integer maxPriceEur() {
+        return jdbc.sql("SELECT max_price_eur FROM auto_import_state WHERE id = 1")
+                .query((rs, n) -> rs.getObject("max_price_eur", Integer.class)).optional().orElse(null);
+    }
+
+    public void setMaxPriceEur(Integer eur) {
+        jdbc.sql("UPDATE auto_import_state SET max_price_eur = :eur, updated_at = now() WHERE id = 1")
+                .param("eur", eur, Types.INTEGER)
+                .update();
+    }
+
     // ---------------------------------------------------------------- sources
 
     public List<SourceSettings> sources() {

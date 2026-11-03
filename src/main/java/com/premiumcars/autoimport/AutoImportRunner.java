@@ -13,7 +13,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -78,16 +78,16 @@ public class AutoImportRunner {
     private final CarService carService;
     private final AutoImportMailer mailer;
     private final PostedChannels posted;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "auto-import-run");
-        t.setDaemon(true);
-        return t;
-    });
-    private final AtomicReference<String> running = new AtomicReference<>();
+    /** One thread per source: the sites' runs go side by side, two runs of one site never. */
+    private final Map<CarSource, ExecutorService> executors = new ConcurrentHashMap<>();
+    /** The sources with a run going on or waiting to start, and what it is ("GUAZI", "AUTOWINI (dry run)"). */
+    private final Map<CarSource, String> running = new ConcurrentHashMap<>();
+    private final PriceLimit priceLimit;
 
     public AutoImportRunner(List<SourceSearch> searches, AutoImportSettingsRepository settings,
                             AutoImportListingRepository listings, AutoImportRunRepository runs, CarRepository cars,
-                            CarService carService, AutoImportMailer mailer, PostedChannels posted) {
+                            CarService carService, AutoImportMailer mailer, PostedChannels posted,
+                            PriceLimit priceLimit) {
         searches.forEach(s -> this.searches.put(s.source(), s));
         this.settings = settings;
         this.listings = listings;
@@ -96,6 +96,7 @@ public class AutoImportRunner {
         this.carService = carService;
         this.mailer = mailer;
         this.posted = posted;
+        this.priceLimit = priceLimit;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -103,26 +104,57 @@ public class AutoImportRunner {
         runs.abandonRunning();
     }
 
+    /**
+     * Each enabled source's run, side by side. A source whose previous run (the search, not its import queue) is
+     * still going on is left out tonight; its queue goes on being imported anyway (AutoImportWorker).
+     */
     @Scheduled(cron = "${app.auto-import.cron:0 0 3 * * *}", zone = "Europe/Sofia")
     public void nightly() {
         if (!settings.enabled()) {
             return;
         }
-        for (SourceSettings s : settings.sources()) { // guazi first
-            if (s.enabled()) {
-                submit(s.source(), false);
+        for (SourceSettings s : settings.sources()) {
+            if (s.enabled() && !submit(s.source(), false)) {
+                log.warn("Auto-import {}: the previous run is still going on; tonight's run left out", s.source());
             }
         }
     }
 
-    /** Queues a run; runs go one at a time. */
-    public void submit(CarSource source, boolean dryRun) {
-        executor.submit(() -> run(source, dryRun));
+    /**
+     * Starts a run of the source in the background, unless one of it is going on or waiting.
+     *
+     * @return false when the source has a run already
+     */
+    public boolean submit(CarSource source, boolean dryRun) {
+        if (running.putIfAbsent(source, source + (dryRun ? " (dry run)" : "")) != null) {
+            return false;
+        }
+        try {
+            executors.computeIfAbsent(source, s -> Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "auto-import-run-" + s.name().toLowerCase(java.util.Locale.ROOT));
+                t.setDaemon(true);
+                return t;
+            })).submit(() -> {
+                try {
+                    run(source, dryRun);
+                } finally {
+                    running.remove(source);
+                }
+            });
+            return true;
+        } catch (RuntimeException e) {
+            running.remove(source);
+            throw e;
+        }
     }
 
-    /** What is running now ("GUAZI", "AUTOWINI (dry run)"), or null. */
+    /** What is running now ("GUAZI", "GUAZI, AUTOWINI (dry run)"), or null. */
     public String running() {
-        return running.get();
+        return running.isEmpty() ? null : running.values().stream().sorted().collect(Collectors.joining(", "));
+    }
+
+    public boolean running(CarSource source) {
+        return running.containsKey(source);
     }
 
     void run(CarSource source, boolean dryRun) {
@@ -131,7 +163,6 @@ public class AutoImportRunner {
         if (search == null || s == null) {
             return;
         }
-        running.set(source + (dryRun ? " (dry run)" : ""));
         long runId = runs.start(source, dryRun);
         log.info("Auto-import {}{}: started", source, dryRun ? " (dry run)" : "");
         try {
@@ -145,8 +176,6 @@ public class AutoImportRunner {
         } catch (RuntimeException e) {
             log.warn("Auto-import {} failed", source, e);
             runs.finish(runId, new Result("FAILED", 0, 0, 0, 0, List.of(), e.toString()));
-        } finally {
-            running.set(null);
         }
     }
 
@@ -181,8 +210,10 @@ public class AutoImportRunner {
 
         // new, seen again, back
         Integer maxKm = settings.maxMileageKm();
+        Integer maxEur = priceLimit.maxEur();
         int newCount = 0;
         int overMileage = 0;
+        int overPrice = 0;
         int unpriced = 0;
         int returned = 0;
         for (FoundListing l : found.values()) {
@@ -192,12 +223,15 @@ public class AutoImportRunner {
             boolean back = car.map(c -> c.status() == CarStatus.REMOVED).orElse(false);
             boolean over = maxKm != null && l.mileageKm() != null && l.mileageKm() > maxKm;
             boolean priced = search.priced(l);
+            boolean tooDear = priced && priceLimit.over(l.price(), search.currency(), maxEur);
             if (known.isEmpty() && car.isEmpty() && !priced) {
                 unpriced++; // at the source, but nothing to import it with (an auction): not queued
                 continue;
             }
             if (car.isEmpty() && over) {
                 overMileage++;
+            } else if (car.isEmpty() && tooDear) {
+                overPrice++;
             } else if (known.isEmpty() && car.isEmpty()) {
                 newCount++;
             }
@@ -208,13 +242,14 @@ public class AutoImportRunner {
                 continue;
             }
             if (known.isPresent()) {
-                listings.seen(source, l, brandOf.get(l.id()), maxKm);
+                listings.seen(source, l, brandOf.get(l.id()), maxKm, tooDear);
             } else if (car.isPresent()) {
                 listings.insert(source, l, brandOf.get(l.id()), AutoImportListingRepository.IMPORTED,
                         car.get().id());
             } else {
-                listings.insert(source, l, brandOf.get(l.id()),
-                        over ? AutoImportListingRepository.SKIPPED : AutoImportListingRepository.QUEUED, null);
+                listings.insert(source, l, brandOf.get(l.id()), over ? AutoImportListingRepository.SKIPPED
+                        : tooDear ? AutoImportListingRepository.PRICE_SKIPPED : AutoImportListingRepository.QUEUED,
+                        null);
             }
             if (back) {
                 cars.restoreRemoved(car.get().id());
@@ -236,6 +271,9 @@ public class AutoImportRunner {
         }
         if (overMileage > 0) {
             notes.add(overMileage + " over " + maxKm + " km (not imported)");
+        }
+        if (overPrice > 0) {
+            notes.add(overPrice + " over " + maxEur + " EUR FOB (not imported)");
         }
         String status = complete.size() == brands.size() ? "DONE" : "INCOMPLETE";
         int gone = 0;
@@ -269,8 +307,9 @@ public class AutoImportRunner {
             purgeRemoved();
         }
         // the source's other cars (added by hand, or of makes not imported now)
-        Set<Long> covered = tracked.stream().map(Listing::carId).filter(java.util.Objects::nonNull)
-                .collect(Collectors.toSet());
+        // (every car the automatic import knows a listing of, also of makes not read whole this time: those are
+        // left for the next run, not searched again here as if added by hand)
+        Set<Long> covered = listings.carIds(source);
         ManualCheck manual = checkOtherCars(search, source, covered, dryRun, runId, notes);
         if (manual.stopped() && status.equals("DONE")) {
             status = "STOPPED";
