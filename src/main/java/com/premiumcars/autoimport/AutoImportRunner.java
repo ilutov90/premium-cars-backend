@@ -106,7 +106,7 @@ public class AutoImportRunner {
 
     /**
      * Each enabled source's run, side by side. A source whose previous run (the search, not its import queue) is
-     * still going on is left out tonight; its queue goes on being imported anyway (AutoImportWorker).
+     * still going on is left out tonight; its queue waits while the run reads the site (AutoImportWorker).
      */
     @Scheduled(cron = "${app.auto-import.cron:0 0 3 * * *}", zone = "Europe/Sofia")
     public void nightly() {
