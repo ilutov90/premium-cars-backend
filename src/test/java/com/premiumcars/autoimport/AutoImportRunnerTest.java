@@ -262,6 +262,9 @@ class AutoImportRunnerTest {
                     ? "QUEUED" : AutoImportListingRepository.NO_PRICE);
         }
         assertThat(listings.leftOutByBrand(CarSource.AUTOWINI)).containsEntry("C9993", 2);
+        var check = service.check(CarSource.AUTOWINI);
+        assertThat(check.cars()).isGreaterThanOrEqualTo(0);
+        assertThat(check.withoutListing()).isLessThanOrEqualTo(check.cars());
         // a new price at the source: read again
         search.results.put("C9993", List.of(dear, new FoundListing("pr2", cheap.url(), "Cheap",
                 new BigDecimal("21000"), null)));

@@ -21,7 +21,7 @@ final class CarSearchSql {
     /** Columns of {@code car} read by {@link CarRowMapper}, prefixed with the "c" alias. */
     static final String CAR_COLUMNS = """
             c.id, c.slug, c.status, c.source, c.source_url, c.source_ref, c.source_location,
-            c.title, c.make, c.model, c.trim_level, c.model_year, c.first_registration, c.mileage_km,
+            c.title, c.make, c.model, c.trim_level, c.model_year, c.mileage_km,
             c.fuel_type, c.transmission, c.drivetrain, c.engine_cc, c.engine, c.power_hp,
             c.battery_kwh, c.electric_range_km, c.range_standard, c.motor_power_kw, c.battery_health_pct,
             c.euro_standard,

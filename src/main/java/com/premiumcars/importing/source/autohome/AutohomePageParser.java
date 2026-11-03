@@ -76,7 +76,6 @@ public final class AutohomePageParser {
     private static final Pattern MONEY = Pattern.compile("(?:US\\s*)?\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PRICE_LABEL = Pattern.compile("^(selling\\s+)?price\\b", Pattern.CASE_INSENSITIVE);
-    private static final Pattern YEAR_MONTH = Pattern.compile("((?:19|20)\\d{2})[.\\-/年](\\d{1,2})");
     private static final Set<String> EMPTY_VALUES = Set.of("-", "--", "—", "/", "N/A");
 
     /**
@@ -157,7 +156,6 @@ public final class AutohomePageParser {
                 .model(parts.model())
                 .trim(parts.trim())
                 .year(year(f, page.title()))
-                .firstRegistration(yearMonth(f.get("reg_date")))
                 .mileageKm(ValueParsers.parseMileageKm(f.get("km")))
                 .fuelType(fuel)
                 .transmission(Transmission.detect(f.get("transmission")))
@@ -380,19 +378,6 @@ public final class AutohomePageParser {
             y = ValueParsers.parseYear(f.get("reg_date"));
         }
         return y;
-    }
-
-    /** "2020.10" -> "2020-10" */
-    static String yearMonth(String raw) {
-        String v = value(raw);
-        if (v == null) {
-            return null;
-        }
-        Matcher m = YEAR_MONTH.matcher(v);
-        if (m.find()) {
-            return m.group(1) + "-" + String.format("%02d", Integer.parseInt(m.group(2)));
-        }
-        return v;
     }
 
     /** "4980*1910*1495" -> "4980 × 1910 × 1495" */

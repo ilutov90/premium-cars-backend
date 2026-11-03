@@ -23,7 +23,6 @@ import jakarta.validation.constraints.Size;
  * and named setters keep them from being swapped. {@link Builder#build()} trims text, turns blanks into null and
  * cuts values to their column length.
  *
- * @param firstRegistration as shown by the source, normalized to "YYYY-MM" when possible
  * @param engineCc          displacement in cm³ (null for pure electric cars)
  * @param powerHp           total system power in metric hp
  * @param batteryKwh        traction battery capacity (electric, plug-in hybrid, range extender)
@@ -45,7 +44,6 @@ public record CarSpecs(
         @Size(max = 100) String model,
         @Size(max = 255) String trim,
         @Min(1950) @Max(2100) Integer year,
-        @Size(max = 20) String firstRegistration,
         @Min(0) @Max(2_000_000) Integer mileageKm,
         FuelType fuelType,
         Transmission transmission,
@@ -86,7 +84,7 @@ public record CarSpecs(
     public Builder toBuilder() {
         return new Builder()
                 .title(title).make(make).model(model).trim(trim)
-                .year(year).firstRegistration(firstRegistration).mileageKm(mileageKm)
+                .year(year).mileageKm(mileageKm)
                 .fuelType(fuelType).transmission(transmission).drivetrain(drivetrain)
                 .engineCc(engineCc).engine(engine).powerHp(powerHp)
                 .batteryKwh(batteryKwh).electricRangeKm(electricRangeKm).rangeStandard(rangeStandard)
@@ -104,7 +102,6 @@ public record CarSpecs(
         private String model;
         private String trim;
         private Integer year;
-        private String firstRegistration;
         private Integer mileageKm;
         private FuelType fuelType;
         private Transmission transmission;
@@ -138,7 +135,6 @@ public record CarSpecs(
         public Builder model(String v) { model = v; return this; }
         public Builder trim(String v) { trim = v; return this; }
         public Builder year(Integer v) { year = v; return this; }
-        public Builder firstRegistration(String v) { firstRegistration = v; return this; }
         public Builder mileageKm(Integer v) { mileageKm = v; return this; }
         public Builder fuelType(FuelType v) { fuelType = v; return this; }
         public Builder transmission(Transmission v) { transmission = v; return this; }
@@ -201,7 +197,6 @@ public record CarSpecs(
                     clean(model, 100),
                     clean(trim, 255),
                     year,
-                    clean(firstRegistration, 20),
                     mileageKm,
                     fuelType,
                     transmission,

@@ -37,7 +37,6 @@ final class CarRowMapper implements RowMapper<Car> {
                 .model(rs.getString("model"))
                 .trim(rs.getString("trim_level"))
                 .year(rs.getObject("model_year", Integer.class))
-                .firstRegistration(rs.getString("first_registration"))
                 .mileageKm(rs.getObject("mileage_km", Integer.class))
                 .fuelType(enumOf(FuelType.class, rs.getString("fuel_type")))
                 .transmission(enumOf(Transmission.class, rs.getString("transmission")))

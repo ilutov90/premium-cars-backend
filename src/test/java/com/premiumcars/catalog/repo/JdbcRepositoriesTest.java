@@ -233,7 +233,7 @@ class JdbcRepositoriesTest {
                 .fuelType(FuelType.PLUGIN_HYBRID).drivetrain(Drivetrain.AWD).engineCc(1998).powerHp(292)
                 .batteryKwh(new BigDecimal("19.7")).electricRangeKm(88).rangeStandard("WLTP").motorPowerKw(80)
                 .batteryHealthPct(93).bodyType("SUV").seats(5).doors(5).curbWeightKg(2190).dimensions("4708 × 1891 × 1676")
-                .firstRegistration("2022-04").color(" ").euroStandard(6)
+                .color(" ").euroStandard(6)
                 .extraSpecs(Map.of("Drive", "AWD", "Seats", "5"))
                 .features(List.of(CarFeature.NAVIGATION, CarFeature.ABS, CarFeature.NAVIGATION))
                 .sheet(null) // the admin panel does not send the imported sheet
@@ -258,7 +258,6 @@ class JdbcRepositoriesTest {
         assertThat(saved.engineCc()).isEqualTo(1998);
         assertThat(saved.seats()).isEqualTo(5);
         assertThat(saved.curbWeightKg()).isEqualTo(2190);
-        assertThat(saved.firstRegistration()).isEqualTo("2022-04");
         assertThat(saved.extraSpecs()).containsExactly(Map.entry("Drive", "AWD"), Map.entry("Seats", "5"));
         assertThat(saved.euroStandard()).isEqualTo(6);
         assertThat(saved.features()).containsExactly(CarFeature.ABS, CarFeature.NAVIGATION); // form order, no duplicates

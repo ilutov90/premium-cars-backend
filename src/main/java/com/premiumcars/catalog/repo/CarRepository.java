@@ -220,7 +220,7 @@ public class CarRepository {
         p.put("totalPriceEur", totalPriceEur);
         return jdbc.sql("""
                         INSERT INTO car (slug, status, source, source_url, source_ref, source_location,
-                                         title, make, model, trim_level, model_year, first_registration, mileage_km,
+                                         title, make, model, trim_level, model_year, mileage_km,
                                          fuel_type, transmission, drivetrain, engine_cc, engine, power_hp,
                                          battery_kwh, electric_range_km, range_standard, motor_power_kw,
                                          battery_health_pct, euro_standard,
@@ -229,7 +229,7 @@ public class CarRepository {
                                          source_price, source_currency, price_profile, profit_eur, fixed_total_eur,
                                          total_price_eur, created_at, updated_at)
                         VALUES (:slug, :status, :source, :sourceUrl, :sourceRef, :sourceLocation,
-                                :title, :make, :model, :trim, :year, :firstRegistration, :mileageKm,
+                                :title, :make, :model, :trim, :year, :mileageKm,
                                 :fuelType, :transmission, :drivetrain, :engineCc, :engine, :powerHp,
                                 :batteryKwh, :electricRangeKm, :rangeStandard, :motorPowerKw,
                                 :batteryHealthPct, :euroStandard,
@@ -255,7 +255,7 @@ public class CarRepository {
         int rows = jdbc.sql("""
                         UPDATE car SET
                             title = :title, make = :make, model = :model, trim_level = :trim,
-                            model_year = :year, first_registration = :firstRegistration, mileage_km = :mileageKm,
+                            model_year = :year, mileage_km = :mileageKm,
                             fuel_type = :fuelType, transmission = :transmission, drivetrain = :drivetrain,
                             engine_cc = :engineCc, engine = :engine, power_hp = :powerHp,
                             battery_kwh = :batteryKwh, electric_range_km = :electricRangeKm,
@@ -367,7 +367,6 @@ public class CarRepository {
         p.put("model", d.model());
         p.put("trim", d.trim());
         p.put("year", d.year());
-        p.put("firstRegistration", d.firstRegistration());
         p.put("mileageKm", d.mileageKm());
         p.put("fuelType", name(d.fuelType()));
         p.put("transmission", name(d.transmission()));

@@ -9,7 +9,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeSet;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.premiumcars.catalog.domain.Car;
@@ -47,7 +46,6 @@ public final class CarsBgMapper {
             DOORS_UNKNOWN,
             /** cars.bg's years end with this year (value: the car's year): this year was sent. */
             YEAR_ADJUSTED,
-            PRODUCTION_MONTH_UNKNOWN,
             NO_PRICE
         }
     }
@@ -142,7 +140,6 @@ public final class CarsBgMapper {
             Map.entry(CarFeature.SEVEN_SEATS, 40),
             Map.entry(CarFeature.REFRIGERATED, 41)));
 
-    private static final Pattern YEAR_MONTH = Pattern.compile("^((?:19|20)\\d{2})-(\\d{2})");
     private static final Pattern METALLIC = Pattern.compile("metallic|pearl|металик|перла");
 
     private CarsBgMapper() {
@@ -204,24 +201,13 @@ public final class CarsBgMapper {
             warnings.add(new Warning(Warning.Code.DOORS_UNKNOWN, null));
         }
 
-        // the first registration when the source gives it, else the model year; cars.bg's list ends this year
-        Integer month = null;
+        // the model year, January (the sources' month is not kept); cars.bg's list ends this year
         Integer year = s.year();
-        Matcher ym = s.firstRegistration() == null ? null : YEAR_MONTH.matcher(s.firstRegistration());
-        if (ym != null && ym.find()) {
-            int m = Integer.parseInt(ym.group(2));
-            if (m >= 1 && m <= 12) {
-                month = m;
-                year = Integer.valueOf(ym.group(1));
-            }
-        }
         if (year != null && year > maxYear) {
             warnings.add(new Warning(Warning.Code.YEAR_ADJUSTED, String.valueOf(year)));
             year = maxYear;
         }
-        if (month == null) {
-            warnings.add(new Warning(Warning.Code.PRODUCTION_MONTH_UNKNOWN, null));
-        }
+        Integer month = year == null ? null : 1;
 
         BigDecimal price = car.totalPriceEur() == null ? null
                 : car.totalPriceEur().setScale(0, RoundingMode.HALF_UP);

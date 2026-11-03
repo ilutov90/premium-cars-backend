@@ -114,6 +114,12 @@ public class AutoImportController {
         return service.fuels(source, brandCode, model, yearFrom);
     }
 
+    /** Our cars of the source against what the import knows (duplicates, stale cars). */
+    @GetMapping("/{source}/check")
+    public AutoImportListingRepository.CatalogCheck check(@PathVariable CarSource source) {
+        return service.check(source);
+    }
+
     @PostMapping("/{source}/preview")
     public Preview preview(@PathVariable CarSource source, @Valid @RequestBody SourceUpdate update) {
         return service.preview(source, update);

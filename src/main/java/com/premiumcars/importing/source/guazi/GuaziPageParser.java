@@ -56,8 +56,6 @@ public final class GuaziPageParser {
     /** "/products/byd-song-max-2021-...-68pfqu2abf.html" -> "68pfqu2abf" */
     private static final Pattern PRODUCT = Pattern.compile("/products/(?:[^/?#]*-)?([a-z0-9]{6,})\\.html",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern YEAR_MONTH = Pattern.compile("((?:19|20)\\d{2})[.\\-/](\\d{1,2})");
-    private static final Pattern YYYYMMDD = Pattern.compile("^((?:19|20)\\d{2})(\\d{2})\\d{2}$");
     private static final Pattern RANGE_STANDARD = Pattern.compile("\\b(CLTC|NEDC|WLTP|EPA)\\b", Pattern.CASE_INSENSITIVE);
     private static final Set<String> EMPTY_VALUES = Set.of("", "-", "--", "—", "/", "N/A", "null", "$undefined");
     private static final Set<String> NO = Set.of("no", "none", "not available", "optional", "○");
@@ -180,7 +178,6 @@ public final class GuaziPageParser {
                 .model(page.model())
                 .trim(trim(page.title(), page.make(), page.model(), year))
                 .year(year)
-                .firstRegistration(firstRegistration(f.get("reg_date"), page.licenseDate()))
                 .mileageKm(ValueParsers.parseMileageKm(f.get("km")))
                 .fuelType(fuel)
                 .transmission(Transmission.detect(f.get("transmission")))
@@ -573,25 +570,6 @@ public final class GuaziPageParser {
             return litres.multiply(BigDecimal.valueOf(1000)).intValue();
         }
         return null;
-    }
-
-    /** "2025.04" -> "2025-04"; else "20250414" (licence date) -> "2025-04". */
-    static String firstRegistration(String regDate, String licenseDate) {
-        String v = value(regDate);
-        if (v != null) {
-            Matcher m = YEAR_MONTH.matcher(v);
-            if (m.find()) {
-                return m.group(1) + "-" + String.format("%02d", Integer.parseInt(m.group(2)));
-            }
-        }
-        String l = value(licenseDate);
-        if (l != null) {
-            Matcher m = YYYYMMDD.matcher(l);
-            if (m.find()) {
-                return m.group(1) + "-" + m.group(2);
-            }
-        }
-        return v;
     }
 
     /** The title after make, model and year: "Long-Range All-Wheel-Drive Version". */
