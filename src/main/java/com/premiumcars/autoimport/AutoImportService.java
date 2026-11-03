@@ -173,6 +173,46 @@ public class AutoImportService {
         return out;
     }
 
+    /**
+     * Cars hidden by hand because the searches have not seen their listing for some days, when the runs cannot
+     * remove them (a make not read whole). Hidden as REMOVED: published again if the listing comes back, deleted
+     * after 30 days.
+     *
+     * @param posted the hidden cars posted through the panel (to take those posts down)
+     */
+    public record StaleHidden(int hidden, List<StalePosted> posted) {
+    }
+
+    public record StalePosted(long carId, String title, String slug,
+                              List<com.premiumcars.social.PostedChannels.Post> posts) {
+    }
+
+    public StaleHidden hideStale(CarSource source, int days) {
+        settingsOf(source);
+        if (days < 2) {
+            throw new BadRequestException("At least 2 days: a listing can be missing from one run");
+        }
+        if (runner.running(source)) {
+            throw new BadRequestException("A run of " + source + " is going on: wait until it ends");
+        }
+        List<Long> ids = listings.staleCarIds(source, days);
+        Map<Long, List<com.premiumcars.social.PostedChannels.Post>> posts = posted.of(ids);
+        int hidden = 0;
+        List<StalePosted> withPosts = new ArrayList<>();
+        for (Long id : ids) {
+            if (cars.markRemoved(id)) {
+                hidden++;
+                if (posts.containsKey(id)) {
+                    cars.findById(id).ifPresent(c -> withPosts.add(
+                            new StalePosted(id, c.specs().title(), c.slug(), posts.get(id))));
+                }
+            }
+        }
+        org.slf4j.LoggerFactory.getLogger(AutoImportService.class)
+                .info("{}: {} cars not seen for {} days hidden by hand", source, hidden, days);
+        return new StaleHidden(hidden, withPosts);
+    }
+
     /** Our cars of the source against the import's listings: stale ones, ones not from the import, look-alikes. */
     public AutoImportListingRepository.CatalogCheck check(CarSource source) {
         settingsOf(source);

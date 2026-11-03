@@ -120,6 +120,13 @@ public class AutoImportController {
         return service.check(source);
     }
 
+    /** Hides the cars whose listing the searches have not seen for {@code days} days (REMOVED, reversible). */
+    @PostMapping("/{source}/stale/hide")
+    public AutoImportService.StaleHidden hideStale(@PathVariable CarSource source,
+                                                   @RequestParam(defaultValue = "3") int days) {
+        return service.hideStale(source, days);
+    }
+
     /** Cars that are one listing more than once, and which one would stay. */
     @GetMapping("/{source}/duplicates")
     public AutoImportService.Duplicates duplicates(@PathVariable CarSource source) {
