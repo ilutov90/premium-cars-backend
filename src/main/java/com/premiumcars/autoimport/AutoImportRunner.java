@@ -465,7 +465,7 @@ public class AutoImportRunner {
             log.warn("Could not delete car {} gone from {}: {}", carId, source, e.toString());
             return false;
         }
-        runs.addRemoved(runId, source, carId, c.specs().title(), c.slug(), c.sourceUrl(), manual, posts);
+        runs.addRemoved(runId, source, null, c.specs().title(), c.slug(), c.sourceUrl(), manual, posts);
         return true;
     }
 

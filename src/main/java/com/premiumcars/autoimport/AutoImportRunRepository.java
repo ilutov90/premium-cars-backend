@@ -123,14 +123,14 @@ public class AutoImportRunRepository {
     }
 
     /** Notes a car the run hid; {@code runId} null outside a recorded run (tests). */
-    public void addRemoved(Long runId, CarSource source, long carId, String title, String slug, String sourceUrl,
+    public void addRemoved(Long runId, CarSource source, Long carId, String title, String slug, String sourceUrl,
                            boolean manual, List<PostedChannels.Post> posted) {
         try {
             jdbc.sql("""
                             INSERT INTO auto_import_removed (run_id, car_id, source, title, slug, source_url, manual, posted)
                             VALUES (:run, :carId, :source, :title, :slug, :url, :manual, CAST(:posted AS jsonb))""")
                     .param("run", runId, Types.BIGINT)
-                    .param("carId", carId)
+                    .param("carId", carId, Types.BIGINT)
                     .param("source", source.name())
                     .param("title", title == null || title.length() <= 300 ? title : title.substring(0, 300),
                             Types.VARCHAR)
