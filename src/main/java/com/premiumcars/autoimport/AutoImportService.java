@@ -43,14 +43,17 @@ public class AutoImportService {
     private final AutoImportListingRepository listings;
     private final AutoImportRunRepository runs;
     private final AutoImportRunner runner;
+    private final AutoImportWorker worker;
     private final Map<CarSource, SourceSearch> searches = new EnumMap<>(CarSource.class);
 
     public AutoImportService(AutoImportSettingsRepository settings, AutoImportListingRepository listings,
-                             AutoImportRunRepository runs, AutoImportRunner runner, List<SourceSearch> searches) {
+                             AutoImportRunRepository runs, AutoImportRunner runner, AutoImportWorker worker,
+                             List<SourceSearch> searches) {
         this.settings = settings;
         this.listings = listings;
         this.runs = runs;
         this.runner = runner;
+        this.worker = worker;
         searches.forEach(s -> this.searches.put(s.source(), s));
     }
 
@@ -62,7 +65,7 @@ public class AutoImportService {
                     .map(b -> new BrandView(b.code(), b.name(), b.enabled(), b.yearFrom(), b.models(),
                             b.excludedFuels())).toList();
             sources.add(new SourceView(s.source(), s.enabled(), s.filters(), brands,
-                    queues.getOrDefault(s.source().name(), Map.of())));
+                    queues.getOrDefault(s.source().name(), Map.of()), worker.pausedUntil(s.source())));
         }
         return new Overview(settings.enabled(), runner.running(), settings.maxMileageKm(), settings.maxPriceEur(),
                 sources,

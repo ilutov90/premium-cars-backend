@@ -1,5 +1,7 @@
 package com.premiumcars.autoimport;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,6 +25,7 @@ import com.premiumcars.catalog.web.dto.CarDtos.ImportResult;
 import com.premiumcars.importing.ImportService;
 import com.premiumcars.importing.MileageOverLimitException;
 import com.premiumcars.importing.NoPriceException;
+import com.premiumcars.importing.SourceBlockedException;
 
 /**
  * Imports the queued listings, each source's queue on its own thread (one listing at a time per source), with the
@@ -40,6 +43,8 @@ public class AutoImportWorker {
     static final int MAX_PHOTOS = 20;
     /** Pause between two imports, on top of the sites' own pacing. */
     private static final long PAUSE_MS = 1_000;
+    private static final long AUTOWINI_PAUSE_MS = 3_000;
+    private static final Duration MAX_REFUSAL_PAUSE = Duration.ofHours(4);
 
     private final AutoImportSettingsRepository settings;
     private final AutoImportListingRepository listings;
@@ -52,6 +57,9 @@ public class AutoImportWorker {
      */
     private final Map<CarSource, ExecutorService> executors = new ConcurrentHashMap<>();
     private final Set<CarSource> busy = ConcurrentHashMap.newKeySet();
+    /** A source that refused us (HTTP 403/429): its queue waits until then. */
+    private final Map<CarSource, Instant> pausedUntil = new ConcurrentHashMap<>();
+    private final Map<CarSource, Integer> refusals = new ConcurrentHashMap<>();
     private final PriceLimit priceLimit;
 
     public AutoImportWorker(AutoImportSettingsRepository settings, AutoImportListingRepository listings,
@@ -71,8 +79,8 @@ public class AutoImportWorker {
         }
         for (SourceSettings s : settings.sources()) {
             CarSource source = s.source();
-            if (!s.enabled() || !busy.add(source)) {
-                continue; // off, or still importing
+            if (!s.enabled() || paused(source) || !busy.add(source)) {
+                continue; // off, refused us lately, or still importing
             }
             try {
                 executors.computeIfAbsent(source, x -> Executors.newSingleThreadExecutor(r -> {
@@ -90,13 +98,14 @@ public class AutoImportWorker {
     /** Imports the source's queue one listing at a time until it is empty or the source is turned off. */
     void drain(CarSource source) {
         try {
-            while (settings.enabled() && settings.source(source).map(SourceSettings::enabled).orElse(false)) {
+            while (settings.enabled() && settings.source(source).map(SourceSettings::enabled).orElse(false)
+                    && !paused(source)) {
                 Optional<Listing> next = listings.nextQueued(List.of(source));
                 if (next.isEmpty()) {
                     break;
                 }
                 importOne(next.get());
-                Thread.sleep(PAUSE_MS);
+                Thread.sleep(pauseMs(source));
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -105,6 +114,33 @@ public class AutoImportWorker {
         } finally {
             busy.remove(source);
         }
+    }
+
+    /** When the source's queue goes on again after the site refused us; null when it is not paused. */
+    public Instant pausedUntil(CarSource source) {
+        Instant until = pausedUntil.get(source);
+        return until != null && until.isAfter(Instant.now()) ? until : null;
+    }
+
+    private boolean paused(CarSource source) {
+        return pausedUntil(source) != null;
+    }
+
+    /** autowini's pages sit behind a bot protection that refuses a server reading them too fast. */
+    static long pauseMs(CarSource source) {
+        return source == CarSource.AUTOWINI ? AUTOWINI_PAUSE_MS : PAUSE_MS;
+    }
+
+    /** The site refused us: 15 minutes, then twice as long each time in a row, at most 4 hours. */
+    void refused(CarSource source, SourceBlockedException e) {
+        int n = refusals.merge(source, 1, Integer::sum);
+        Duration wait = Duration.ofMinutes(15).multipliedBy(1L << Math.min(n - 1, 4));
+        if (wait.compareTo(MAX_REFUSAL_PAUSE) > 0) {
+            wait = MAX_REFUSAL_PAUSE;
+        }
+        pausedUntil.put(source, Instant.now().plus(wait));
+        log.warn("Auto-import {}: the site refused us ({}), queue paused for {} min", source, e.getMessage(),
+                wait.toMinutes());
     }
 
     void importOne(Listing l) {
@@ -137,8 +173,14 @@ public class AutoImportWorker {
                 }
             }
             listings.imported(l.source(), l.listingId(), car.id(), note);
+            refusals.remove(l.source());
             log.info("Auto-import {} {}: car {}{}", l.source(), l.listingId(), car.id(),
                     note == null ? " published" : " — " + note);
+        } catch (SourceBlockedException e) {
+            // not the listing's fault: it stays queued, the source's queue waits
+            listings.retryLater(l.source(), l.listingId(), e.getMessage());
+            refused(l.source(), e);
+            return;
         } catch (NoPriceException e) {
             listings.noPrice(l.source(), l.listingId(), e.getMessage());
             log.info("Auto-import {} {}: no FOB price", l.source(), l.listingId());

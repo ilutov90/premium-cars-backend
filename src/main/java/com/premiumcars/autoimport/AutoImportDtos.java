@@ -48,10 +48,11 @@ public final class AutoImportDtos {
     /**
      * One source's settings and queue.
      *
-     * @param queue listings per state: QUEUED, IMPORTED, FAILED
+     * @param queue       listings per state: QUEUED, IMPORTED, FAILED
+     * @param pausedUntil the site refused us (HTTP 403/429): its queue waits until then; null when not paused
      */
     public record SourceView(CarSource source, boolean enabled, SourceFilters filters, List<BrandView> brands,
-                             Map<String, Integer> queue) {
+                             Map<String, Integer> queue, Instant pausedUntil) {
     }
 
     /** @param excludedFuels the whole make's fuel types not imported (no model chosen) */
