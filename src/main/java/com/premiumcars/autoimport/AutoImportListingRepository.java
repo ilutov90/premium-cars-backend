@@ -42,18 +42,19 @@ public class AutoImportListingRepository {
 
     public record Listing(CarSource source, String listingId, String url, String brandCode, String title,
                           BigDecimal price, String state, int attempts, String lastError, int missedPasses,
-                          Long carId, Integer mileageKm, Instant updatedAt) {
+                          Long carId, Integer mileageKm, Instant updatedAt, Instant lastSeen) {
     }
 
     private static final String COLUMNS = "source, listing_id, url, brand_code, title, price, state, attempts,"
-            + " last_error, missed_passes, car_id, mileage_km, updated_at";
+            + " last_error, missed_passes, car_id, mileage_km, updated_at, last_seen";
 
     private static final RowMapper<Listing> MAPPER = (rs, n) -> new Listing(
             CarSource.valueOf(rs.getString("source")), rs.getString("listing_id"), rs.getString("url"),
             rs.getString("brand_code"), rs.getString("title"), rs.getBigDecimal("price"), rs.getString("state"),
             rs.getInt("attempts"), rs.getString("last_error"), rs.getInt("missed_passes"),
             rs.getObject("car_id", Long.class), rs.getObject("mileage_km", Integer.class),
-            rs.getObject("updated_at", OffsetDateTime.class).toInstant());
+            rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
+            rs.getObject("last_seen", OffsetDateTime.class).toInstant());
 
     private final JdbcClient jdbc;
 
@@ -225,11 +226,14 @@ public class AutoImportListingRepository {
         return jdbc.sql(sql).param("source", source.name()).query(Integer.class).single();
     }
 
-    /** Our cars (on the site or drafts) whose listing the searches have not seen for {@code days} days or more. */
+    /**
+     * Our cars (on the site or drafts; reserved ones are left alone) whose listing the searches have not seen for
+     * {@code days} days or more.
+     */
     public List<Long> staleCarIds(CarSource source, int days) {
         return jdbc.sql("""
                         SELECT c.id FROM car c
-                        WHERE c.source = :source AND c.status IN ('PUBLISHED', 'RESERVED', 'DRAFT')
+                        WHERE c.source = :source AND c.status IN ('PUBLISHED', 'DRAFT', 'REMOVED')
                           AND EXISTS (SELECT 1 FROM auto_import_listing l WHERE l.source = c.source
                                       AND l.car_id = c.id AND l.last_seen < now() - make_interval(days => :days))
                         ORDER BY c.id""")
@@ -278,6 +282,11 @@ public class AutoImportListingRepository {
                 .param("source", source.name())
                 .param("id", listingId)
                 .update();
+    }
+
+    /** The listing rows of a car (before it is deleted because its listing is gone). */
+    public void deleteOfCar(long carId) {
+        jdbc.sql("DELETE FROM auto_import_listing WHERE car_id = :id").param("id", carId).update();
     }
 
     public void delete(CarSource source, String listingId) {
@@ -367,27 +376,6 @@ public class AutoImportListingRepository {
                         ON CONFLICT (car_id) DO UPDATE SET missed_passes = 0, last_checked = now()""")
                 .param("id", carId)
                 .update();
-    }
-
-    /** It was missing once more. @return how many runs in a row it was missing */
-    public int manualMissed(long carId) {
-        return jdbc.sql("""
-                        INSERT INTO auto_import_manual_check (car_id, missed_passes, last_checked) VALUES (:id, 1, now())
-                        ON CONFLICT (car_id) DO UPDATE SET missed_passes = auto_import_manual_check.missed_passes + 1,
-                            last_checked = now()
-                        RETURNING missed_passes""")
-                .param("id", carId)
-                .query(Integer.class)
-                .single();
-    }
-
-    /** How many runs in a row it was missing so far (a dry run reads, never writes). */
-    public int manualMissedSoFar(long carId) {
-        return jdbc.sql("SELECT missed_passes FROM auto_import_manual_check WHERE car_id = :id")
-                .param("id", carId)
-                .query(Integer.class)
-                .optional()
-                .orElse(0);
     }
 
     /** A reason of the failures with how many listings failed for it (URLs and numbers left out to group them). */

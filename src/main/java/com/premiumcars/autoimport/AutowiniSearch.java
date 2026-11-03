@@ -172,13 +172,13 @@ public class AutowiniSearch implements SourceSearch {
                 unit.forEach(found);
             }
         } catch (SearchException e) {
-            return new BrandPass(brand.code(), brand.name(), expected, seen.size(), false, e.getMessage());
+            return new BrandPass(brand.code(), brand.name(), expected, seen.size(), false, e.getMessage(), true);
         }
         // listings come and go while the pages are read: a few may slip between pages (the removal needs two
         // missed runs in a row, see AutoImportRunner)
         boolean complete = seen.size() >= expected * 0.98;
         return new BrandPass(brand.code(), brand.name(), expected, seen.size(), complete,
-                complete ? null : "read " + seen.size() + " of " + expected);
+                complete ? null : "read " + seen.size() + " of " + expected, false);
     }
 
     /** One search: its query and the fuel types it leaves out. */

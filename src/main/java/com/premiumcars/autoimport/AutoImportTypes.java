@@ -79,9 +79,11 @@ public final class AutoImportTypes {
      *
      * @param expected the source's total for the make (its search's count)
      * @param found    distinct listings read
-     * @param complete every result was read: only then can missing listings count as gone
+     * @param complete every result was read: a listing missing from it is gone
+     * @param failed   the site stopped answering: nothing of the make counts as gone
      */
-    public record BrandPass(String code, String name, int expected, int found, boolean complete, String error) {
+    public record BrandPass(String code, String name, int expected, int found, boolean complete, String error,
+                            boolean failed) {
     }
 
     /**

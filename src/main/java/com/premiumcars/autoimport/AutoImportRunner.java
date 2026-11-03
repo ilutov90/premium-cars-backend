@@ -45,16 +45,19 @@ import com.premiumcars.social.PostedChannels;
  * <ul>
  *   <li>queues the new ones ({@link AutoImportWorker} imports them), except those over the mileage limit when the
  *       search shows their mileage (kept as SKIPPED), and links listings of cars already in our
- *       catalog (also ones imported by hand), publishing again a car hidden as REMOVED whose listing is back;</li>
- *   <li>hides (REMOVED) the cars whose listing was missing in {@value #MISSES_TO_REMOVE} runs in a row, counting
- *       only makes read whole: a listing can slip between result pages while the site changes;</li>
- *   <li>stops without removing anything when more than {@value #MAX_GONE_PERCENT}% of a source's cars would go
+ *       catalog (also ones imported by hand);</li>
+ *   <li>deletes the cars whose listing is gone: missing from a make read whole, or, in a make the site did not
+ *       show whole (more results than it serves), not seen for {@value #STALE_DAYS} days; a make the site stopped
+ *       answering for counts nothing as gone. A gone listing does not come back (guazi relists under another link
+ *       and id). Reserved, sold and archived cars are kept;</li>
+ *   <li>stops without deleting anything when more than {@value #MAX_GONE_PERCENT}% of a source's cars would go
  *       (a site change or a bad night), and e-mails the admin;</li>
  *   <li>checks the source's cars not covered by those listings (added by hand, or of makes no longer imported):
- *       their make is searched without the import's filters, and one missing in {@value #MISSES_TO_REMOVE} runs
- *       in a row is hidden too (same guard);</li>
- *   <li>notes every car it hides with where it was posted (Facebook, Instagram, Viber, mobile.bg);</li>
- *   <li>deletes the cars hidden for {@value #KEEP_REMOVED_DAYS} days.</li>
+ *       their make is searched without the import's filters (by link or listing id), and one missing is deleted
+ *       too (same guard);</li>
+ *   <li>notes every car it deletes with where it was posted (Facebook, Instagram, Viber, mobile.bg, cars.bg), to
+ *       take those posts down;</li>
+ *   <li>deletes the cars an earlier version hid as REMOVED.</li>
  * </ul>
  * A dry run only counts. Runs go one at a time, nightly at 03:00 Sofia time (guazi first) while the main switch is
  * on, or when an admin starts one.
@@ -64,11 +67,14 @@ public class AutoImportRunner {
 
     private static final Logger log = LoggerFactory.getLogger(AutoImportRunner.class);
 
-    static final int MISSES_TO_REMOVE = 2;
+    /** In a make not read whole, a listing not seen for this long is gone. */
+    static final int STALE_DAYS = 2;
     static final int MAX_GONE_PERCENT = 20;
     /** Below this many removals the share does not matter (a small make losing a few cars is normal). */
     static final int GUARD_MIN = 20;
-    static final int KEEP_REMOVED_DAYS = 30;
+    /** The statuses a gone listing deletes; reserved, sold and archived cars stay. */
+    static final Set<CarStatus> DELETED_WHEN_GONE =
+            java.util.EnumSet.of(CarStatus.PUBLISHED, CarStatus.DRAFT, CarStatus.REMOVED);
 
     private final Map<CarSource, SourceSearch> searches = new EnumMap<>(CarSource.class);
     private final AutoImportSettingsRepository settings;
@@ -194,6 +200,9 @@ public class AutoImportRunner {
     Result pass(SourceSearch search, SourceSettings s, boolean dryRun, Long runId) {
         CarSource source = s.source();
         List<Brand> brands = settings.brands(source).stream().filter(Brand::enabled).toList();
+        if (!dryRun) {
+            purgeRemoved();
+        }
         Map<String, FoundListing> found = new LinkedHashMap<>();
         Map<String, String> brandOf = new HashMap<>();
         List<BrandPass> passes = new ArrayList<>();
@@ -206,6 +215,8 @@ public class AutoImportRunner {
             passes.add(p);
         }
         Set<String> complete = passes.stream().filter(BrandPass::complete).map(BrandPass::code)
+                .collect(Collectors.toSet());
+        Set<String> answered = passes.stream().filter(p -> !p.failed()).map(BrandPass::code)
                 .collect(Collectors.toSet());
 
         // new, seen again, back
@@ -257,16 +268,19 @@ public class AutoImportRunner {
             }
         }
 
-        // gone: only makes read whole
-        List<Listing> tracked = listings.ofBrands(source, complete);
+        // gone: missing from a make read whole, or not seen for days in a make the site did not show whole
+        Instant staleBefore = Instant.now().minus(Duration.ofDays(STALE_DAYS));
+        List<Listing> tracked = listings.ofBrands(source, answered);
         List<Listing> missing = tracked.stream().filter(l -> !found.containsKey(l.listingId())).toList();
-        List<Listing> toRemove = missing.stream().filter(l -> l.missedPasses() + 1 >= MISSES_TO_REMOVE).toList();
-        long carsToHide = toRemove.stream().filter(l -> l.carId() != null).count();
+        List<Listing> toRemove = missing.stream()
+                .filter(l -> complete.contains(l.brandCode()) || l.lastSeen().isBefore(staleBefore)).toList();
+        long carsToDelete = toRemove.stream().filter(l -> l.carId() != null).count();
 
         List<String> notes = new ArrayList<>();
         passes.stream().filter(p -> !p.complete())
                 .forEach(p -> notes.add(p.name() + ": " + (p.error() == null ? "not read whole" : p.error())
-                        + " (nothing of it removed)"));
+                        + (p.failed() ? " (nothing of it removed)"
+                                : " (only listings not seen for " + STALE_DAYS + " days removed)")));
         if (unpriced > 0) {
             notes.add(unpriced + " without a price (auctions): not imported");
         }
@@ -290,22 +304,27 @@ public class AutoImportRunner {
             }
         } else if (dryRun) {
             gone = toRemove.size();
-            if (missing.size() > toRemove.size()) {
-                notes.add((missing.size() - toRemove.size()) + " missing for the first time (removed if missing again)");
-            }
         } else {
+            Set<String> removing = toRemove.stream().map(Listing::listingId).collect(Collectors.toSet());
+            int kept = 0;
             for (Listing l : missing) {
-                if (l.missedPasses() + 1 < MISSES_TO_REMOVE) {
+                if (!removing.contains(l.listingId())) {
                     listings.missed(source, l.listingId());
                     continue;
                 }
-                if (l.carId() != null && cars.markRemoved(l.carId())) {
-                    noteRemoved(runId, source, l.carId(), false);
+                if (l.carId() != null && !deleteGone(runId, source, l.carId(), false)) {
+                    kept++;
                 }
                 listings.delete(source, l.listingId());
                 gone++;
             }
-            purgeRemoved();
+            if (kept > 0) {
+                notes.add(kept + " gone from the source but kept (reserved, sold or archived)");
+            }
+        }
+        if (missing.size() > toRemove.size()) {
+            notes.add((missing.size() - toRemove.size()) + " not seen this time in makes not read whole (removed after "
+                    + STALE_DAYS + " days)");
         }
         // the source's other cars (added by hand, or of makes not imported now)
         // (every car the automatic import knows a listing of, also of makes not read whole this time: those are
@@ -317,7 +336,7 @@ public class AutoImportRunner {
         }
 
         if (dryRun) {
-            notes.add(0, "dry run: nothing was changed; " + carsToHide + " of the would-be removed are in our catalog");
+            notes.add(0, "dry run: nothing was changed; " + carsToDelete + " of the would-be removed are in our catalog");
         }
         return new Result(status, found.size(), newCount, gone, returned + manual.returned(), passes,
                 notes.isEmpty() ? null : String.join("; ", notes), manual.checked(), manual.gone());
@@ -329,16 +348,15 @@ public class AutoImportRunner {
     }
 
     /**
-     * The source's cars not covered by the listings of makes read whole: their make (as the source names it) is
-     * searched from the oldest car's year, without the import's filters. A car missing in {@value #MISSES_TO_REMOVE}
-     * runs in a row is hidden; one back is published again. Makes not read whole, or not in the source's list, are
-     * left alone.
+     * The source's cars not covered by the import's listings: their make (as the source names it) is searched from
+     * the oldest car's year, without the import's filters. A car missing (by its link and its listing id) is
+     * deleted. Makes not read whole, or not in the source's list, are left alone.
      */
     ManualCheck checkOtherCars(SourceSearch search, CarSource source, Set<Long> covered, boolean dryRun, Long runId,
                                List<String> notes) {
         List<CheckedCar> others = cars.findForSourceCheck(source).stream()
                 .filter(c -> !covered.contains(c.id()))
-                .filter(c -> CHECKED_STATUSES.contains(c.status()))
+                .filter(c -> DELETED_WHEN_GONE.contains(c.status()))
                 .toList();
         if (others.isEmpty()) {
             return new ManualCheck(0, 0, 0, false);
@@ -363,10 +381,14 @@ public class AutoImportRunner {
             int yearFrom = group.getValue().stream().map(CheckedCar::year).filter(java.util.Objects::nonNull)
                     .mapToInt(Integer::intValue).min().orElse(1990);
             Set<String> urls = new HashSet<>();
+            Set<String> ids = new HashSet<>();
             String incomplete = null;
             for (CatalogBrand make : makes) {
                 BrandPass p = search.list(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
-                        List.of()), NO_FILTERS, l -> urls.add(l.url()));
+                        List.of()), NO_FILTERS, l -> {
+                            urls.add(l.url());
+                            ids.add(l.id().toLowerCase(java.util.Locale.ROOT));
+                        });
                 if (!p.complete()) {
                     incomplete = make.name() + ": " + (p.error() == null ? "not read whole" : p.error());
                     break;
@@ -378,24 +400,15 @@ public class AutoImportRunner {
             }
             for (CheckedCar c : group.getValue()) {
                 checked++;
-                if (urls.contains(c.sourceUrl())) {
+                boolean there = urls.contains(c.sourceUrl())
+                        || (c.sourceRef() != null && ids.contains(c.sourceRef().toLowerCase(java.util.Locale.ROOT)));
+                if (there) {
                     if (!dryRun) {
                         listings.manualSeen(c.id());
-                        if (c.status() == CarStatus.REMOVED && cars.restoreRemoved(c.id())) {
-                            returned++;
-                        }
-                    } else if (c.status() == CarStatus.REMOVED) {
-                        returned++;
                     }
                     continue;
                 }
-                if (c.status() == CarStatus.REMOVED) {
-                    continue; // hidden already
-                }
-                int missed = dryRun ? listings.manualMissedSoFar(c.id()) + 1 : listings.manualMissed(c.id());
-                if (missed >= MISSES_TO_REMOVE) {
-                    toRemove.add(c);
-                }
+                toRemove.add(c);
             }
         }
         if (unknownMake > 0) {
@@ -412,11 +425,8 @@ public class AutoImportRunner {
         }
         int gone = 0;
         for (CheckedCar c : toRemove) {
-            if (dryRun) {
+            if (dryRun || deleteGone(runId, source, c.id(), true)) {
                 gone++;
-            } else if (cars.markRemoved(c.id())) {
-                gone++;
-                noteRemoved(runId, source, c.id(), true);
             }
         }
         if (checked > 0) {
@@ -426,23 +436,42 @@ public class AutoImportRunner {
         return new ManualCheck(checked, gone, returned, false);
     }
 
-    /** Statuses a check can change: hidden (from these three) or published again (REMOVED). */
-    private static final Set<CarStatus> CHECKED_STATUSES =
-            java.util.EnumSet.of(CarStatus.PUBLISHED, CarStatus.RESERVED, CarStatus.DRAFT, CarStatus.REMOVED);
-
     private static String key(String name) {
         return name == null ? "" : name.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[\\s-]+", " ");
     }
 
-    /** The run's report: a hidden car with where it was posted, to take those posts down. */
-    private void noteRemoved(Long runId, CarSource source, long carId, boolean manual) {
-        cars.findById(carId).ifPresent(c -> runs.addRemoved(runId, source, carId, c.specs().title(), c.slug(),
-                c.sourceUrl(), manual, posted.of(carId)));
+    /**
+     * Deletes a car whose listing is gone (its photos too) and notes it in the run's report with where it was
+     * posted, taken before the delete (the posts go with the car), to take those posts down. A reserved, sold or
+     * archived car is kept.
+     *
+     * @param runId the run, or null (deleted by hand)
+     * @return false when the car was kept or could not be deleted
+     */
+    boolean deleteGone(Long runId, CarSource source, long carId, boolean manual) {
+        Optional<Car> car = cars.findById(carId);
+        if (car.isEmpty()) {
+            return true; // deleted already (one car, two listing rows)
+        }
+        if (!DELETED_WHEN_GONE.contains(car.get().status())) {
+            return false;
+        }
+        Car c = car.get();
+        List<PostedChannels.Post> posts = posted.of(carId);
+        try {
+            listings.deleteOfCar(carId);
+            carService.delete(carId);
+        } catch (RuntimeException e) {
+            log.warn("Could not delete car {} gone from {}: {}", carId, source, e.toString());
+            return false;
+        }
+        runs.addRemoved(runId, source, null, c.specs().title(), c.slug(), c.sourceUrl(), manual, posts);
+        return true;
     }
 
-    /** Deletes the cars hidden as REMOVED for {@value #KEEP_REMOVED_DAYS} days (their photos too). */
+    /** Deletes the cars an earlier version hid as REMOVED (they were noted when hidden). */
     void purgeRemoved() {
-        for (Long id : cars.findRemovedBefore(Instant.now().minus(Duration.ofDays(KEEP_REMOVED_DAYS)))) {
+        for (Long id : cars.findRemovedBefore(Instant.now())) {
             try {
                 carService.delete(id);
             } catch (RuntimeException e) {

@@ -133,11 +133,11 @@ public class GuaziSearch implements SourceSearch {
                 }
             }
         } catch (SearchException e) {
-            return new BrandPass(brand.code(), brand.name(), expected, seen.size(), false, e.getMessage());
+            return new BrandPass(brand.code(), brand.name(), expected, seen.size(), false, e.getMessage(), true);
         }
         complete = complete && seen.size() >= expected * 0.98;
         return new BrandPass(brand.code(), brand.name(), expected, seen.size(), complete,
-                complete ? null : "read " + seen.size() + " of " + expected);
+                complete ? null : "read " + seen.size() + " of " + expected, false);
     }
 
     /** Auctions show guazi's stand-in price ("$9,999,999"): not imported, but still at the source. */

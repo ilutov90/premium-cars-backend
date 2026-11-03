@@ -30,6 +30,7 @@ import com.premiumcars.autoimport.AutoImportTypes.CatalogModel;
 import com.premiumcars.autoimport.AutoImportTypes.FoundListing;
 import com.premiumcars.autoimport.AutoImportTypes.SourceFilters;
 import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.common.NotFoundException;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.service.CarService;
@@ -38,7 +39,8 @@ import com.premiumcars.social.PostedChannels;
 
 /**
  * The run's bookkeeping against PostgreSQL 17 in Docker, with a made-up search instead of the sites: new listings
- * queued, cars imported by hand linked, removal after two missed runs, return, the 20 % guard, incomplete makes.
+ * queued, cars imported by hand linked, deleted once their listing is gone (with the report), the 20 % guard,
+ * incomplete makes.
  */
 @SpringBootTest
 @Testcontainers(disabledWithoutDocker = true)
@@ -102,7 +104,7 @@ class AutoImportRunnerTest {
             List<FoundListing> list = results.getOrDefault(brand.code(), List.of());
             list.forEach(found);
             boolean whole = complete.getOrDefault(brand.code(), true);
-            return new BrandPass(brand.code(), brand.name(), list.size(), list.size(), whole, whole ? null : "cut");
+            return new BrandPass(brand.code(), brand.name(), list.size(), list.size(), whole, whole ? null : "cut", false);
         }
     }
 
@@ -149,32 +151,35 @@ class AutoImportRunnerTest {
         assertThat(listings.nextQueued(List.of(CarSource.GUAZI, CarSource.AUTOWINI)).orElseThrow().listingId())
                 .isEqualTo("bbb2");
 
-        // aaa1 gone once: kept; gone twice: hidden
+        // a reserved car of the source is kept when its listing goes
+        var reserved = carService.createDraft(new ImportedCar("rrr3", null, CarSpecs.builder().title("BYD Han").build(),
+                new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI, listing("rrr3").url());
+        carService.changeStatus(reserved.id(), CarStatus.RESERVED);
+        search.results.put("1212", List.of(listing("aaa1"), listing("bbb2"), listing("rrr3")));
+        runner.pass(search, GUAZI, false);
+
+        // aaa1 and rrr3 gone: aaa1's car deleted at once and noted, the reserved one kept
         search.results.put("1212", List.of(listing("bbb2")));
-        Result once = runner.pass(search, GUAZI, false);
-        assertThat(once.goneCount()).isZero();
-        assertThat(carService.getAdmin(manual.id()).status()).isEqualTo(CarStatus.PUBLISHED);
-        Result twice = runner.pass(search, GUAZI, false);
-        assertThat(twice.goneCount()).isEqualTo(1);
-        assertThat(carService.getAdmin(manual.id()).status()).isEqualTo(CarStatus.REMOVED);
+        long runId = runs.start(CarSource.GUAZI, false);
+        Result once = runner.pass(search, GUAZI, false, runId);
+        assertThat(once.goneCount()).isEqualTo(2);
+        assertThatThrownBy(() -> carService.getAdmin(manual.id())).isInstanceOf(NotFoundException.class);
+        assertThat(carService.getAdmin(reserved.id()).status()).isEqualTo(CarStatus.RESERVED);
         assertThat(listings.find(CarSource.GUAZI, "aaa1")).isEmpty();
+        assertThat(runs.removed(runId)).singleElement()
+                .satisfies(r -> assertThat(r.title()).isEqualTo("BYD Seal"))
+                .satisfies(r -> assertThat(r.carId()).isNull()); // the car is gone, the report stays
+        carService.delete(reserved.id());
 
-        // back at the source: published again
-        search.results.put("1212", List.of(listing("aaa1"), listing("bbb2")));
-        Result back = runner.pass(search, GUAZI, false);
-        assertThat(back.returnedCount()).isEqualTo(1);
-        assertThat(back.newCount()).isZero();
-        assertThat(carService.getAdmin(manual.id()).status()).isEqualTo(CarStatus.PUBLISHED);
-        assertThat(listings.find(CarSource.GUAZI, "aaa1").orElseThrow().carId()).isEqualTo(manual.id());
-
-        // a make not read whole: nothing of it counts as gone
+        // a make not read whole: a listing not seen this time stays (it goes after STALE_DAYS days unseen)
+        search.results.put("1212", List.of(listing("ccc4")));
+        runner.pass(search, GUAZI, false);
         search.results.put("1212", List.of());
         search.complete.put("1212", false);
-        runner.pass(search, GUAZI, false);
         Result cut = runner.pass(search, GUAZI, false);
         assertThat(cut.status()).isEqualTo("INCOMPLETE");
         assertThat(cut.goneCount()).isZero();
-        assertThat(carService.getAdmin(manual.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        assertThat(listings.find(CarSource.GUAZI, "ccc4")).isPresent();
         search.complete.remove("1212");
 
         // the guard: most listings vanish at once -> nothing removed
@@ -183,10 +188,9 @@ class AutoImportRunnerTest {
             many.add(listing("g" + i));
         }
         search.results.put("1292", many);
-        search.results.put("1212", List.of(listing("aaa1"), listing("bbb2")));
+        search.results.put("1212", List.of(listing("bbb2"), listing("ccc4")));
         runner.pass(search, GUAZI, false);
         search.results.remove("1292");
-        runner.pass(search, GUAZI, false); // missed once
         Result stopped = runner.pass(search, GUAZI, false);
         assertThat(stopped.status()).isEqualTo("STOPPED");
         assertThat(stopped.goneCount()).isZero();
@@ -321,15 +325,15 @@ class AutoImportRunnerTest {
     }
 
     @Test
-    void carsNotSeenForDaysCanBeHiddenByHand() {
-        assertThatThrownBy(() -> service.hideStale(CarSource.GUAZI, 1))
+    void carsNotSeenForDaysCanBeDeletedByHand() {
+        assertThatThrownBy(() -> service.deleteStale(CarSource.GUAZI, 1))
                 .isInstanceOf(com.premiumcars.common.BadRequestException.class);
-        var hidden = service.hideStale(CarSource.GUAZI, 3); // nothing that old in this database
-        assertThat(hidden.hidden()).isGreaterThanOrEqualTo(0);
+        var deleted = service.deleteStale(CarSource.GUAZI, 3); // nothing that old in this database
+        assertThat(deleted.deleted()).isGreaterThanOrEqualTo(0);
     }
 
     @Test
-    void carsAddedByHandAreCheckedByTheirMakeAndHiddenWhenGoneTwice() {
+    void carsAddedByHandAreCheckedByTheirMakeAndDeletedWhenGone() {
         settings.saveCatalog(CarSource.GUAZI, List.of(new CatalogBrand("777", "Testmake", null)));
         String url = "https://en.guazi.com/products/test-car-hand1.html";
         var car = carService.createDraft(new ImportedCar("hand1", null, CarSpecs.builder().title("Testmake X 2023")
@@ -345,25 +349,24 @@ class AutoImportRunnerTest {
         assertThat(present.manualGone()).isZero();
         assertThat(listings.find(CarSource.GUAZI, "hand1")).isEmpty(); // not queued: it is in the catalog
 
+        // found by its listing id under another link (guazi's link changes with the km): still there
+        search.results.put("777", List.of(new FoundListing("hand1",
+                "https://en.guazi.com/products/test-car-12000km-hand1.html", "Testmake X", new BigDecimal("15000"),
+                null)));
+        assertThat(runner.pass(search, GUAZI, false).manualGone()).isZero();
+
         search.results.put("777", List.of());
-        assertThat(runner.pass(search, GUAZI, true).manualGone()).isZero(); // a dry run: missing once so far
-        runner.pass(search, GUAZI, false); // missing once
+        assertThat(runner.pass(search, GUAZI, true).manualGone()).isEqualTo(1); // a dry run only counts
         assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.PUBLISHED);
         long runId = runs.start(CarSource.GUAZI, false);
-        Result gone = runner.pass(search, GUAZI, false, runId); // missing twice
+        Result gone = runner.pass(search, GUAZI, false, runId);
         assertThat(gone.manualGone()).isEqualTo(1);
-        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.REMOVED);
+        assertThatThrownBy(() -> carService.getAdmin(car.id())).isInstanceOf(NotFoundException.class);
         assertThat(runs.removed(runId)).singleElement()
                 .satisfies(r -> assertThat(r.manual()).isTrue())
                 .satisfies(r -> assertThat(r.title()).isEqualTo("Testmake X 2023"))
                 .satisfies(r -> assertThat(r.posted()).extracting(PostedChannels.Post::network)
                         .containsExactly("MOBILE_BG"));
-
-        // back at the source: published again
-        search.results.put("777", List.of(listing("hand1")));
-        runner.pass(search, GUAZI, false);
-        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.PUBLISHED);
-        carService.delete(car.id());
     }
 
     @Test
