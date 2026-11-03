@@ -30,8 +30,8 @@ import com.premiumcars.importing.SourceBlockedException;
 /**
  * Imports the queued listings, each source's queue on its own thread (one listing at a time per source), with the
  * same code as an import by hand but {@value #MAX_PHOTOS} photos, and publishes each car. A car without photos stays a
- * draft; a listing without a FOB price is not saved (NO_PRICE: tried again next run, until it was so
- * {@value AutoImportListingRepository#NO_PRICE_RUNS} runs in a row); one over the mileage limit or the highest price
+ * draft; a listing without a FOB price is not saved and never read again (NO_PRICE); one over the mileage limit or
+ * the highest price
  * is not saved at all (SKIPPED, PRICE_SKIPPED). Works while the main switch and the listing's source are on; another
  * failure is retried up to 3 times, then again after the next run.
  */
