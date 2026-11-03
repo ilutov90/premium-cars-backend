@@ -31,6 +31,15 @@ public interface SourceAdapter {
     }
 
     /** The canonical form of a listing URL, used to detect duplicate imports. */
+    /**
+     * The listing's own id in its link (guazi's product id, autowini's IC number), which stays when the rest of the
+     * link changes (guazi's link carries the km); null when the site has none. A car is found by it too, so a
+     * listing whose link changed is not imported a second time.
+     */
+    default String listingRef(URI canonicalUrl) {
+        return null;
+    }
+
     default URI canonicalUrl(URI url) {
         return url;
     }

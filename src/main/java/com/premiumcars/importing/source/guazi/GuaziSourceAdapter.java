@@ -65,6 +65,11 @@ public class GuaziSourceAdapter implements SourceAdapter {
 
     /** The English page without query: the same listing in another language or with tracking is a duplicate. */
     @Override
+    public String listingRef(URI canonicalUrl) {
+        return GuaziPageParser.productId(canonicalUrl.toString());
+    }
+
+    @Override
     public URI canonicalUrl(URI url) {
         return GuaziPageParser.englishUrl(url);
     }

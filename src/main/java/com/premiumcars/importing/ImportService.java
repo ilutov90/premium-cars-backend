@@ -91,7 +91,7 @@ public class ImportService {
         URI canonical = adapter.canonicalUrl(url);
         String key = canonical.toString();
 
-        var existing = carService.findBySourceUrl(key);
+        var existing = carService.findListing(adapter.source(), key, adapter.listingRef(canonical));
         if (existing.isPresent()) {
             return new ImportResult(existing.get(), true, 0, List.of("This link was already imported."));
         }

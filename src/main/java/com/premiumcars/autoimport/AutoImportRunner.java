@@ -219,7 +219,8 @@ public class AutoImportRunner {
         for (FoundListing l : found.values()) {
             Optional<Listing> known = listings.find(source, l.id());
             Long carId = known.map(Listing::carId).orElse(null);
-            Optional<Car> car = carId != null ? cars.findById(carId) : cars.findBySourceUrl(l.url());
+            Optional<Car> car = carId != null ? cars.findById(carId)
+                    : cars.findBySourceUrl(l.url()).or(() -> cars.findBySourceRef(source, l.id()));
             boolean back = car.map(c -> c.status() == CarStatus.REMOVED).orElse(false);
             boolean over = maxKm != null && l.mileageKm() != null && l.mileageKm() > maxKm;
             boolean priced = search.priced(l);

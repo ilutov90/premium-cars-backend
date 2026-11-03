@@ -120,6 +120,18 @@ public class AutoImportController {
         return service.check(source);
     }
 
+    /** Cars that are one listing more than once, and which one would stay. */
+    @GetMapping("/{source}/duplicates")
+    public AutoImportService.Duplicates duplicates(@PathVariable CarSource source) {
+        return service.duplicates(source);
+    }
+
+    /** Deletes them, keeping one car per listing. */
+    @PostMapping("/{source}/duplicates/delete")
+    public AutoImportService.Duplicates deleteDuplicates(@PathVariable CarSource source) {
+        return service.deleteDuplicates(source);
+    }
+
     @PostMapping("/{source}/preview")
     public Preview preview(@PathVariable CarSource source, @Valid @RequestBody SourceUpdate update) {
         return service.preview(source, update);

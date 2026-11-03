@@ -44,16 +44,24 @@ public class AutoImportService {
     private final AutoImportRunRepository runs;
     private final AutoImportRunner runner;
     private final AutoImportWorker worker;
+    private final com.premiumcars.catalog.repo.CarRepository cars;
+    private final com.premiumcars.catalog.service.CarService carService;
+    private final com.premiumcars.social.PostedChannels posted;
     private final Map<CarSource, SourceSearch> searches = new EnumMap<>(CarSource.class);
 
     public AutoImportService(AutoImportSettingsRepository settings, AutoImportListingRepository listings,
                              AutoImportRunRepository runs, AutoImportRunner runner, AutoImportWorker worker,
-                             List<SourceSearch> searches) {
+                             List<SourceSearch> searches, com.premiumcars.catalog.repo.CarRepository cars,
+                             com.premiumcars.catalog.service.CarService carService,
+                             com.premiumcars.social.PostedChannels posted) {
         this.settings = settings;
         this.listings = listings;
         this.runs = runs;
         this.runner = runner;
         this.worker = worker;
+        this.cars = cars;
+        this.carService = carService;
+        this.posted = posted;
         searches.forEach(s -> this.searches.put(s.source(), s));
     }
 
@@ -103,6 +111,66 @@ public class AutoImportService {
     public Overview setMaxMileage(Integer km) {
         settings.setMaxMileageKm(km);
         return overview();
+    }
+
+    /**
+     * One listing imported as several cars (the same listing id in {@code car.source_ref}: guazi's link changes with
+     * the km, so a changed link was taken for a new listing before): which car stays and which go.
+     *
+     * @param keep   the car that stays: the one the automatic import follows, else one already posted, else the newest
+     * @param delete the others
+     */
+    public record DuplicateGroup(String title, long keep, List<Long> delete, List<Long> posted) {
+    }
+
+    public record Duplicates(int groups, int cars, List<DuplicateGroup> sample) {
+    }
+
+    public Duplicates duplicates(CarSource source) {
+        settingsOf(source);
+        List<DuplicateGroup> groups = duplicateGroups(source);
+        return new Duplicates(groups.size(), groups.stream().mapToInt(g -> g.delete().size()).sum(),
+                groups.size() > 100 ? groups.subList(0, 100) : groups);
+    }
+
+    /** Deletes every duplicate car (keeping one per listing); its listing row follows the kept car. */
+    public Duplicates deleteDuplicates(CarSource source) {
+        settingsOf(source);
+        List<DuplicateGroup> groups = duplicateGroups(source);
+        int deleted = 0;
+        for (DuplicateGroup g : groups) {
+            listings.relinkCars(g.delete(), g.keep());
+            for (Long id : g.delete()) {
+                try {
+                    carService.delete(id);
+                    deleted++;
+                } catch (RuntimeException e) {
+                    org.slf4j.LoggerFactory.getLogger(AutoImportService.class)
+                            .warn("Could not delete duplicate car {}: {}", id, e.toString());
+                }
+            }
+        }
+        org.slf4j.LoggerFactory.getLogger(AutoImportService.class)
+                .info("{}: {} duplicate cars deleted ({} listings)", source, deleted, groups.size());
+        return new Duplicates(groups.size(), deleted, groups.size() > 100 ? groups.subList(0, 100) : groups);
+    }
+
+    private List<DuplicateGroup> duplicateGroups(CarSource source) {
+        List<List<Long>> same = cars.findSameListing(source);
+        Set<Long> followed = listings.carIds(source);
+        Set<Long> all = new HashSet<>();
+        same.forEach(all::addAll);
+        Map<Long, List<com.premiumcars.social.PostedChannels.Post>> posts = posted.of(all);
+        List<DuplicateGroup> out = new ArrayList<>();
+        for (List<Long> ids : same) {
+            long keep = ids.stream().filter(followed::contains).reduce((a, b) -> b)
+                    .or(() -> ids.stream().filter(posts::containsKey).reduce((a, b) -> b))
+                    .orElse(ids.getLast());
+            List<Long> delete = ids.stream().filter(id -> id != keep).toList();
+            String title = cars.findById(keep).map(c -> c.specs().title()).orElse(null);
+            out.add(new DuplicateGroup(title, keep, delete, ids.stream().filter(posts::containsKey).toList()));
+        }
+        return out;
     }
 
     /** Our cars of the source against the import's listings: stale ones, ones not from the import, look-alikes. */
