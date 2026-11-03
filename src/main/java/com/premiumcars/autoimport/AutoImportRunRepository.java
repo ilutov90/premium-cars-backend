@@ -105,6 +105,31 @@ public class AutoImportRunRepository {
                 .update();
     }
 
+    /** The export's columns ({@link #export}), in order. */
+    public static final List<String> EXPORT_COLUMNS = List.of("id", "dry_run", "status", "started_at", "finished_at",
+            "found", "new_count", "gone_count", "returned_count", "manual_checked", "manual_gone", "message", "brands");
+
+    /** The source's last runs, newest first, as text, for the admins' download. */
+    public void export(CarSource source, int limit, java.util.function.Consumer<List<String>> row) {
+        jdbc.sql("""
+                        SELECT id, dry_run, status, started_at, finished_at, found, new_count, gone_count,
+                               returned_count, manual_checked, manual_gone, message, brands::text AS brands
+                        FROM auto_import_run WHERE source = :source ORDER BY started_at DESC, id DESC LIMIT :limit""")
+                .param("source", source.name())
+                .param("limit", limit)
+                .query((rs, n) -> {
+                    List<String> out = new java.util.ArrayList<>(EXPORT_COLUMNS.size());
+                    for (int i = 1; i <= EXPORT_COLUMNS.size(); i++) {
+                        Object v = rs.getObject(i);
+                        out.add(v == null ? "" : v instanceof java.sql.Timestamp t ? t.toInstant().toString()
+                                : v.toString());
+                    }
+                    row.accept(out);
+                    return null;
+                })
+                .list();
+    }
+
     public List<Run> recent(int limit) {
         return jdbc.sql("""
                         SELECT id, source, dry_run, status, started_at, finished_at, found, new_count, gone_count,

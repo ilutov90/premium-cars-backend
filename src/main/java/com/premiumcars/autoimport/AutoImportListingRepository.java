@@ -237,6 +237,40 @@ public class AutoImportListingRepository {
                 .update();
     }
 
+    /** The export's columns ({@link #export}), in order. */
+    public static final List<String> EXPORT_COLUMNS = List.of("listing_id", "state", "brand_code", "title", "price",
+            "mileage_km", "attempts", "no_price_count", "missed_passes", "last_error", "car_id", "car_status",
+            "car_by_listing_id", "car_by_listing_id_status", "first_seen", "last_seen", "updated_at", "url");
+
+    /**
+     * Every listing row of the source with its car (by the row's link and by the listing id), for the admins'
+     * download that explains what the runs queue. Rows go to {@code row} one by one, as text.
+     */
+    public void export(CarSource source, java.util.function.Consumer<List<String>> row) {
+        jdbc.sql("""
+                        SELECT l.listing_id, l.state, l.brand_code, l.title, l.price, l.mileage_km, l.attempts,
+                               l.no_price_count, l.missed_passes, l.last_error, l.car_id, c.status AS car_status,
+                               r.id AS ref_id, r.status AS ref_status, l.first_seen, l.last_seen, l.updated_at, l.url
+                        FROM auto_import_listing l
+                        LEFT JOIN car c ON c.id = l.car_id
+                        LEFT JOIN LATERAL (SELECT id, status FROM car WHERE source = l.source
+                                           AND lower(source_ref) = lower(l.listing_id) ORDER BY id DESC LIMIT 1) r ON true
+                        WHERE l.source = :source
+                        ORDER BY l.first_seen DESC, l.listing_id""")
+                .param("source", source.name())
+                .query((rs, n) -> {
+                    List<String> out = new java.util.ArrayList<>(EXPORT_COLUMNS.size());
+                    for (int i = 1; i <= EXPORT_COLUMNS.size(); i++) {
+                        Object v = rs.getObject(i);
+                        out.add(v == null ? "" : v instanceof java.sql.Timestamp t ? t.toInstant().toString()
+                                : v.toString());
+                    }
+                    row.accept(out);
+                    return null;
+                })
+                .list();
+    }
+
     public int count(CarSource source) {
         return jdbc.sql("SELECT count(*) FROM auto_import_listing WHERE source = :source")
                 .param("source", source.name())

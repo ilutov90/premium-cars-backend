@@ -35,9 +35,11 @@ import com.premiumcars.catalog.domain.CarSource;
 public class AutoImportController {
 
     private final AutoImportService service;
+    private final AutoImportExport exporter;
 
-    public AutoImportController(AutoImportService service) {
+    public AutoImportController(AutoImportService service, AutoImportExport exporter) {
         this.service = service;
+        this.exporter = exporter;
     }
 
     @GetMapping
@@ -118,6 +120,21 @@ public class AutoImportController {
     @GetMapping("/{source}/check")
     public AutoImportListingRepository.CatalogCheck check(@PathVariable CarSource source) {
         return service.check(source);
+    }
+
+    /**
+     * A ZIP with every listing row of the source and its last runs (CSV), to check what the runs queue and why.
+     */
+    @GetMapping("/{source}/export")
+    public org.springframework.http.ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody>
+            export(@PathVariable CarSource source) {
+        String name = "auto-import-" + source.name().toLowerCase(java.util.Locale.ROOT) + "-"
+                + java.time.LocalDate.now(java.time.ZoneId.of("Europe/Sofia")) + ".zip";
+        return org.springframework.http.ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + name + "\"")
+                .contentType(org.springframework.http.MediaType.parseMediaType("application/zip"))
+                .body(out -> exporter.write(source, out));
     }
 
     /** Cars that are one listing more than once, and which one would stay. */
