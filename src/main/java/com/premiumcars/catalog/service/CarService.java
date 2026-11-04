@@ -50,6 +50,13 @@ import com.premiumcars.pricing.PricingProfileRepository;
 @Service
 public class CarService {
 
+    /**
+     * false on a second server that shares this database only to run the automatic import (premium-cars-infra
+     * "local-worker"): production keeps doing this job alone.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.background-jobs:true}")
+    private boolean backgroundJobs = true;
+
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CarService.class);
 
     /** Statuses visible on the public site. */
@@ -109,6 +116,9 @@ public class CarService {
     @EventListener(ApplicationReadyEvent.class)
     @Transactional
     public void keepBreakdownsOfOlderCars() {
+        if (!backgroundJobs) {
+            return;
+        }
         List<Car> older = cars.findWithoutPriceBreakdown();
         for (Car c : older) {
             PriceBreakdown b = mapper.breakdown(c.pricing());

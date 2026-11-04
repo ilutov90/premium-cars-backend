@@ -125,6 +125,7 @@ class AutoImportRunnerTest {
         // the seeded makes; BYD is 1212, Kia 1292
         assertThat(settings.brands(CarSource.GUAZI)).extracting(Brand::code).contains("1212", "1292", "104012");
         assertThat(settings.enabled()).isFalse(); // off until an admin turns it on
+        assertThat(service.overview().runsHere()).isTrue(); // app.auto-import.enabled defaults to true
 
         // a car imported by hand earlier, published
         var manual = carService.createDraft(new ImportedCar("aaa1", null, CarSpecs.builder().title("BYD Seal").build(),

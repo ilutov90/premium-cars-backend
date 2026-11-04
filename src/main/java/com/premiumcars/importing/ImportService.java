@@ -39,6 +39,9 @@ public class ImportService {
     private final ImageDownloader downloader;
     private final ImageStorage storage;
     private final AppProperties props;
+    /** Between two photos of an autowini listing: its bot protection refuses a server downloading too fast. */
+    @org.springframework.beans.factory.annotation.Value("${app.importer.photo-pause:PT1S}")
+    private java.time.Duration photoPause = java.time.Duration.ofSeconds(1);
 
     public ImportService(List<SourceAdapter> adapters, CarService carService, ImageDownloader downloader,
                          ImageStorage storage, AppProperties props) {
@@ -125,6 +128,9 @@ public class ImportService {
         DownloadedImage[] photos = new DownloadedImage[urls.size()];
         String[] working = new String[urls.size()]; // the candidate URL that downloaded
         for (int i = 0; i < urls.size(); i++) {
+            if (i > 0 && adapter.source() == CarSource.AUTOWINI) {
+                pause(photoPause);
+            }
             for (String candidate : adapter.imageCandidates(urls.get(i))) {
                 Optional<DownloadedImage> img = downloader.download(candidate, referer, imageClient);
                 if (img.isPresent()) {
@@ -164,6 +170,14 @@ public class ImportService {
         }
         AdminCar result = images.isEmpty() ? draft : carService.attachImages(draft.id(), images);
         return new ImportResult(result, false, images.size(), warnings);
+    }
+
+    private static void pause(java.time.Duration d) {
+        try {
+            Thread.sleep(d.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void addGeneralWarnings(ImportedCar d, List<String> w) {

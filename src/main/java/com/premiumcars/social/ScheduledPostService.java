@@ -33,6 +33,13 @@ import com.premiumcars.common.NotFoundException;
 @Service
 public class ScheduledPostService {
 
+    /**
+     * false on a second server that shares this database only to run the automatic import (premium-cars-infra
+     * "local-worker"): production keeps doing this job alone.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.background-jobs:true}")
+    private boolean backgroundJobs = true;
+
     private static final Logger log = LoggerFactory.getLogger(ScheduledPostService.class);
 
     /** Earliest time in the future a post can be scheduled for ("now" is the publish button). */
@@ -124,6 +131,9 @@ public class ScheduledPostService {
     /** After a restart: posts that were being published when the backend stopped. */
     @EventListener(ApplicationReadyEvent.class)
     public void failInterrupted() {
+        if (!backgroundJobs) {
+            return;
+        }
         int n = scheduled.failInterrupted(clock.instant());
         if (n > 0) {
             log.warn("{} scheduled post(s) were interrupted by a restart and marked FAILED", n);
@@ -133,6 +143,9 @@ public class ScheduledPostService {
     @Scheduled(fixedDelayString = "${app.social.schedule-check:PT30S}",
             initialDelayString = "${app.social.schedule-initial-delay:PT1M}")
     public void publishDue() {
+        if (!backgroundJobs) {
+            return;
+        }
         List<ScheduledPost> due;
         do {
             due = scheduled.claimDue(BATCH);

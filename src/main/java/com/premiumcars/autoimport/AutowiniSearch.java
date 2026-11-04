@@ -44,8 +44,8 @@ public class AutowiniSearch implements SourceSearch {
 
     private final SearchHttp http;
 
-    public AutowiniSearch(ObjectMapper json, AppProperties props) {
-        this.http = new SearchHttp(json, 350, Map.of(
+    public AutowiniSearch(ObjectMapper json, AppProperties props, AutoImportInstance instance) {
+        this.http = new SearchHttp(json, instance.searchPause().toMillis(), Map.of(
                 "User-Agent", props.importer().userAgent(),
                 "Origin", "https://m.autowini.com",
                 "Referer", "https://m.autowini.com/"));

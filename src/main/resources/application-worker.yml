@@ -1,0 +1,11 @@
+# Profile "worker": this backend shares the production database only to run the automatic import (an admin's
+# laptop while the production server's address is blocked by the sites; premium-cars-infra docs/local-worker.md).
+# Production keeps everything else: no schema changes from here, no scheduled posts, no photo moves, no marking
+# production's work as interrupted. Production must run with APP_AUTO_IMPORT_ENABLED=false meanwhile.
+spring:
+  liquibase:
+    enabled: false   # the schema is production's: never migrate it from here
+app:
+  background-jobs: false
+  auto-import:
+    enabled: true

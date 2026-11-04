@@ -51,8 +51,8 @@ public class GuaziSearch implements SourceSearch {
     /** guazi wants a device id and a guid in every search; any value is accepted. */
     private final String deviceId = UUID.randomUUID().toString().replace("-", "");
 
-    public GuaziSearch(ObjectMapper json, AppProperties props) {
-        this.http = new SearchHttp(json, 500, Map.of(
+    public GuaziSearch(ObjectMapper json, AppProperties props, AutoImportInstance instance) {
+        this.http = new SearchHttp(json, instance.searchPause().toMillis(), Map.of(
                 "User-Agent", props.importer().userAgent(),
                 "Origin", SITE,
                 "Referer", SITE + "/used-cars/"));

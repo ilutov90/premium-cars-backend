@@ -47,6 +47,13 @@ import com.premiumcars.social.PostedChannels;
 @Service
 public class PriceRecalcService {
 
+    /**
+     * false on a second server that shares this database only to run the automatic import (premium-cars-infra
+     * "local-worker"): production keeps doing this job alone.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.background-jobs:true}")
+    private boolean backgroundJobs = true;
+
     private static final Logger log = LoggerFactory.getLogger(PriceRecalcService.class);
 
     /** Where the FOB price comes from. */
@@ -82,6 +89,9 @@ public class PriceRecalcService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void abandonInterrupted() {
+        if (!backgroundJobs) {
+            return;
+        }
         runs.abandonRunning();
     }
 
