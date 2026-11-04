@@ -33,8 +33,9 @@ public final class AutoImportDtos {
      * @param maxMileageKm listings with more km are not imported (both sources); null = no limit
      * @param maxPriceEur  listings with a higher FOB price (EUR) are not imported (both sources); null = no limit
      */
+    /** @param runsHere this server runs the automatic import (app.auto-import.enabled); else another one does */
     public record Overview(boolean enabled, String running, Integer maxMileageKm, Integer maxPriceEur,
-                           List<SourceView> sources, List<Run> runs) {
+                           List<SourceView> sources, List<Run> runs, boolean runsHere) {
     }
 
     /** The highest FOB price in EUR; null = no limit. */

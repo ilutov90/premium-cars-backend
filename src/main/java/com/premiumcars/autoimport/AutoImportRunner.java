@@ -89,11 +89,13 @@ public class AutoImportRunner {
     /** The sources with a run going on or waiting to start, and what it is ("GUAZI", "AUTOWINI (dry run)"). */
     private final Map<CarSource, String> running = new ConcurrentHashMap<>();
     private final PriceLimit priceLimit;
+    private final AutoImportInstance instance;
 
     public AutoImportRunner(List<SourceSearch> searches, AutoImportSettingsRepository settings,
                             AutoImportListingRepository listings, AutoImportRunRepository runs, CarRepository cars,
                             CarService carService, AutoImportMailer mailer, PostedChannels posted,
-                            PriceLimit priceLimit) {
+                            PriceLimit priceLimit, AutoImportInstance instance) {
+        this.instance = instance;
         searches.forEach(s -> this.searches.put(s.source(), s));
         this.settings = settings;
         this.listings = listings;
@@ -107,7 +109,9 @@ public class AutoImportRunner {
 
     @EventListener(ApplicationReadyEvent.class)
     public void abandonInterruptedRuns() {
-        runs.abandonRunning();
+        if (instance.enabled()) { // a run marked RUNNING may be the other server's
+            runs.abandonRunning();
+        }
     }
 
     /**
@@ -116,7 +120,7 @@ public class AutoImportRunner {
      */
     @Scheduled(cron = "${app.auto-import.cron:0 0 3 * * *}", zone = "Europe/Sofia")
     public void nightly() {
-        if (!settings.enabled()) {
+        if (!instance.enabled() || !settings.enabled()) { // another server runs the import, or it is off
             return;
         }
         for (SourceSettings s : settings.sources()) {
@@ -132,6 +136,9 @@ public class AutoImportRunner {
      * @return false when the source has a run already
      */
     public boolean submit(CarSource source, boolean dryRun) {
+        if (!instance.enabled()) {
+            throw new IllegalStateException("The automatic import does not run on this server");
+        }
         if (running.putIfAbsent(source, source + (dryRun ? " (dry run)" : "")) != null) {
             return false;
         }

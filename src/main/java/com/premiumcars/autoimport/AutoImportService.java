@@ -48,12 +48,14 @@ public class AutoImportService {
     private final com.premiumcars.catalog.service.CarService carService;
     private final com.premiumcars.social.PostedChannels posted;
     private final Map<CarSource, SourceSearch> searches = new EnumMap<>(CarSource.class);
+    private final AutoImportInstance instance;
 
     public AutoImportService(AutoImportSettingsRepository settings, AutoImportListingRepository listings,
                              AutoImportRunRepository runs, AutoImportRunner runner, AutoImportWorker worker,
                              List<SourceSearch> searches, com.premiumcars.catalog.repo.CarRepository cars,
                              com.premiumcars.catalog.service.CarService carService,
-                             com.premiumcars.social.PostedChannels posted) {
+                             com.premiumcars.social.PostedChannels posted, AutoImportInstance instance) {
+        this.instance = instance;
         this.settings = settings;
         this.listings = listings;
         this.runs = runs;
@@ -77,7 +79,7 @@ public class AutoImportService {
         }
         return new Overview(settings.enabled(), runner.running(), settings.maxMileageKm(), settings.maxPriceEur(),
                 sources,
-                runs.recent(30));
+                runs.recent(30), instance.enabled());
     }
 
     /** The failures tab: a page of failed listings (filtered) and the reasons of all of them. */
@@ -275,6 +277,7 @@ public class AutoImportService {
     /** A run now: a dry run any time, a real one only while the main switch and the source are on. */
     public Overview run(CarSource source, boolean dryRun) {
         SourceSettings s = settingsOf(source);
+        requireHere();
         if (!dryRun && (!settings.enabled() || !s.enabled())) {
             throw new BadRequestException("Turn on the automatic import and " + source + " first");
         }
@@ -288,7 +291,19 @@ public class AutoImportService {
         return settings.source(source).orElseThrow(() -> new NotFoundException("No automatic import for " + source));
     }
 
+    /**
+     * Anything that reads a site (a run, the preview, the sites' lists) happens only on the server that runs the
+     * automatic import: the other one's address may be the one the sites block.
+     */
+    private void requireHere() {
+        if (!instance.enabled()) {
+            throw new BadRequestException("The automatic import runs on another server (app.auto-import.enabled is"
+                    + " false here): use that server's admin panel");
+        }
+    }
+
     private SourceSearch search(CarSource source) {
+        requireHere();
         SourceSearch s = searches.get(source);
         if (s == null) {
             throw new NotFoundException("No automatic import for " + source);

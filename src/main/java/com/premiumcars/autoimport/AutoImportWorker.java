@@ -41,9 +41,6 @@ public class AutoImportWorker {
     private static final Logger log = LoggerFactory.getLogger(AutoImportWorker.class);
 
     static final int MAX_PHOTOS = 20;
-    /** Pause between two imports, on top of the sites' own pacing. */
-    private static final long PAUSE_MS = 1_000;
-    private static final long AUTOWINI_PAUSE_MS = 3_000;
     private static final Duration MAX_REFUSAL_PAUSE = Duration.ofHours(4);
 
     private final AutoImportSettingsRepository settings;
@@ -62,10 +59,12 @@ public class AutoImportWorker {
     private final Map<CarSource, Integer> refusals = new ConcurrentHashMap<>();
     private final PriceLimit priceLimit;
     private final AutoImportRunner runner;
+    private final AutoImportInstance instance;
 
     public AutoImportWorker(AutoImportSettingsRepository settings, AutoImportListingRepository listings,
                             ImportService importService, CarService carService, PriceLimit priceLimit,
-                            AutoImportRunner runner) {
+                            AutoImportRunner runner, AutoImportInstance instance) {
+        this.instance = instance;
         this.settings = settings;
         this.listings = listings;
         this.importService = importService;
@@ -77,7 +76,7 @@ public class AutoImportWorker {
     @Scheduled(fixedDelayString = "${app.auto-import.worker-delay:PT30S}",
             initialDelayString = "${app.auto-import.worker-initial-delay:PT1M}")
     public void work() {
-        if (!settings.enabled()) {
+        if (!instance.enabled() || !settings.enabled()) { // another server runs the import, or it is off
             return;
         }
         for (SourceSettings s : settings.sources()) {
@@ -109,7 +108,7 @@ public class AutoImportWorker {
                     break;
                 }
                 importOne(next.get());
-                Thread.sleep(pauseMs(source));
+                Thread.sleep(instance.queuePause().toMillis()); // between two listings of one site
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -128,11 +127,6 @@ public class AutoImportWorker {
 
     private boolean paused(CarSource source) {
         return pausedUntil(source) != null;
-    }
-
-    /** autowini's pages sit behind a bot protection that refuses a server reading them too fast. */
-    static long pauseMs(CarSource source) {
-        return source == CarSource.AUTOWINI ? AUTOWINI_PAUSE_MS : PAUSE_MS;
     }
 
     /** The site refused us: 15 minutes, then twice as long each time in a row, at most 4 hours. */

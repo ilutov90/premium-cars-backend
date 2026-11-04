@@ -22,6 +22,13 @@ import com.premiumcars.catalog.repo.CarImageRepository;
 @Component
 public class R2PhotoMover {
 
+    /**
+     * false on a second server that shares this database only to run the automatic import (premium-cars-infra
+     * "local-worker"): production keeps doing this job alone.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.background-jobs:true}")
+    private boolean backgroundJobs = true;
+
     private static final Logger log = LoggerFactory.getLogger(R2PhotoMover.class);
     private static final int BATCH = 100;
 
@@ -37,6 +44,9 @@ public class R2PhotoMover {
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
+        if (!backgroundJobs) {
+            return;
+        }
         storage.r2().ifPresent(r2 -> Thread.ofVirtual().name("r2-photo-mover").start(() -> run(r2)));
     }
 

@@ -31,6 +31,13 @@ import com.premiumcars.media.ImageStorage;
 @ConditionalOnProperty(name = "app.importer.link-stored-photos", havingValue = "true", matchIfMissing = true)
 public class StoredPhotoLinker {
 
+    /**
+     * false on a second server that shares this database only to run the automatic import (premium-cars-infra
+     * "local-worker"): production keeps doing this job alone.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.background-jobs:true}")
+    private boolean backgroundJobs = true;
+
     private static final Logger log = LoggerFactory.getLogger(StoredPhotoLinker.class);
     /** Pause between two photos: gentle on the source's CDN. */
     private static final long PAUSE_MS = 200;
@@ -52,6 +59,9 @@ public class StoredPhotoLinker {
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
+        if (!backgroundJobs) {
+            return;
+        }
         Thread.ofVirtual().name("stored-photo-linker").start(this::run);
     }
 
