@@ -140,6 +140,17 @@ class AutowiniPageParserTest {
     }
 
     @Test
+    void sellersNewPrefixesLeaveTheModel() {
+        assertThat(AutowiniPageParser.withoutNew("All New 5 Series")).isEqualTo("5 Series");
+        assertThat(AutowiniPageParser.withoutNew("The New Grandeur")).isEqualTo("Grandeur");
+        assertThat(AutowiniPageParser.withoutNew("All NEW K3")).isEqualTo("K3");
+        assertThat(AutowiniPageParser.withoutNew("The All New Tucson")).isEqualTo("Tucson");
+        assertThat(AutowiniPageParser.withoutNew("Q7")).isEqualTo("Q7");
+        assertThat(AutowiniPageParser.withoutNew("New")).isEqualTo("New");
+        assertThat(AutowiniPageParser.withoutNew("Newport")).isEqualTo("Newport");
+    }
+
+    @Test
     void urls() {
         assertThat(AutowiniPageParser.itemId("https://www.autowini.com/Cars/ic4960158/cars-detail")).isEqualTo("IC4960158");
         assertThat(AutowiniPageParser.mobileUrl("IC4960158")).isEqualTo("https://m.autowini.com/items/IC4960158");

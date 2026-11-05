@@ -67,8 +67,18 @@ public class ImportService {
      * @param maxMileageKm a listing with more km is not saved ({@link MileageOverLimitException}); null = no limit
      */
     public ImportResult importAutomatically(String listingUrl, int maxImages, Integer maxMileageKm) {
+        return importAutomatically(listingUrl, maxImages, maxMileageKm, null);
+    }
+
+    /**
+     * @param menuModel the source's own model the search found the listing under (autowini's menu entry, e.g.
+     *                  "5 Series"): the car's model, instead of the page's wording ("All New 5 Series"); null = the
+     *                  page's
+     */
+    public ImportResult importAutomatically(String listingUrl, int maxImages, Integer maxMileageKm,
+                                            String menuModel) {
         return importFromUrl(listingUrl, null, null, null, Math.min(maxImages, props.importer().maxImages()),
-                maxMileageKm);
+                maxMileageKm, menuModel);
     }
 
     /**
@@ -86,6 +96,11 @@ public class ImportService {
 
     private ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html, int maxImages,
                                        Integer maxMileageKm) {
+        return importFromUrl(rawUrl, price, currency, html, maxImages, maxMileageKm, null);
+    }
+
+    private ImportResult importFromUrl(String rawUrl, BigDecimal price, String currency, String html, int maxImages,
+                                       Integer maxMileageKm, String menuModel) {
         URI url = normalize(rawUrl);
         SourceAdapter adapter = adapters.stream()
                 .filter(a -> a.supports(url))
@@ -106,6 +121,11 @@ public class ImportService {
         if (price != null) {
             String cur = currency == null || currency.isBlank() ? "EUR" : currency.trim().toUpperCase(Locale.ROOT);
             data = new ImportedCar(data.sourceRef(), data.sourceLocation(), data.specs(), price, cur,
+                    data.imageUrls(), data.warnings());
+        }
+        if (menuModel != null && !menuModel.isBlank()) {
+            data = new ImportedCar(data.sourceRef(), data.sourceLocation(),
+                    data.specs().toBuilder().model(menuModel.trim()).build(), data.price(), data.currency(),
                     data.imageUrls(), data.warnings());
         }
         Integer km = data.specs().mileageKm();

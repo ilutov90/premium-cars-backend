@@ -234,6 +234,7 @@ public class AutoImportRunner {
         int overPrice = 0;
         int unpriced = 0;
         int returned = 0;
+        int renamed = 0;
         for (FoundListing l : found.values()) {
             Optional<Listing> known = listings.find(source, l.id());
             Long carId = known.map(Listing::carId).orElse(null);
@@ -273,6 +274,12 @@ public class AutoImportRunner {
             if (back) {
                 cars.restoreRemoved(car.get().id());
             }
+            // the source's own model (autowini's menu) names the car's, also for cars imported before or by hand
+            if (car.isPresent() && l.model() != null && !l.model().isBlank()
+                    && !l.model().trim().equals(car.get().specs().model())
+                    && cars.updateModel(car.get().id(), l.model().trim())) {
+                renamed++;
+            }
         }
 
         // gone: missing from a make read whole, or not seen for days in a make the site did not show whole
@@ -293,6 +300,9 @@ public class AutoImportRunner {
         }
         if (overMileage > 0) {
             notes.add(overMileage + " over " + maxKm + " km (not imported)");
+        }
+        if (renamed > 0) {
+            notes.add(renamed + " cars' model renamed after the source's menu");
         }
         if (overPrice > 0) {
             notes.add(overPrice + " over " + maxEur + " EUR FOB (not imported)");

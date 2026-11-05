@@ -405,6 +405,24 @@ class AutoImportRunnerTest {
         return listings.find(CarSource.AUTOWINI, listingId).orElseThrow().state();
     }
 
+    @Test
+    void theSourcesMenuModelNamesTheCar() {
+        FakeSearch search = new FakeSearch();
+        var car = carService.createDraft(new ImportedCar("men1", null, CarSpecs.builder().title("BYD All New Seal")
+                .model("All New Seal").build(), new BigDecimal("15000"), "USD", List.of(), List.of()),
+                CarSource.GUAZI, listing("men1").url());
+        search.results.put("1212", List.of(listing("men1").withModel("Seal")));
+
+        assertThat(runner.pass(search, GUAZI, true).newCount()).isZero(); // a dry run renames nothing
+        assertThat(carService.getAdmin(car.id()).specs().model()).isEqualTo("All New Seal");
+
+        Result r = runner.pass(search, GUAZI, false);
+        assertThat(carService.getAdmin(car.id()).specs().model()).isEqualTo("Seal");
+        assertThat(listings.find(CarSource.GUAZI, "men1").orElseThrow().model()).isEqualTo("Seal");
+        assertThat(r.message()).contains("1 cars' model renamed");
+        carService.delete(car.id());
+    }
+
     @Autowired
     AutoImportExport exporter;
 

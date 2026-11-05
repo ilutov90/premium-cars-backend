@@ -69,9 +69,20 @@ public final class AutoImportTypes {
 
     /**
      * One listing in the search results. {@code url} is the canonical listing URL (as car.source_url);
-     * {@code mileageKm} when the search shows it (else the import checks it).
+     * {@code mileageKm} when the search shows it (else the import checks it). {@code model}: the source's own model
+     * (its menu entry, e.g. autowini's "5 Series") when the listing was read under it; null = unknown, the import
+     * takes the model from the listing page.
      */
-    public record FoundListing(String id, String url, String title, BigDecimal price, Integer mileageKm) {
+    public record FoundListing(String id, String url, String title, BigDecimal price, Integer mileageKm,
+                               String model) {
+
+        public FoundListing(String id, String url, String title, BigDecimal price, Integer mileageKm) {
+            this(id, url, title, price, mileageKm, null);
+        }
+
+        FoundListing withModel(String menuModel) {
+            return new FoundListing(id, url, title, price, mileageKm, menuModel);
+        }
     }
 
     /**
