@@ -31,6 +31,11 @@ import com.premiumcars.config.AppProperties;
  * used by the thread that made them), one page per site, kept open between requests and closed after
  * {@value #IDLE_MINUTES} idle minutes. Requests from any thread wait for their turn, one at a time. Separate from
  * {@link PlaywrightPageRenderer}, so a long run's searches never hold the imports' page loads.
+ * <p>
+ * Bot protections (autowini's Akamai) refuse a headless Chromium that calls itself another browser, so this one
+ * keeps its own identity: headless, its user agent only loses "Headless"; on an admin's laptop (profile worker) it
+ * is the installed Google Chrome in a window ({@code app.importer.browser.fetch-headless=false},
+ * {@code fetch-channel=chrome}), the bundled Chromium when Chrome cannot start.
  */
 @Component
 public class PlaywrightBrowserFetch implements BrowserFetch, DisposableBean {
@@ -60,6 +65,8 @@ public class PlaywrightBrowserFetch implements BrowserFetch, DisposableBean {
     }
 
     private final AppProperties props;
+    private final boolean headless;
+    private final String channel;
     private final ScheduledExecutorService thread = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "browser-fetch");
         t.setDaemon(true);
@@ -70,8 +77,14 @@ public class PlaywrightBrowserFetch implements BrowserFetch, DisposableBean {
     private Browser browser;
     private final Map<String, Site> sites = new HashMap<>();
 
-    public PlaywrightBrowserFetch(AppProperties props) {
+    public PlaywrightBrowserFetch(AppProperties props,
+                                  @org.springframework.beans.factory.annotation.Value(
+                                          "${app.importer.browser.fetch-headless:true}") boolean headless,
+                                  @org.springframework.beans.factory.annotation.Value(
+                                          "${app.importer.browser.fetch-channel:}") String channel) {
         this.props = props;
+        this.headless = headless;
+        this.channel = channel == null ? "" : channel.trim();
         thread.scheduleWithFixedDelay(this::closeIdle, 1, 1, TimeUnit.MINUTES);
     }
 
@@ -128,12 +141,16 @@ public class PlaywrightBrowserFetch implements BrowserFetch, DisposableBean {
         }
         if (browser == null || !browser.isConnected()) {
             stopBrowser();
+            sites.clear();
             playwright = Playwright.create();
-            browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
+            browser = launch();
         }
-        BrowserContext context = browser.newContext(new Browser.NewContextOptions()
-                .setUserAgent(props.importer().userAgent())
-                .setLocale("en-US"));
+        Browser.NewContextOptions options = new Browser.NewContextOptions().setLocale("en-US");
+        String agent = ownAgent();
+        if (agent != null) {
+            options.setUserAgent(agent);
+        }
+        BrowserContext context = browser.newContext(options);
         Page page;
         Response main;
         try {
@@ -157,6 +174,41 @@ public class PlaywrightBrowserFetch implements BrowserFetch, DisposableBean {
         site = new Site(context, page, new long[] {System.currentTimeMillis()});
         sites.put(startUrl, site);
         return site;
+    }
+
+    /** The installed browser of {@code channel} (e.g. "chrome") when set and present, else the bundled Chromium. */
+    private Browser launch() {
+        if (!channel.isEmpty()) {
+            try {
+                Browser b = playwright.chromium().launch(new BrowserType.LaunchOptions()
+                        .setHeadless(headless).setChannel(channel));
+                log.info("Browser for the sites' APIs: {} {} ({})", channel, b.version(),
+                        headless ? "headless" : "in a window");
+                return b;
+            } catch (PlaywrightException e) {
+                log.warn("Browser channel '{}' did not start ({}); using the bundled Chromium", channel,
+                        e.getMessage().lines().findFirst().orElse(""));
+            }
+        }
+        Browser b = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(headless));
+        log.info("Browser for the sites' APIs: Chromium {} ({})", b.version(), headless ? "headless" : "in a window");
+        return b;
+    }
+
+    /**
+     * Headless, the browser's own user agent without "Headless" (its version stays the one the browser shows in
+     * every other way); in a window, null: nothing to change.
+     */
+    private String ownAgent() {
+        if (!headless) {
+            return null;
+        }
+        Page probe = browser.newPage();
+        try {
+            return String.valueOf(probe.evaluate("() => navigator.userAgent")).replace("HeadlessChrome", "Chrome");
+        } finally {
+            quietly(probe::close);
+        }
     }
 
     private void closeIdle() {

@@ -7,5 +7,11 @@ spring:
     enabled: false   # the schema is production's: never migrate it from here
 app:
   background-jobs: false
+  importer:
+    browser:
+      # the searches the sites refuse go through the laptop's own Google Chrome, in a window (autowini's Akamai
+      # refuses a headless browser); the bundled Chromium if Chrome is not installed
+      fetch-headless: false
+      fetch-channel: chrome
   auto-import:
     enabled: true
