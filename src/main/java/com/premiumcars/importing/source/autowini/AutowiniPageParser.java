@@ -164,6 +164,19 @@ public final class AutowiniPageParser {
         return n != null && n.signum() > 0 ? n : null;
     }
 
+    private static final java.util.regex.Pattern NEW_PREFIX =
+            java.util.regex.Pattern.compile("^(?:the\\s+)?(?:all\\s+)?new\\s+(?=\\S)", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * The model without the sellers' generation prefix ("All New 5 Series", "The New Grandeur", "All NEW K3" ->
+     * "5 Series", "Grandeur", "K3"), as autowini's menu names it. The automatic import takes the menu's own model
+     * anyway; this is for listings imported by link.
+     */
+    static String withoutNew(String model) {
+        String m = NEW_PREFIX.matcher(model).replaceFirst("").trim();
+        return m.isEmpty() ? model : m;
+    }
+
     public static CarSpecs toSpecs(ParsedPage page) {
         Map<String, String> f = page.fields();
         String make = f.get("make");
@@ -174,7 +187,7 @@ public final class AutowiniPageParser {
         String trim = null;
         if (modelRaw != null) {
             String first = modelRaw.split("/")[0].trim();
-            model = first.split("\\(")[0].trim();
+            model = withoutNew(first.split("\\(")[0].trim());
             String rest = modelRaw.substring(modelRaw.indexOf(model) + model.length())
                     .replaceAll("\\s*/\\s*", " ").replaceAll("\\s+", " ").trim();
             trim = rest.isEmpty() ? null : rest;

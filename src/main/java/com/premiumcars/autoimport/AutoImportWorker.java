@@ -153,7 +153,7 @@ public class AutoImportWorker {
             return;
         }
         try {
-            ImportResult r = importService.importAutomatically(l.url(), MAX_PHOTOS, maxKm);
+            ImportResult r = importService.importAutomatically(l.url(), MAX_PHOTOS, maxKm, l.model());
             AdminCar car = r.car();
             if (car.price() == null && !r.alreadyImported()) {
                 // no FOB price on the listing page: skipped, not put on the site with a wrong or missing price

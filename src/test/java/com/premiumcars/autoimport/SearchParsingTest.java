@@ -41,6 +41,10 @@ class SearchParsingTest {
                 List.of(new CatalogModel("C1150", "Carnival"), new CatalogModel("C1200", "K5")));
         assertThat(AutowiniSearch.queries(twoModels, new SourceFilters(true, false, List.of())))
                 .extracting(q -> q.get("subModel")).containsExactly("C1150", "C1200");
+        assertThat(AutowiniSearch.units(twoModels, new SourceFilters(false, false, List.of())))
+                .extracting(AutowiniSearch.Unit::model).containsExactly("Carnival", "K5");
+        assertThat(AutowiniSearch.units(kia, new SourceFilters(false, false, List.of())))
+                .extracting(AutowiniSearch.Unit::model).containsOnlyNulls();
 
         assertThat(AutowiniSearch.uri("/items/cars", new java.util.LinkedHashMap<>(Map.of("make", "C0810"))).toString())
                 .isEqualTo("https://v2api.autowini.com/items/cars?make=C0810");

@@ -98,6 +98,19 @@ public class CarRepository {
     }
 
     /** The listing's link changed at the source (guazi's carries the km): the car follows it. */
+    /**
+     * The car's model, as its source names it (the automatic import's menu model).
+     *
+     * @return true when it changed
+     */
+    public boolean updateModel(long id, String model) {
+        return jdbc.sql("UPDATE car SET model = :model, updated_at = now() WHERE id = :id"
+                        + " AND model IS DISTINCT FROM :model")
+                .param("model", model)
+                .param("id", id)
+                .update() == 1;
+    }
+
     public void updateSourceUrl(long id, String sourceUrl) {
         jdbc.sql("UPDATE car SET source_url = :url WHERE id = :id AND NOT EXISTS"
                         + " (SELECT 1 FROM car o WHERE o.source_url = :url AND o.id <> :id)")

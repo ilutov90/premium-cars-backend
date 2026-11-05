@@ -43,11 +43,11 @@ public class AutoImportListingRepository {
 
     public record Listing(CarSource source, String listingId, String url, String brandCode, String title,
                           BigDecimal price, String state, int attempts, String lastError, int missedPasses,
-                          Long carId, Integer mileageKm, Instant updatedAt, Instant lastSeen) {
+                          Long carId, Integer mileageKm, Instant updatedAt, Instant lastSeen, String model) {
     }
 
     private static final String COLUMNS = "source, listing_id, url, brand_code, title, price, state, attempts,"
-            + " last_error, missed_passes, car_id, mileage_km, updated_at, last_seen";
+            + " last_error, missed_passes, car_id, mileage_km, updated_at, last_seen, model";
 
     private static final RowMapper<Listing> MAPPER = (rs, n) -> new Listing(
             CarSource.valueOf(rs.getString("source")), rs.getString("listing_id"), rs.getString("url"),
@@ -55,7 +55,8 @@ public class AutoImportListingRepository {
             rs.getInt("attempts"), rs.getString("last_error"), rs.getInt("missed_passes"),
             rs.getObject("car_id", Long.class), rs.getObject("mileage_km", Integer.class),
             rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
-            rs.getObject("last_seen", OffsetDateTime.class).toInstant());
+            rs.getObject("last_seen", OffsetDateTime.class).toInstant(),
+            rs.getString("model"));
 
     private final JdbcClient jdbc;
 
@@ -74,8 +75,9 @@ public class AutoImportListingRepository {
     public void insert(CarSource source, FoundListing l, String brandCode, String state, Long carId) {
         jdbc.sql("""
                         INSERT INTO auto_import_listing
-                            (source, listing_id, url, brand_code, title, price, state, car_id, mileage_km)
-                        VALUES (:source, :id, :url, :brand, :title, :price, :state, :carId, :km)""")
+                            (source, listing_id, url, brand_code, title, price, state, car_id, mileage_km, model)
+                        VALUES (:source, :id, :url, :brand, :title, :price, :state, :carId, :km, :model)""")
+                .param("model", cut(l.model(), 100), Types.VARCHAR)
                 .param("source", source.name())
                 .param("id", l.id())
                 .param("url", l.url())
@@ -102,7 +104,7 @@ public class AutoImportListingRepository {
         jdbc.sql("""
                         UPDATE auto_import_listing SET
                             last_seen = now(), missed_passes = 0, brand_code = :brand, title = :title, price = :price,
-                            mileage_km = COALESCE(:km, mileage_km),
+                            mileage_km = COALESCE(:km, mileage_km), model = COALESCE(:model, model),
                             state = CASE
                                 WHEN state IN ('QUEUED', 'SKIPPED', 'PRICE_SKIPPED', 'FAILED') THEN %1$s
                                 ELSE state END,
@@ -110,6 +112,7 @@ public class AutoImportListingRepository {
                             updated_at = now()
                         WHERE source = :source AND listing_id = :id""".formatted(target))
                 .param("km", l.mileageKm(), Types.INTEGER)
+                .param("model", cut(l.model(), 100), Types.VARCHAR)
                 .param("maxKm", maxKm == null ? 0 : maxKm)
                 .param("overPrice", overPrice)
                 .param("brand", brandCode)
