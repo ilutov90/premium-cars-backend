@@ -253,8 +253,9 @@ public class AutoImportListingRepository {
                                r.id AS ref_id, r.status AS ref_status, l.first_seen, l.last_seen, l.updated_at, l.url
                         FROM auto_import_listing l
                         LEFT JOIN car c ON c.id = l.car_id
-                        LEFT JOIN LATERAL (SELECT id, status FROM car WHERE source = l.source
-                                           AND lower(source_ref) = lower(l.listing_id) ORDER BY id DESC LIMIT 1) r ON true
+                        LEFT JOIN (SELECT DISTINCT ON (lower(source_ref)) lower(source_ref) AS ref, id, status
+                                   FROM car WHERE source = :source AND source_ref IS NOT NULL
+                                   ORDER BY lower(source_ref), id DESC) r ON r.ref = lower(l.listing_id)
                         WHERE l.source = :source
                         ORDER BY l.first_seen DESC, l.listing_id""")
                 .param("source", source.name())
