@@ -118,7 +118,10 @@ class SearchParsingTest {
         assertThat(body).containsEntry("brandId", "1212").containsEntry("seriesIds", List.of("162513"))
                 .containsEntry("detectionLevels", List.of("S", "A", "B")).containsEntry("mfgDateStart", 2023)
                 .containsEntry("mfgDateEnd", 2023).containsEntry("businessType", 5).containsEntry("did", "dev")
-                .containsEntry("guid", "dev").containsEntry("pageNum", 2).containsEntry("pageSize", 30);
+                .containsEntry("guid", "dev").containsEntry("pageNum", 2).containsEntry("pageSize", 30)
+                .containsEntry("sort", "created_at desc").doesNotContainKey("recommendId");
+        assertThat(new GuaziSearch.Slice(byd, new SourceFilters(false, false, List.of()), List.of(), 2022, null)
+                .body(2, 30, "dev", "3f3e6ca6")).containsEntry("recommendId", "3f3e6ca6");
 
         var whole = new GuaziSearch.Slice(byd, new SourceFilters(false, false, List.of()), List.of(), 2022, null)
                 .body(1, 1, "dev");

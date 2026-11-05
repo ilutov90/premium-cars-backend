@@ -148,12 +148,25 @@ public class GuaziSearch implements SourceSearch {
         return GuaziPageParser.realPrice(listing.price());
     }
 
+    /**
+     * The order the pages are read in: newest listings first ("Newly launched" on the site). Without it guazi serves
+     * "Best match", a recommendation order that changes while the pages are read: about a tenth of the listings were
+     * missed by each run (and others shown twice), never the same ones, so no make was ever read whole.
+     */
+    static final String SORT = "created_at desc";
+
     /** One search: a make, maybe some models, a year range. */
     record Slice(Brand brand, SourceFilters filters, List<String> seriesIds, int yearFrom, Integer yearTo) {
 
         Map<String, Object> body(int pageNum, int pageSize, String deviceId) {
+            return body(pageNum, pageSize, deviceId, null);
+        }
+
+        /** @param recommendId the previous page's {@code data.recommendId} (the site sends it from page 2 on) */
+        Map<String, Object> body(int pageNum, int pageSize, String deviceId, String recommendId) {
             Map<String, Object> b = new LinkedHashMap<>();
             b.put("language", "en");
+            b.put("sort", SORT);
             b.put("brandId", brand.code());
             if (!seriesIds.isEmpty()) {
                 b.put("seriesIds", seriesIds);
@@ -173,6 +186,9 @@ public class GuaziSearch implements SourceSearch {
             b.put("guid", deviceId);
             b.put("pageSize", pageSize);
             b.put("pageNum", pageNum);
+            if (recommendId != null && !recommendId.isBlank()) {
+                b.put("recommendId", recommendId);
+            }
             return b;
         }
     }
@@ -184,8 +200,11 @@ public class GuaziSearch implements SourceSearch {
     /** Reads a slice's pages (at most the first {@value #WINDOW} results). */
     private void read(Slice slice, int total, Consumer<FoundListing> found) {
         int reachable = Math.min(total, WINDOW);
+        String recommendId = null;
         for (int page = 1; (page - 1) * PAGE_SIZE < reachable; page++) {
-            JsonNode list = search(slice, page, PAGE_SIZE).path("list");
+            JsonNode data = search(slice, page, PAGE_SIZE, recommendId);
+            recommendId = data.path("recommendId").asText(null);
+            JsonNode list = data.path("list");
             for (JsonNode item : list) {
                 FoundListing l = listing(item);
                 if (l != null) {
@@ -199,8 +218,12 @@ public class GuaziSearch implements SourceSearch {
     }
 
     private JsonNode search(Slice slice, int page, int size) {
+        return search(slice, page, size, null);
+    }
+
+    private JsonNode search(Slice slice, int page, int size, String recommendId) {
         return ok(http.post(URI.create(SITE + "/os/facade/search/product/list?language=en"),
-                slice.body(page, size, deviceId)));
+                slice.body(page, size, deviceId, recommendId)));
     }
 
     static List<String> ids(List<CatalogModel> models) {
