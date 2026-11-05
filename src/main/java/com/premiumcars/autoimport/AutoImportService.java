@@ -190,6 +190,17 @@ public class AutoImportService {
         return listings.check(source);
     }
 
+    /**
+     * Empties the source's import queue: the import stops after the listing it is on; the next run reads the site and
+     * queues again what is still there and not imported.
+     */
+    public Overview clearQueue(CarSource source) {
+        settingsOf(source);
+        int n = listings.clearQueue(source);
+        org.slf4j.LoggerFactory.getLogger(AutoImportService.class).info("{}: queue cleared ({} listings)", source, n);
+        return overview();
+    }
+
     /** Applies to the queue at once (the worker checks it) and to the next run (both ways). */
     public Overview setMaxPrice(Integer eur) {
         settings.setMaxPriceEur(eur);

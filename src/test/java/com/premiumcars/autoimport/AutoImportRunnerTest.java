@@ -152,6 +152,13 @@ class AutoImportRunnerTest {
         assertThat(listings.nextQueued(List.of(CarSource.GUAZI, CarSource.AUTOWINI)).orElseThrow().listingId())
                 .isEqualTo("bbb2");
 
+        // the queue emptied by hand: the next run queues again what is still at the source
+        service.clearQueue(CarSource.GUAZI);
+        assertThat(listings.find(CarSource.GUAZI, "bbb2")).isEmpty();
+        assertThat(listings.find(CarSource.GUAZI, "aaa1")).isPresent(); // imported: kept
+        assertThat(runner.pass(search, GUAZI, false).newCount()).isEqualTo(1);
+        assertThat(listings.find(CarSource.GUAZI, "bbb2").orElseThrow().state()).isEqualTo("QUEUED");
+
         // a reserved car of the source is kept when its listing goes
         var reserved = carService.createDraft(new ImportedCar("rrr3", null, CarSpecs.builder().title("BYD Han").build(),
                 new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI, listing("rrr3").url());
