@@ -13,15 +13,25 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.premiumcars.autoimport.SourceSearch.SearchException;
+import com.premiumcars.importing.browser.BrowserFetch;
 
 /**
  * JSON requests to one site's search API, paced: at least {@code pauseMs} between two requests (gentle on the site,
- * also when a preview and a run overlap). Retries twice on network errors, 429 and 5xx.
+ * also when a preview and a run overlap). Retries twice on network errors, 429 and 5xx. A site that refuses the
+ * server (HTTP 403, or a page such as a bot check instead of data) is asked again from the headless browser, on the
+ * site's own page ({@link BrowserFetch}), and then through the browser for {@link #BROWSER_FOR} (autowini's search
+ * API answers its visitors' browsers only since Nov 2026).
  */
 final class SearchHttp {
 
+    private static final Logger log = LoggerFactory.getLogger(SearchHttp.class);
+
     private static final int ATTEMPTS = 3;
+    static final Duration BROWSER_FOR = Duration.ofHours(6);
 
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(20))
@@ -30,29 +40,70 @@ final class SearchHttp {
     private final ObjectMapper json;
     private final long pauseMs;
     private final Map<String, String> headers;
+    private final BrowserFetch browser;
+    private final String startUrl;
+    private volatile long browserUntil;
     private long last;
 
     SearchHttp(ObjectMapper json, long pauseMs, Map<String, String> headers) {
+        this(json, pauseMs, headers, null, null);
+    }
+
+    /**
+     * @param browser  asks the site from a headless browser when it refuses the server; null = never
+     * @param startUrl the site's page the browser asks from (its own pages call the API)
+     */
+    SearchHttp(ObjectMapper json, long pauseMs, Map<String, String> headers, BrowserFetch browser, String startUrl) {
         this.json = json;
         this.pauseMs = pauseMs;
         this.headers = Map.copyOf(headers);
+        this.browser = browser;
+        this.startUrl = startUrl;
     }
 
     JsonNode get(URI uri) {
-        return send(HttpRequest.newBuilder(uri).GET());
+        return send("GET", uri, null);
     }
 
     JsonNode post(URI uri, Object body) {
         try {
-            return send(HttpRequest.newBuilder(uri)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body), StandardCharsets.UTF_8)));
+            return send("POST", uri, json.writeValueAsString(body));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
     }
 
-    private JsonNode send(HttpRequest.Builder builder) {
+    /** The search goes through the browser now (after a refusal). */
+    boolean viaBrowser() {
+        return browserUntil > System.currentTimeMillis();
+    }
+
+    private JsonNode send(String method, URI uri, String body) {
+        if (viaBrowser()) {
+            return sendFromBrowser(method, uri, body);
+        }
+        try {
+            return sendDirect(method, uri, body);
+        } catch (Refused e) {
+            if (browser == null || !browser.enabled()) {
+                throw e;
+            }
+            log.info("{} refused the server ({}); asking from the browser for the next {} hours", uri.getHost(),
+                    e.getMessage().length() > 120 ? e.getMessage().substring(0, 120) : e.getMessage(),
+                    BROWSER_FOR.toHours());
+            browserUntil = System.currentTimeMillis() + BROWSER_FOR.toMillis();
+            return sendFromBrowser(method, uri, body);
+        }
+    }
+
+    private JsonNode sendDirect(String method, URI uri, String body) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri);
+        if ("POST".equals(method)) {
+            builder.header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+        } else {
+            builder.GET();
+        }
         headers.forEach(builder::header);
         HttpRequest request = builder.header("Accept", "application/json").timeout(Duration.ofSeconds(30)).build();
         String problem = null;
@@ -66,7 +117,7 @@ final class SearchHttp {
                     sleep(2000L * attempt);
                     continue;
                 }
-                return parse(r);
+                return parse(uri.getHost(), status, r.body());
             } catch (IOException e) {
                 problem = e.toString();
                 sleep(2000L * attempt);
@@ -75,25 +126,55 @@ final class SearchHttp {
                 throw new SearchException("Interrupted", e);
             }
         }
-        throw new SearchException(request.uri().getHost() + " did not answer: " + problem);
+        throw new SearchException(uri.getHost() + " did not answer: " + problem);
     }
 
-    private JsonNode parse(HttpResponse<String> r) {
-        String body = r.body() == null ? "" : r.body();
+    private JsonNode sendFromBrowser(String method, URI uri, String body) {
+        Map<String, String> h = "POST".equals(method)
+                ? Map.of("Accept", "application/json", "Content-Type", "application/json")
+                : Map.of("Accept", "application/json");
+        String problem = null;
+        for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {
+            pace();
+            try {
+                BrowserFetch.Answer a = browser.fetch(startUrl, method, uri.toString(), body, h);
+                if (a.status() == 429 || a.status() >= 500) {
+                    problem = "HTTP " + a.status() + " (browser)";
+                    sleep(2000L * attempt);
+                    continue;
+                }
+                return parse(uri.getHost() + " (browser)", a.status(), a.body());
+            } catch (IllegalStateException e) {
+                problem = e.getMessage();
+                sleep(2000L * attempt);
+            }
+        }
+        throw new SearchException(uri.getHost() + " did not answer the browser: " + problem);
+    }
+
+    private JsonNode parse(String host, int status, String text) {
+        String body = text == null ? "" : text;
         try {
             JsonNode node = json.readTree(body);
             if (node == null || !node.isObject()) {
-                throw new SearchException(r.uri().getHost() + " answered HTTP " + r.statusCode() + " without data");
+                throw status == 403 ? new Refused(host + " answered HTTP 403 without data")
+                        : new SearchException(host + " answered HTTP " + status + " without data");
             }
             return node;
         } catch (JsonProcessingException e) {
             String start = body.strip();
-            throw new SearchException(r.uri().getHost() + " answered HTTP " + r.statusCode()
-                    + " with a page instead of data (a bot check?): "
+            throw new Refused(host + " answered HTTP " + status + " with a page instead of data (a bot check?): "
                     + (start.length() > 200 ? start.substring(0, 200) : start));
         }
     }
 
+    /** The site refused us: a bot check or HTTP 403 instead of data. */
+    static final class Refused extends SearchException {
+
+        Refused(String message) {
+            super(message);
+        }
+    }
     private synchronized void pace() {
         long wait = last + pauseMs - System.currentTimeMillis();
         if (wait > 0) {

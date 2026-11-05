@@ -44,11 +44,14 @@ public class AutowiniSearch implements SourceSearch {
 
     private final SearchHttp http;
 
-    public AutowiniSearch(ObjectMapper json, AppProperties props, AutoImportInstance instance) {
+    public AutowiniSearch(ObjectMapper json, AppProperties props, AutoImportInstance instance,
+                          com.premiumcars.importing.browser.BrowserFetch browser) {
+        // since Nov 2026 the API answers browsers only (HTTP 403 to the server): then asked from autowini's
+        // mobile site in the headless browser, as that site's own pages ask it
         this.http = new SearchHttp(json, instance.searchPause().toMillis(), Map.of(
                 "User-Agent", props.importer().userAgent(),
                 "Origin", "https://m.autowini.com",
-                "Referer", "https://m.autowini.com/"));
+                "Referer", "https://m.autowini.com/"), browser, "https://m.autowini.com/");
     }
 
     @Override

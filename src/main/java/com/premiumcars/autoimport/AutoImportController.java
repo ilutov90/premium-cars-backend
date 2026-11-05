@@ -143,6 +143,12 @@ public class AutoImportController {
         return service.duplicates(source);
     }
 
+    /** Empties the source's queue (the next run queues again what is still at the source). */
+    @PostMapping("/{source}/queue/clear")
+    public Overview clearQueue(@PathVariable CarSource source) {
+        return service.clearQueue(source);
+    }
+
     /** Deletes them, keeping one car per listing. */
     @PostMapping("/{source}/duplicates/delete")
     public AutoImportService.Duplicates deleteDuplicates(@PathVariable CarSource source) {

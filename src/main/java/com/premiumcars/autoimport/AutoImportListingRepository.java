@@ -278,6 +278,18 @@ public class AutoImportListingRepository {
                 .single();
     }
 
+    /**
+     * Empties the source's queue: its listings waiting to be imported are forgotten (nothing else: imported, set
+     * aside or failed ones stay). The next run finds those still at the source again and queues them as new.
+     *
+     * @return how many were taken out
+     */
+    public int clearQueue(CarSource source) {
+        return jdbc.sql("DELETE FROM auto_import_listing WHERE source = :source AND state = 'QUEUED' AND car_id IS NULL")
+                .param("source", source.name())
+                .update();
+    }
+
     /** The next listing to import: guazi's first, then the oldest. */
     public Optional<Listing> nextQueued(Collection<CarSource> sources) {
         if (sources.isEmpty()) {
