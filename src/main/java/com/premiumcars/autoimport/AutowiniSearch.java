@@ -121,17 +121,27 @@ public class AutowiniSearch implements SourceSearch {
      * Reads the make model by model of autowini's own menu, so each listing comes with its menu model (the car's
      * model is named after it, not after the listing page's "All New 5 Series (G30)"): the chosen models, or, with
      * all of the make's models, every model of the make's menu (its "carSubModel" list under the filters). Listings
-     * of no menu model (the models' counts fall short of the make's) are read with the whole make, without a model.
+     * of no menu model (the models' totals fall short of the make's) are read with the whole make, without a model.
      */
     @Override
     public BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
+        return list(brand, filters, found, true);
+    }
+
+    /** Whether the listings are there only (the check of the cars added by hand): the whole make, no menu models. */
+    @Override
+    public BrandPass listPresent(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
+        return list(brand, filters, found, false);
+    }
+
+    private BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found, boolean byMenu) {
         Set<String> seen = new HashSet<>();
         int expected = 0;
         try {
             List<Unit> units = units(brand, filters);
             Unit whole = null;
             int wholeCount = -1;
-            if (brand.models().isEmpty()) {
+            if (byMenu && brand.models().isEmpty()) {
                 whole = units.get(0);
                 wholeCount = count(whole);
                 List<Unit> byModel = menuUnits(brand, whole);
@@ -143,8 +153,11 @@ public class AutowiniSearch implements SourceSearch {
                 expected += read(brand, u, seen, found);
             }
             if (whole != null && units.get(0) != whole) {
-                if (seen.size() < wholeCount) {
-                    read(brand, whole, seen, found); // listings of no menu model
+                // the models' totals short of the make's: some listings are of no menu model and are read with the
+                // whole make (not when only listings that came or went while the pages were read are missing:
+                // reading the whole make again would double the run)
+                if (expected < wholeCount) {
+                    read(brand, whole, seen, found);
                 }
                 expected = wholeCount;
             }

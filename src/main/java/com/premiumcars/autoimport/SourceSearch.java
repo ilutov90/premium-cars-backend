@@ -51,6 +51,14 @@ public interface SourceSearch {
      */
     BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found);
 
+    /**
+     * Like {@link #list}, for whether listings are still there only (the check of the cars added by hand): the
+     * listings need not come with their model, so a site may read fewer pages.
+     */
+    default BrandPass listPresent(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
+        return list(brand, filters, found);
+    }
+
     /** The listing shows a price we can import with. */
     default boolean priced(FoundListing listing) {
         return listing.price() != null && listing.price().signum() > 0;

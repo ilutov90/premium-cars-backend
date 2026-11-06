@@ -401,7 +401,7 @@ public class AutoImportRunner {
             Set<String> ids = new HashSet<>();
             String incomplete = null;
             for (CatalogBrand make : makes) {
-                BrandPass p = search.list(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
+                BrandPass p = search.listPresent(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
                         List.of()), NO_FILTERS, l -> {
                             urls.add(l.url());
                             ids.add(l.id().toLowerCase(java.util.Locale.ROOT));
