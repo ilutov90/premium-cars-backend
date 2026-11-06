@@ -30,6 +30,18 @@ class SearchParsingTest {
     // ------------------------------------------------------------------ autowini
 
     @Test
+    void autowiniPagesEndAtTheTotalNotAtTheFirstShortPage() throws Exception {
+        assertThat(AutowiniSearch.totalCount(json.readTree("{\"totalCount\":435}"))).isEqualTo(435);
+        assertThat(AutowiniSearch.totalCount(json.readTree("{\"totalCount\":null}"))).isEqualTo(-1);
+        assertThat(AutowiniSearch.totalCount(json.readTree("{}"))).isEqualTo(-1);
+        // a short page before the total: the next pages are still read
+        assertThat(AutowiniSearch.lastPage(39, 1, 435)).isFalse();
+        assertThat(AutowiniSearch.lastPage(40, 10, 435)).isFalse();
+        assertThat(AutowiniSearch.lastPage(35, 11, 435)).isTrue();
+        assertThat(AutowiniSearch.lastPage(0, 3, 435)).isTrue();
+    }
+
+    @Test
     void autowiniQueries() {
         Brand kia = new Brand("C0810", "Kia", true, 2018, List.of());
         assertThat(AutowiniSearch.queries(kia, new SourceFilters(true, true, List.of()))).containsExactly(Map.of(
