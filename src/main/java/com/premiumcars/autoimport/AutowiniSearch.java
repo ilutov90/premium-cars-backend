@@ -199,15 +199,25 @@ public class AutowiniSearch implements SourceSearch {
         List<FoundListing> unit = new ArrayList<>();
         int left = 0;
         int total = -1;
+        boolean retried = false;
         for (int page = 1; page <= MAX_PAGES; page++) {
             Map<String, String> p = new LinkedHashMap<>(q);
             p.put("pageOffset", String.valueOf(page));
             p.put("pageSize", String.valueOf(PAGE_SIZE));
             JsonNode data = ok(http.get(uri("/items/cars", p)));
+            total = Math.max(total, totalCount(data));
             if (total < 0) {
-                total = data.path("totalCount").asInt();
+                // a page without its total (autowini leaves it out at times): the count says how far to read, so
+                // the search does not stop after its first page
+                total = ok(http.get(uri("/items/cars/count", q))).asInt();
             }
             JsonNode items = data.path("items");
+            if (items.isEmpty() && !retried && (long) (page - 1) * PAGE_SIZE < total) {
+                retried = true; // an empty page before the end: asked once more
+                page--;
+                continue;
+            }
+            retried = false;
             for (JsonNode item : items) {
                 FoundListing l = listing(item);
                 if (l == null || !seen.add(l.id())) {
@@ -220,7 +230,7 @@ public class AutowiniSearch implements SourceSearch {
                     unit.add(u.model() == null ? l : l.withModel(u.model()));
                 }
             }
-            if (items.size() < PAGE_SIZE || (long) page * PAGE_SIZE >= total) {
+            if (lastPage(items.size(), page, total)) {
                 break;
             }
         }
@@ -232,6 +242,20 @@ public class AutowiniSearch implements SourceSearch {
         }
         unit.forEach(found);
         return Math.max(total, 0);
+    }
+
+    /** The answer's {@code totalCount}; -1 when the answer has none. */
+    static int totalCount(JsonNode data) {
+        JsonNode t = data.path("totalCount");
+        return t.isNumber() || (t.isTextual() && t.asText().matches("\\d{1,9}")) ? t.asInt() : -1;
+    }
+
+    /**
+     * The search's pages end here: an empty page, or the total read. A short page before the total does not end
+     * them (listings that went while the pages were read shift the pages; the next ones still hold listings).
+     */
+    static boolean lastPage(int items, int page, int total) {
+        return items == 0 || (long) page * PAGE_SIZE >= total;
     }
 
     /** One search: its query, the fuel types it leaves out and its menu model (null: the whole make). */
