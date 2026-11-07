@@ -78,6 +78,20 @@ class AutoImportRunnerTest {
     static class FakeSearch implements SourceSearch {
         final Map<String, List<FoundListing>> results = new HashMap<>();
         final Map<String, Boolean> complete = new HashMap<>();
+        final Map<String, Boolean> listed = new HashMap<>();
+        boolean byListingId;
+        boolean refuseListed;
+
+        @Override
+        public Boolean listed(String listingId) {
+            if (!byListingId) {
+                return null;
+            }
+            if (refuseListed) {
+                throw new SearchException("refused");
+            }
+            return listed.getOrDefault(listingId, true);
+        }
 
         @Override
         public CarSource source() {
@@ -362,6 +376,30 @@ class AutoImportRunnerTest {
                 .satisfies(r -> assertThat(r.title()).isEqualTo("Testmake X 2023"))
                 .satisfies(r -> assertThat(r.posted()).extracting(PostedChannels.Post::network)
                         .containsExactly("MOBILE_BG"));
+    }
+
+    @Test
+    void testCheckOtherCars_SiteLooksUpListingIds_KeepsListedDeletesGoneAndSparesUnanswered() {
+        settings.saveCatalog(CarSource.GUAZI, List.of(new CatalogBrand("778", "Idmake", null)));
+        var car = carService.createDraft(new ImportedCar("byid1", null, CarSpecs.builder().title("Idmake Y 2022")
+                .make("Idmake").year(2022).build(), new BigDecimal("15000"), "USD", List.of(), List.of()),
+                CarSource.GUAZI, "https://en.guazi.com/products/test-car-byid1.html");
+        carService.changeStatus(car.id(), CarStatus.PUBLISHED);
+
+        FakeSearch search = new FakeSearch();
+        search.byListingId = true;
+        search.listed.put("byid1", true);
+        assertThat(runner.pass(search, GUAZI, false).manualGone()).isZero();
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+
+        search.refuseListed = true;
+        assertThat(runner.pass(search, GUAZI, false).manualGone()).isZero();
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+
+        search.refuseListed = false;
+        search.listed.put("byid1", false);
+        assertThat(runner.pass(search, GUAZI, false).manualGone()).isGreaterThanOrEqualTo(1);
+        assertThatThrownBy(() -> carService.getAdmin(car.id())).isInstanceOf(NotFoundException.class);
     }
 
     @Test

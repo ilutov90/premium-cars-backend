@@ -4,6 +4,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -118,48 +119,29 @@ public class AutowiniSearch implements SourceSearch {
     }
 
     /**
-     * Reads the make model by model of autowini's own menu, so each listing comes with its menu model (the car's
-     * model is named after it, not after the listing page's "All New 5 Series (G30)"): the chosen models, or, with
-     * all of the make's models, every model of the make's menu (its "carSubModel" list under the filters). Listings
-     * of no menu model (the models' totals fall short of the make's) are read with the whole make, without a model.
+     * Reads the make's listings, each with its model in autowini's own menu (the search results' "subModelName", so
+     * the car's model is named after it, not after the listing page's "All New 5 Series (G30)"). The whole make is
+     * read and its listings kept by the chosen models and fuel types; only when the chosen models are few enough
+     * that their own searches take fewer pages are they read model by model.
      */
     @Override
     public BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
-        return list(brand, filters, found, true);
-    }
-
-    /** Whether the listings are there only (the check of the cars added by hand): the whole make, no menu models. */
-    @Override
-    public BrandPass listPresent(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
-        return list(brand, filters, found, false);
-    }
-
-    private BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found, boolean byMenu) {
         Set<String> seen = new HashSet<>();
         int expected = 0;
         try {
-            List<Unit> units = units(brand, filters);
-            Unit whole = null;
-            int wholeCount = -1;
-            if (byMenu && brand.models().isEmpty()) {
-                whole = units.get(0);
-                wholeCount = count(whole);
-                List<Unit> byModel = menuUnits(brand, whole);
-                if (!byModel.isEmpty()) {
-                    units = byModel;
+            Map<String, String> base = base(brand.code(), brand.yearFrom(), filters);
+            boolean fuels = !brand.excludedFuels().isEmpty()
+                    || brand.models().stream().anyMatch(m -> !m.excludedFuels().isEmpty());
+            JsonNode facets = brand.models().isEmpty() && !fuels ? null
+                    : ok(http.get(uri("/items/cars/filters", base)));
+            int wholeCount = ok(http.get(uri("/items/cars/count", base))).asInt();
+            if (!brand.models().isEmpty() && !wholeCheaper(brand.models(), facets.path("carSubModel"), wholeCount)) {
+                for (Unit u : units(brand, filters)) {
+                    expected += read(brand, u, seen, found);
                 }
-            }
-            for (Unit u : units) {
-                expected += read(brand, u, seen, found);
-            }
-            if (whole != null && units.get(0) != whole) {
-                // the models' totals short of the make's: some listings are of no menu model and are read with the
-                // whole make (not when only listings that came or went while the pages were read are missing:
-                // reading the whole make again would double the run)
-                if (expected < wholeCount) {
-                    read(brand, whole, seen, found);
-                }
-                expected = wholeCount;
+            } else {
+                expected = Math.max(readWhole(brand, base, facets == null ? null : facets.path("fuelType"), seen,
+                        found), wholeCount);
             }
         } catch (SearchException e) {
             return new BrandPass(brand.code(), brand.name(), expected, seen.size(), false, e.getMessage(), true);
@@ -170,19 +152,132 @@ public class AutowiniSearch implements SourceSearch {
                 complete ? null : "read " + seen.size() + " of " + expected, false);
     }
 
-    /** The make's menu models under the filters (those with listings), each with the make's left-out fuel types. */
-    private List<Unit> menuUnits(Brand brand, Unit whole) {
-        List<Unit> out = new ArrayList<>();
-        for (JsonNode m : ok(http.get(uri("/items/cars/filters", whole.query()))).path("carSubModel")) {
-            String code = m.path("code").asText("");
-            if (code.isBlank() || (m.has("count") && m.path("count").asInt() <= 0)) {
-                continue;
+    /**
+     * Reading the whole make takes no more pages than the chosen models' own searches (their numbers from the
+     * make's "carSubModel" list; each search takes one page at least, and a model with fuel types left out two
+     * requests more).
+     */
+    static boolean wholeCheaper(List<CatalogModel> chosen, JsonNode menu, int wholeCount) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (JsonNode m : menu) {
+            counts.put(m.path("code").asText(""), m.path("count").asInt());
+        }
+        long byModel = 0;
+        for (CatalogModel m : chosen) {
+            byModel += Math.max(1, pages(counts.getOrDefault(m.code(), 0))) + (m.excludedFuels().isEmpty() ? 0 : 2);
+        }
+        return pages(wholeCount) <= byModel;
+    }
+
+    private static int pages(int listings) {
+        return (listings + PAGE_SIZE - 1) / PAGE_SIZE;
+    }
+
+    /**
+     * Reads the whole make (no model, no fuel type in the query), each listing once, and passes on those of the
+     * chosen models (all when none is chosen) whose fuel type is not left out, with their menu model.
+     *
+     * @param fuelFacet the make's "fuelType" list (its codes are checked too), or null
+     * @return the search's total
+     */
+    private int readWhole(Brand brand, Map<String, String> query, JsonNode fuelFacet, Set<String> seen,
+                          Consumer<FoundListing> found) {
+        Map<String, CatalogModel> chosen = new HashMap<>();
+        brand.models().forEach(m -> chosen.put(fuelKey(m.name()), m));
+        List<String> makeLeftOut = withCodes(brand.excludedFuels(), fuelFacet);
+        Map<String, List<String>> modelLeftOut = new HashMap<>();
+        List<FoundListing> kept = new ArrayList<>();
+        int total = pages(query, item -> {
+            FoundListing l = listing(item);
+            if (l == null || !seen.add(l.id())) {
+                return;
             }
-            Map<String, String> q = new LinkedHashMap<>(whole.query());
-            q.put("subModel", code);
-            out.add(new Unit(q, brand.excludedFuels(), m.path("name").asText(null)));
+            String model = item.path("subModelName").asText("").trim();
+            List<String> leftOut = makeLeftOut;
+            if (!chosen.isEmpty()) {
+                CatalogModel m = chosen.get(fuelKey(model));
+                if (m == null) {
+                    return; // a model not chosen
+                }
+                model = m.name();
+                leftOut = modelLeftOut.computeIfAbsent(m.code(), c -> withCodes(m.excludedFuels(), fuelFacet));
+            }
+            if (!leftOut.isEmpty() && excluded(leftOut, null, item.path("fuelType").asText(""))) {
+                return;
+            }
+            kept.add(model.isEmpty() ? l : l.withModel(model));
+        });
+        kept.forEach(found);
+        return total;
+    }
+
+    /** The fuel types left out by their names and by their codes in the facet ("Electric Vehicle (EV)" = "EV"). */
+    static List<String> withCodes(List<String> names, JsonNode fuelFacet) {
+        if (names.isEmpty() || fuelFacet == null) {
+            return names;
+        }
+        List<String> out = new ArrayList<>(names);
+        for (JsonNode f : fuelFacet) {
+            String name = f.path("name").asText(f.path("code").asText(""));
+            String code = f.path("code").asText("");
+            if (!code.isBlank() && excluded(names, null, name)) {
+                out.add(code);
+            }
         }
         return out;
+    }
+
+    /**
+     * The listing is in autowini's search: {@code /items/cars?keyword=IC5489163} (one result, the listing; none for
+     * a listing taken off the search or one that never was).
+     */
+    @Override
+    public Boolean listed(String listingId) {
+        JsonNode data = ok(http.get(uri("/items/cars", Map.of("keyword", listingId))));
+        JsonNode items = data.path("items");
+        if (!items.isArray()) {
+            throw new SearchException("autowini: no items in the answer for " + listingId);
+        }
+        for (JsonNode item : items) {
+            if (listingId.equalsIgnoreCase(item.path("listingId").asText(""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Reads one search's pages up to its total: each listing to {@code item}. A page without its total (autowini
+     * leaves it out at times) takes it from the count; an empty page before the end is asked once more; a short
+     * page does not end the pages (listings that went while the pages were read shift them).
+     *
+     * @return the search's total
+     */
+    private int pages(Map<String, String> q, Consumer<JsonNode> item) {
+        int total = -1;
+        boolean retried = false;
+        for (int page = 1; page <= MAX_PAGES; page++) {
+            Map<String, String> p = new LinkedHashMap<>(q);
+            p.put("pageOffset", String.valueOf(page));
+            p.put("pageSize", String.valueOf(PAGE_SIZE));
+            JsonNode data = ok(http.get(uri("/items/cars", p)));
+            total = Math.max(total, totalCount(data));
+            if (total < 0) {
+                total = ok(http.get(uri("/items/cars/count", q))).asInt();
+            }
+            JsonNode items = data.path("items");
+            if (items.isEmpty() && !retried && (long) (page - 1) * PAGE_SIZE < total) {
+                retried = true;
+                page--;
+                continue;
+            }
+            retried = false;
+            items.forEach(item);
+            if (lastPage(items.size(), page, total)) {
+                break;
+            }
+        }
+        return Math.max(total, 0);
     }
 
     /**
@@ -210,51 +305,28 @@ public class AutowiniSearch implements SourceSearch {
             }
         }
         List<FoundListing> unit = new ArrayList<>();
-        int left = 0;
-        int total = -1;
-        boolean retried = false;
-        for (int page = 1; page <= MAX_PAGES; page++) {
-            Map<String, String> p = new LinkedHashMap<>(q);
-            p.put("pageOffset", String.valueOf(page));
-            p.put("pageSize", String.valueOf(PAGE_SIZE));
-            JsonNode data = ok(http.get(uri("/items/cars", p)));
-            total = Math.max(total, totalCount(data));
-            if (total < 0) {
-                // a page without its total (autowini leaves it out at times): the count says how far to read, so
-                // the search does not stop after its first page
-                total = ok(http.get(uri("/items/cars/count", q))).asInt();
+        int[] left = {0};
+        boolean checkEach = check;
+        int total = pages(q, item -> {
+            FoundListing l = listing(item);
+            if (l == null || !seen.add(l.id())) {
+                return;
             }
-            JsonNode items = data.path("items");
-            if (items.isEmpty() && !retried && (long) (page - 1) * PAGE_SIZE < total) {
-                retried = true; // an empty page before the end: asked once more
-                page--;
-                continue;
+            // each listing's own fuel type is checked too
+            if (checkEach && excluded(u.excluded(), null, item.path("fuelType").asText(""))) {
+                left[0]++;
+            } else {
+                unit.add(u.model() == null ? l : l.withModel(u.model()));
             }
-            retried = false;
-            for (JsonNode item : items) {
-                FoundListing l = listing(item);
-                if (l == null || !seen.add(l.id())) {
-                    continue;
-                }
-                // each listing's own fuel type is checked too
-                if (check && excluded(u.excluded(), null, item.path("fuelType").asText(""))) {
-                    left++;
-                } else {
-                    unit.add(u.model() == null ? l : l.withModel(u.model()));
-                }
-            }
-            if (lastPage(items.size(), page, total)) {
-                break;
-            }
-        }
-        if (check && !siteFilters && total > keptCount && left == 0) {
+        });
+        if (check && !siteFilters && total > keptCount && left[0] == 0) {
             // the site ignored the filter and no listing's fuel type matched the left-out names: nothing of it is
             // passed on rather than the fuel types left out
             throw new SearchException("the fuel types left out could not be applied to " + brand.name()
                     + (q.containsKey("subModel") ? " (" + q.get("subModel") + ")" : ""));
         }
         unit.forEach(found);
-        return Math.max(total, 0);
+        return total;
     }
 
     /** The answer's {@code totalCount}; -1 when the answer has none. */

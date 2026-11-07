@@ -365,9 +365,10 @@ public class AutoImportRunner {
     }
 
     /**
-     * The source's cars not covered by the import's listings: their make (as the source names it) is searched from
-     * the oldest car's year, without the import's filters. A car missing (by its link and its listing id) is
-     * deleted. Makes not read whole, or not in the source's list, are left alone.
+     * The source's cars not covered by the import's listings: each looked up by its listing id where the site can
+     * ({@link SourceSearch#listed}: autowini), otherwise their make (as the source names it) is searched from the
+     * oldest car's year, without the import's filters. A car missing (by its link and its listing id) is deleted.
+     * Cars the site did not answer for, makes not read whole, or not in the source's list, are left alone.
      */
     ManualCheck checkOtherCars(SourceSearch search, CarSource source, Set<Long> covered, boolean dryRun, Long runId,
                                List<String> notes) {
@@ -382,13 +383,44 @@ public class AutoImportRunner {
         Map<String, List<CatalogBrand>> byName = new HashMap<>();
         settings.catalog(source).forEach(b -> byName.computeIfAbsent(
                 key(MakeNames.canonical(b.name(), null).make()), k -> new ArrayList<>()).add(b));
-        Map<String, List<CheckedCar>> byMake = others.stream()
-                .collect(Collectors.groupingBy(c -> key(c.make()), LinkedHashMap::new, Collectors.toList()));
-
         int checked = 0;
         int returned = 0;
         int unknownMake = 0;
         List<CheckedCar> toRemove = new ArrayList<>();
+
+        // one request per car where the site looks up a listing by its id (autowini); the others by their make
+        List<CheckedCar> byMakeCars = new ArrayList<>();
+        boolean oneByOne = true;
+        int unanswered = 0;
+        for (CheckedCar c : others) {
+            Boolean there = null;
+            if (oneByOne && c.sourceRef() != null && !c.sourceRef().isBlank()) {
+                try {
+                    there = search.listed(c.sourceRef().trim());
+                } catch (SourceSearch.SearchException e) {
+                    unanswered++;
+                    continue;
+                }
+                oneByOne = there != null;
+            }
+            if (there == null) {
+                byMakeCars.add(c);
+                continue;
+            }
+            checked++;
+            if (there) {
+                if (!dryRun) {
+                    listings.manualSeen(c.id());
+                }
+            } else {
+                toRemove.add(c);
+            }
+        }
+        if (unanswered > 0) {
+            notes.add("cars added by hand: " + unanswered + " not answered by the site (nothing of them removed)");
+        }
+        Map<String, List<CheckedCar>> byMake = byMakeCars.stream()
+                .collect(Collectors.groupingBy(c -> key(c.make()), LinkedHashMap::new, Collectors.toList()));
         for (var group : byMake.entrySet()) {
             List<CatalogBrand> makes = byName.get(group.getKey());
             if (makes == null) {
@@ -401,7 +433,7 @@ public class AutoImportRunner {
             Set<String> ids = new HashSet<>();
             String incomplete = null;
             for (CatalogBrand make : makes) {
-                BrandPass p = search.listPresent(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
+                BrandPass p = search.list(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
                         List.of()), NO_FILTERS, l -> {
                             urls.add(l.url());
                             ids.add(l.id().toLowerCase(java.util.Locale.ROOT));
