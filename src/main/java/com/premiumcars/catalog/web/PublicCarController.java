@@ -1,5 +1,7 @@
 package com.premiumcars.catalog.web;
 
+import java.util.Map;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,6 +38,16 @@ public class PublicCarController {
     @GetMapping("/cars/{slug}")
     public CarDetail get(@PathVariable String slug) {
         return carService.getPublic(slug);
+    }
+
+    /**
+     * Whether a car with this slug is on the site. The frontend asks before rendering a car's page, so a deleted
+     * car's address answers a real 404 (search engines drop it). Always 200: a 404 here would be a server that does
+     * not know this endpoint yet, which the frontend must not take for a missing car.
+     */
+    @GetMapping("/cars/{slug}/exists")
+    public Map<String, Boolean> exists(@PathVariable String slug) {
+        return Map.of("exists", carService.isPublic(slug));
     }
 
     @GetMapping("/filters")

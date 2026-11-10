@@ -20,6 +20,7 @@ import com.premiumcars.catalog.domain.CarSort;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.domain.PostedFilter;
 import com.premiumcars.catalog.domain.MakeNames;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.NewCarImage;
@@ -46,6 +47,7 @@ import com.premiumcars.pricing.PriceBreakdown;
 import com.premiumcars.pricing.PriceProfile;
 import com.premiumcars.pricing.PricingProfile;
 import com.premiumcars.pricing.PricingProfileRepository;
+import com.premiumcars.social.PostedChannels;
 
 @Service
 public class CarService {
@@ -68,9 +70,11 @@ public class CarService {
     private final CarMapper mapper;
     private final ImageStorage storage;
     private final PricingProfileRepository profiles;
+    private final PostedChannels postedChannels;
 
     public CarService(CarRepository cars, CarImageRepository images, CarMapper mapper, ImageStorage storage,
-                      PricingProfileRepository profiles) {
+                      PricingProfileRepository profiles, PostedChannels postedChannels) {
+        this.postedChannels = postedChannels;
         this.cars = cars;
         this.images = images;
         this.mapper = mapper;
@@ -149,6 +153,12 @@ public class CarService {
         return mapper.toDetail(car, images.findByCarId(car.id()));
     }
 
+    /** A car with this slug is on the public site: the frontend asks before it answers for a car's page (404). */
+    @Transactional(readOnly = true)
+    public boolean isPublic(String slug) {
+        return cars.existsPublic(slug);
+    }
+
     @Transactional(readOnly = true)
     public FilterOptions filterOptions() {
         return new FilterOptions(cars.findMakes(PUBLIC_STATUSES), cars.findModels(PUBLIC_STATUSES),
@@ -168,19 +178,38 @@ public class CarService {
     @Transactional(readOnly = true)
     public PageResponse<AdminCarSummary> searchAdmin(CarStatus status, String q, CarSource source, CarSort sort,
                                                      int page, int size) {
+        return searchAdmin(status, q, source, null, sort, page, size);
+    }
+
+    /**
+     * The admin list: by status, text (also a link to the car's page on our site, or its number), source site and
+     * where the car was posted, in the chosen order, a page at a time; each row with where it was posted.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<AdminCarSummary> searchAdmin(CarStatus status, String q, CarSource source,
+                                                     PostedFilter posted, CarSort sort, int page, int size) {
         Set<CarStatus> statuses = status == null ? EnumSet.allOf(CarStatus.class) : EnumSet.of(status);
         var filter = new CarFilter(q, null, null, null, null, null, null, null, null, null, null);
         int p = Math.max(page, 0);
         int s = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-        CarPage result = cars.searchAdmin(filter, statuses, source, sort, p, s);
-        return PageResponse.of(result.rows(), p, s, result.total(), mapper::toAdminSummary);
+        CarPage result = cars.searchAdmin(filter, statuses, source, posted, sort, p, s);
+        Map<Long, List<PostedChannels.Post>> posts = postedChannels
+                .of(result.rows().stream().map(row -> row.car().id()).toList());
+        return PageResponse.of(result.rows(), p, s, result.total(),
+                row -> mapper.toAdminSummary(row, posts.getOrDefault(row.car().id(), List.of())));
     }
 
     /** How many cars the admin list's search and source match, in all and per status (the filter buttons). */
     @Transactional(readOnly = true)
     public AdminCarCounts adminCounts(String q, CarSource source) {
+        return adminCounts(q, source, null);
+    }
+
+    /** The same, also by where the car was posted. */
+    @Transactional(readOnly = true)
+    public AdminCarCounts adminCounts(String q, CarSource source, PostedFilter posted) {
         var filter = new CarFilter(q, null, null, null, null, null, null, null, null, null, null);
-        Map<CarStatus, Long> byStatus = cars.countAdminByStatus(filter, source);
+        Map<CarStatus, Long> byStatus = cars.countAdminByStatus(filter, source, posted);
         return new AdminCarCounts(byStatus.values().stream().mapToLong(Long::longValue).sum(), byStatus);
     }
 

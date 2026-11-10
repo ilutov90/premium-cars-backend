@@ -22,6 +22,8 @@
         <jsoup.version>1.21.2</jsoup.version>
         <springdoc.version>2.8.13</springdoc.version>
         <playwright.version>1.52.0</playwright.version>
+        <!-- 1.21.4: works with Docker 29+ (which refuses 1.21.3's API version: the database tests were skipped) -->
+        <testcontainers.version>1.21.4</testcontainers.version>
         <!-- Spring Cloud release train for Spring Boot 3.5 (Spring Cloud Vault 4.3) -->
         <spring-cloud.version>2025.0.3</spring-cloud.version>
     </properties>

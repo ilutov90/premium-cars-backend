@@ -1,15 +1,13 @@
 package com.premiumcars.catalog.domain;
 
 /**
- * Lifecycle of a listing. Only PUBLISHED and RESERVED cars are visible on the public site. REMOVED: hidden by an
- * earlier version of the automatic import (the listing disappeared from the source); the next run deletes such cars,
- * as it now deletes a car at once when its listing is gone.
+ * Lifecycle of a listing. Only PUBLISHED and RESERVED cars are visible on the public site. A car whose listing
+ * disappears from the source has no status of its own: the automatic import deletes it.
  */
 public enum CarStatus {
     DRAFT,
     PUBLISHED,
     RESERVED,
     SOLD,
-    ARCHIVED,
-    REMOVED
+    ARCHIVED
 }

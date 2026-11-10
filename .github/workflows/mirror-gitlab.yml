@@ -1,0 +1,51 @@
+# Mirror: every push to main here (GitHub, where the code lives) is pushed on to GitLab
+# (premium-cars-import/premium-cars-backend), the second way to build and deploy (Google Cloud Build,
+# premium-cars-infra docs/gitlab-cloud-build.md). Nobody pushes to GitLab by hand.
+# Never forced: when GitLab's main has commits that GitHub's lacks, GitLab refuses the push and this run fails;
+# bring those commits to GitHub through a pull request, then run this workflow again (or merge the next change).
+#
+# Repository secret (Settings -> Secrets and variables -> Actions):
+#   GITLAB_MIRROR_TOKEN  a GitLab access token with write_repository whose user may push to GitLab's protected main.
+#                        Sent in the Authorization header (Basic oauth2:<token>), never in the URL.
+name: Mirror to GitLab
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-gitlab
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Push main to GitLab
+        env:
+          GITLAB_MIRROR_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
+          GITLAB_REPO: https://gitlab.com/premium-cars-import/premium-cars-backend.git
+        run: |
+          if [ -z "$GITLAB_MIRROR_TOKEN" ]; then
+            echo "::error title=Mirror::the repository secret GITLAB_MIRROR_TOKEN is not set"
+            exit 1
+          fi
+          auth=$(printf 'oauth2:%s' "$GITLAB_MIRROR_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          # The header goes through git's environment config, so it is neither in the URL nor on the command line.
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://gitlab.com/.extraheader
+          export GIT_CONFIG_VALUE_0="Authorization: Basic $auth"
+          if ! git push "$GITLAB_REPO" HEAD:refs/heads/main; then
+            echo "::error title=Mirror::GitLab refused main (not a fast-forward: GitLab's main has commits GitHub's lacks?). Nothing was forced."
+            exit 1
+          fi

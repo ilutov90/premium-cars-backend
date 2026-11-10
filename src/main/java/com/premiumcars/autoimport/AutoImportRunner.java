@@ -56,8 +56,7 @@ import com.premiumcars.social.PostedChannels;
  *       their make is searched without the import's filters (by link or listing id), and one missing is deleted
  *       too (same guard);</li>
  *   <li>notes every car it deletes with where it was posted (Facebook, Instagram, Viber, mobile.bg, cars.bg), to
- *       take those posts down;</li>
- *   <li>deletes the cars an earlier version hid as REMOVED.</li>
+ *       take those posts down.</li>
  * </ul>
  * A dry run only counts. Runs go one at a time, nightly at 03:00 Sofia time (guazi first) while the main switch is
  * on, or when an admin starts one.
@@ -74,7 +73,7 @@ public class AutoImportRunner {
     static final int GUARD_MIN = 20;
     /** The statuses a gone listing deletes; reserved, sold and archived cars stay. */
     static final Set<CarStatus> DELETED_WHEN_GONE =
-            java.util.EnumSet.of(CarStatus.PUBLISHED, CarStatus.DRAFT, CarStatus.REMOVED);
+            java.util.EnumSet.of(CarStatus.PUBLISHED, CarStatus.DRAFT);
 
     private final Map<CarSource, SourceSearch> searches = new EnumMap<>(CarSource.class);
     private final AutoImportSettingsRepository settings;
@@ -207,9 +206,6 @@ public class AutoImportRunner {
     Result pass(SourceSearch search, SourceSettings s, boolean dryRun, Long runId) {
         CarSource source = s.source();
         List<Brand> brands = settings.brands(source).stream().filter(Brand::enabled).toList();
-        if (!dryRun) {
-            purgeRemoved();
-        }
         Map<String, FoundListing> found = new LinkedHashMap<>();
         Map<String, String> brandOf = new HashMap<>();
         List<BrandPass> passes = new ArrayList<>();
@@ -226,21 +222,19 @@ public class AutoImportRunner {
         Set<String> answered = passes.stream().filter(p -> !p.failed()).map(BrandPass::code)
                 .collect(Collectors.toSet());
 
-        // new, seen again, back
+        // new, seen again
         Integer maxKm = settings.maxMileageKm();
         Integer maxEur = priceLimit.maxEur();
         int newCount = 0;
         int overMileage = 0;
         int overPrice = 0;
         int unpriced = 0;
-        int returned = 0;
         int renamed = 0;
         for (FoundListing l : found.values()) {
             Optional<Listing> known = listings.find(source, l.id());
             Long carId = known.map(Listing::carId).orElse(null);
             Optional<Car> car = carId != null ? cars.findById(carId)
                     : cars.findBySourceUrl(l.url()).or(() -> cars.findBySourceRef(source, l.id()));
-            boolean back = car.map(c -> c.status() == CarStatus.REMOVED).orElse(false);
             boolean over = maxKm != null && l.mileageKm() != null && l.mileageKm() > maxKm;
             boolean priced = search.priced(l);
             boolean tooDear = priced && priceLimit.over(l.price(), search.currency(), maxEur);
@@ -255,9 +249,6 @@ public class AutoImportRunner {
             } else if (known.isEmpty() && car.isEmpty()) {
                 newCount++;
             }
-            if (back) {
-                returned++;
-            }
             if (dryRun) {
                 continue;
             }
@@ -270,9 +261,6 @@ public class AutoImportRunner {
                 listings.insert(source, l, brandOf.get(l.id()), over ? AutoImportListingRepository.SKIPPED
                         : tooDear ? AutoImportListingRepository.PRICE_SKIPPED : AutoImportListingRepository.QUEUED,
                         null);
-            }
-            if (back) {
-                cars.restoreRemoved(car.get().id());
             }
             // the source's own model (autowini's menu) names the car's, also for cars imported before or by hand
             if (car.isPresent() && l.model() != null && !l.model().isBlank()
@@ -355,7 +343,7 @@ public class AutoImportRunner {
         if (dryRun) {
             notes.add(0, "dry run: nothing was changed; " + carsToDelete + " of the would-be removed are in our catalog");
         }
-        return new Result(status, found.size(), newCount, gone, returned + manual.returned(), passes,
+        return new Result(status, found.size(), newCount, gone, 0, passes,
                 notes.isEmpty() ? null : String.join("; ", notes), manual.checked(), manual.gone());
     }
 
@@ -365,9 +353,10 @@ public class AutoImportRunner {
     }
 
     /**
-     * The source's cars not covered by the import's listings: their make (as the source names it) is searched from
-     * the oldest car's year, without the import's filters. A car missing (by its link and its listing id) is
-     * deleted. Makes not read whole, or not in the source's list, are left alone.
+     * The source's cars not covered by the import's listings: each looked up by its listing id where the site can
+     * ({@link SourceSearch#listed}: autowini), otherwise their make (as the source names it) is searched from the
+     * oldest car's year, without the import's filters. A car missing (by its link and its listing id) is deleted.
+     * Cars the site did not answer for, makes not read whole, or not in the source's list, are left alone.
      */
     ManualCheck checkOtherCars(SourceSearch search, CarSource source, Set<Long> covered, boolean dryRun, Long runId,
                                List<String> notes) {
@@ -382,13 +371,44 @@ public class AutoImportRunner {
         Map<String, List<CatalogBrand>> byName = new HashMap<>();
         settings.catalog(source).forEach(b -> byName.computeIfAbsent(
                 key(MakeNames.canonical(b.name(), null).make()), k -> new ArrayList<>()).add(b));
-        Map<String, List<CheckedCar>> byMake = others.stream()
-                .collect(Collectors.groupingBy(c -> key(c.make()), LinkedHashMap::new, Collectors.toList()));
-
         int checked = 0;
         int returned = 0;
         int unknownMake = 0;
         List<CheckedCar> toRemove = new ArrayList<>();
+
+        // one request per car where the site looks up a listing by its id (autowini); the others by their make
+        List<CheckedCar> byMakeCars = new ArrayList<>();
+        boolean oneByOne = true;
+        int unanswered = 0;
+        for (CheckedCar c : others) {
+            Boolean there = null;
+            if (oneByOne && c.sourceRef() != null && !c.sourceRef().isBlank()) {
+                try {
+                    there = search.listed(c.sourceRef().trim());
+                } catch (SourceSearch.SearchException e) {
+                    unanswered++;
+                    continue;
+                }
+                oneByOne = there != null;
+            }
+            if (there == null) {
+                byMakeCars.add(c);
+                continue;
+            }
+            checked++;
+            if (there) {
+                if (!dryRun) {
+                    listings.manualSeen(c.id());
+                }
+            } else {
+                toRemove.add(c);
+            }
+        }
+        if (unanswered > 0) {
+            notes.add("cars added by hand: " + unanswered + " not answered by the site (nothing of them removed)");
+        }
+        Map<String, List<CheckedCar>> byMake = byMakeCars.stream()
+                .collect(Collectors.groupingBy(c -> key(c.make()), LinkedHashMap::new, Collectors.toList()));
         for (var group : byMake.entrySet()) {
             List<CatalogBrand> makes = byName.get(group.getKey());
             if (makes == null) {
@@ -401,7 +421,7 @@ public class AutoImportRunner {
             Set<String> ids = new HashSet<>();
             String incomplete = null;
             for (CatalogBrand make : makes) {
-                BrandPass p = search.listPresent(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
+                BrandPass p = search.list(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
                         List.of()), NO_FILTERS, l -> {
                             urls.add(l.url());
                             ids.add(l.id().toLowerCase(java.util.Locale.ROOT));
@@ -484,16 +504,5 @@ public class AutoImportRunner {
         }
         runs.addRemoved(runId, source, null, c.specs().title(), c.slug(), c.sourceUrl(), manual, posts);
         return true;
-    }
-
-    /** Deletes the cars an earlier version hid as REMOVED (they were noted when hidden). */
-    void purgeRemoved() {
-        for (Long id : cars.findRemovedBefore(Instant.now())) {
-            try {
-                carService.delete(id);
-            } catch (RuntimeException e) {
-                log.warn("Could not delete removed car {}: {}", id, e.toString());
-            }
-        }
     }
 }

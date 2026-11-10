@@ -20,6 +20,7 @@ import com.premiumcars.pricing.PriceBreakdown;
 import com.premiumcars.pricing.PriceCalculator;
 import com.premiumcars.pricing.PricingProfile;
 import com.premiumcars.pricing.PricingProfileRepository;
+import com.premiumcars.social.PostedChannels;
 
 /** Domain records -> API DTOs. */
 @Component
@@ -45,13 +46,13 @@ public class CarMapper {
                 photos);
     }
 
-    public AdminCarSummary toAdminSummary(CarListRow row) {
+    public AdminCarSummary toAdminSummary(CarListRow row, List<PostedChannels.Post> posted) {
         Car c = row.car();
         CarSpecs s = c.specs();
         List<String> photos = photoUrls(row);
         String cover = photos.isEmpty() ? null : photos.getFirst();
         return new AdminCarSummary(c.id(), c.slug(), s.title(), s.year(), s.mileageKm(), c.status(),
-                c.totalPriceEur(), cover, c.source(), c.sourceRef(), c.sourceUrl());
+                c.totalPriceEur(), cover, c.source(), c.sourceRef(), c.sourceUrl(), posted);
     }
 
     /** Where browsers load the photo from: our media storage, or the source's CDN for a linked photo. */

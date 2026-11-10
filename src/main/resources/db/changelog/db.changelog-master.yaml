@@ -73,3 +73,5 @@ databaseChangeLog:
       file: db/changelog/changes/036-car-source-ref-index.sql
   - include:
       file: db/changelog/changes/037-auto-import-listing-model.sql
+  - include:
+      file: db/changelog/changes/038-no-removed-status.sql

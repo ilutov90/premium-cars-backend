@@ -1,0 +1,64 @@
+# CI on Google Cloud Build, for the code on GitLab (premium-cars-infra docs/gitlab-cloud-build.md). GitHub Actions
+# (.github/workflows) stays as it is; this file changes nothing there.
+#
+# Two triggers run it: a merge request to main (_PUSH=false: tests, secrets scan, the image built and started once)
+# and a push to main (_PUSH=true: the image also goes to the GitLab registry as :latest and :<commit>).
+# Secret Manager: gitlab-registry = "<deploy token username>:<token>" with write_registry.
+# In Cloud Build "$$" is a shell "$"; "$X" / "${_X}" are Cloud Build's substitutions.
+timeout: 2400s
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+substitutions:
+  _PUSH: "false"
+  _IMAGE: registry.gitlab.com/premium-cars-import/premium-cars-backend
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/gitlab-registry/versions/latest
+      env: GITLAB_REGISTRY
+
+steps:
+  # Blocks commits that contain passwords, tokens or keys (the files of this commit)
+  - id: secrets
+    name: zricethezav/gitleaks:latest
+    args: ["dir", "--redact", "--verbose", "."]
+    waitFor: ["-"]
+
+  # The tests; JdbcRepositoriesTest and the other database tests on a real PostgreSQL (Testcontainers, through the
+  # build machine's Docker). They must not be skipped.
+  - id: verify
+    name: maven:3.9-eclipse-temurin-21
+    entrypoint: bash
+    env:
+      - TESTCONTAINERS_RYUK_DISABLED=true
+    args:
+      - -c
+      - |
+        set -e
+        mvn -B verify
+        if grep -q 'skipped="[1-9]' target/surefire-reports/TEST-*JdbcRepositoriesTest.xml; then
+          echo "JdbcRepositoriesTest: the database tests were skipped (Docker not available)"
+          exit 1
+        fi
+    waitFor: ["-"]
+
+  # The production image: started once on a merge request (headless Chromium), pushed on main
+  - id: image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    secretEnv: [GITLAB_REGISTRY]
+    args:
+      - -c
+      - |
+        set -e
+        docker build -t ${_IMAGE}:$COMMIT_SHA .
+        if [ "${_PUSH}" = "true" ]; then
+          echo "$${GITLAB_REGISTRY#*:}" | docker login registry.gitlab.com -u "$${GITLAB_REGISTRY%%:*}" --password-stdin
+          docker tag ${_IMAGE}:$COMMIT_SHA ${_IMAGE}:latest
+          docker push ${_IMAGE}:$COMMIT_SHA
+          docker push ${_IMAGE}:latest
+        else
+          docker run --rm --entrypoint sh ${_IMAGE}:$COMMIT_SHA -c \
+            'id -un && ls /ms-playwright && $$(ls -d /ms-playwright/chromium-*/chrome-linux*/chrome | head -1) --headless=new --no-sandbox --disable-gpu --dump-dom about:blank'
+        fi
+    waitFor: ["verify"]
