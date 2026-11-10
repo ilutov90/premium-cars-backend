@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import com.premiumcars.catalog.domain.CarSort;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.domain.PostedFilter;
 import com.premiumcars.catalog.domain.FuelType;
 import com.premiumcars.catalog.domain.Origin;
 import com.premiumcars.catalog.web.dto.CarFilter;
@@ -87,5 +88,51 @@ class CarSearchSqlTest {
         assertThat(CarSort.fromAdminParam("price_desc")).isEqualTo(CarSort.PRICE_DESC);
         assertThat(CarSort.fromAdminParam("nonsense")).isEqualTo(CarSort.UPDATED);
         assertThat(CarSort.fromAdminParam(null)).isEqualTo(CarSort.UPDATED);
+    }
+
+    @Test
+    void testSiteSlug_LinkToACarPageOnOurSite_ReturnsTheSlug() {
+        assertThat(CarSearchSql.siteSlug("https://premiumcarsimport.bg/cars/kia-sportage-2021-29538?utm_source=fb"))
+                .isEqualTo("kia-sportage-2021-29538");
+        assertThat(CarSearchSql.siteSlug("premiumcarsimport.bg/cars/bmw-520d-2019")).isEqualTo("bmw-520d-2019");
+        assertThat(CarSearchSql.siteSlug("Kia Sportage")).isNull();
+    }
+
+    @Test
+    void testCarNumber_NumberAloneWithOrWithoutSign_ReturnsTheNumber() {
+        assertThat(CarSearchSql.carNumber("29538")).isEqualTo(29538L);
+        assertThat(CarSearchSql.carNumber("#29538")).isEqualTo(29538L);
+        assertThat(CarSearchSql.carNumber(" № 29538 ")).isEqualTo(29538L);
+        assertThat(CarSearchSql.carNumber("IC5546178")).isNull();
+        assertThat(CarSearchSql.carNumber("Kia 2021")).isNull();
+    }
+
+    @Test
+    void testForAdmin_SiteLinkOrNumberAsText_MatchesThatCarOnly() {
+        var byLink = CarSearchSql.forAdmin(text("https://premiumcarsimport.bg/cars/kia-sportage-2021"),
+                EnumSet.allOf(CarStatus.class)).count();
+        assertThat(byLink.text()).contains("c.slug = :slug");
+        assertThat(byLink.params()).containsEntry("slug", "kia-sportage-2021");
+
+        var byNumber = CarSearchSql.forAdmin(text("№ 29538"), EnumSet.allOf(CarStatus.class)).count();
+        assertThat(byNumber.text()).contains("c.id = :carNumber OR c.source_ref ILIKE :q").doesNotContain("c.title");
+        assertThat(byNumber.params()).containsEntry("carNumber", 29538L).containsEntry("q", "%29538%");
+    }
+
+    @Test
+    void testForAdmin_PostedFilter_AddsItsFixedCondition() {
+        var none = CarSearchSql.forAdmin(null, EnumSet.allOf(CarStatus.class), null, PostedFilter.NONE);
+        assertThat(none.count().text()).contains("NOT (EXISTS (SELECT 1 FROM social_post");
+        assertThat(none.countByStatus().text()).contains("mobile_bg_listing").contains("cars_bg_listing");
+
+        var notMobile = CarSearchSql.forAdmin(null, EnumSet.allOf(CarStatus.class), null, PostedFilter.NOT_MOBILE_BG);
+        assertThat(notMobile.count().text()).contains("NOT EXISTS (SELECT 1 FROM mobile_bg_listing");
+        assertThat(PostedFilter.fromParam("not_facebook")).isEqualTo(PostedFilter.NOT_FACEBOOK);
+        assertThat(PostedFilter.fromParam("'; DROP TABLE car; --")).isNull();
+        assertThat(PostedFilter.fromParam(null)).isNull();
+    }
+
+    private static CarFilter text(String q) {
+        return new CarFilter(q, null, null, null, null, null, null, null, null, null, null);
     }
 }

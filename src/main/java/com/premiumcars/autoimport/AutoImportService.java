@@ -97,6 +97,13 @@ public class AutoImportService {
         return runs.removed(runId);
     }
 
+    /** The runs' report, newest first, a page at a time. */
+    public PageResponse<AutoImportRunRepository.Run> runs(int page, int size) {
+        int p = Math.max(page, 0);
+        int s = Math.min(Math.max(size, 1), 100);
+        return PageResponse.of(runs.page((long) p * s, s), p, s, runs.count(), r -> r);
+    }
+
     /** @return how many were deleted */
     public int deleteFailures(FailureDelete d) {
         if (d.all()) {

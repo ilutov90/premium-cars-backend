@@ -12,18 +12,22 @@ import org.springframework.stereotype.Component;
  * production while an admin's laptop does the import against the production database (premium-cars-infra
  * "local-worker").
  *
- * @param enabled     this server runs the automatic import
- * @param searchPause at least this long between two requests to a site's search
- * @param queuePause  at least this long between two imported listings of a site's queue
+ * @param enabled          this server runs the automatic import
+ * @param searchPause      at least this long between two requests to a site's search
+ * @param guaziSearchPause the same for guazi's search, which blocks the server's address sooner: longer
+ * @param queuePause       at least this long between two imported listings of a site's queue
  */
 @Component
-public record AutoImportInstance(boolean enabled, Duration searchPause, Duration queuePause) {
+public record AutoImportInstance(boolean enabled, Duration searchPause, Duration guaziSearchPause,
+                                 Duration queuePause) {
 
     public AutoImportInstance(@Value("${app.auto-import.enabled:true}") boolean enabled,
                               @Value("${app.auto-import.search-pause:PT2S}") Duration searchPause,
+                              @Value("${app.auto-import.guazi-search-pause:PT3S}") Duration guaziSearchPause,
                               @Value("${app.auto-import.queue-pause:PT2S}") Duration queuePause) {
         this.enabled = enabled;
         this.searchPause = searchPause;
+        this.guaziSearchPause = guaziSearchPause;
         this.queuePause = queuePause;
     }
 }

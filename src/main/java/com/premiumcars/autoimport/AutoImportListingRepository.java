@@ -172,7 +172,7 @@ public class AutoImportListingRepository {
     }
 
     /**
-     * Our cars of a source on the site or as drafts (not REMOVED, SOLD or ARCHIVED): the page's "Проверка на колите".
+     * Our cars of a source on the site or as drafts (not SOLD or ARCHIVED): the page's "Проверка на колите".
      */
     public record CatalogCheck(int cars) {
     }

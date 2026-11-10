@@ -54,7 +54,7 @@ public class GuaziSearch implements SourceSearch {
     public GuaziSearch(ObjectMapper json, AppProperties props, AutoImportInstance instance,
                        com.premiumcars.importing.browser.BrowserFetch browser) {
         // a bot check instead of data: asked again from the browser on guazi's own page
-        this.http = new SearchHttp(json, instance.searchPause().toMillis(), Map.of(
+        this.http = new SearchHttp(json, instance.guaziSearchPause().toMillis(), Map.of(
                 "User-Agent", props.importer().userAgent(),
                 "Origin", SITE,
                 "Referer", SITE + "/used-cars/"), browser, SITE + "/used-cars/");
