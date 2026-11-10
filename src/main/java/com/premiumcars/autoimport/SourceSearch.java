@@ -52,11 +52,13 @@ public interface SourceSearch {
     BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found);
 
     /**
-     * Like {@link #list}, for whether listings are still there only (the check of the cars added by hand): the
-     * listings need not come with their model, so a site may read fewer pages.
+     * Whether one listing is in the site's search (by its listing id), for the check of the cars added by hand.
+     *
+     * @return null when the site cannot look up one listing (its make is read instead)
+     * @throws SearchException when the site does not answer with data (nothing is removed then)
      */
-    default BrandPass listPresent(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
-        return list(brand, filters, found);
+    default Boolean listed(String listingId) {
+        return null;
     }
 
     /** The listing shows a price we can import with. */

@@ -30,6 +30,38 @@ class SearchParsingTest {
     // ------------------------------------------------------------------ autowini
 
     @Test
+    void testWholeCheaper_AllMenuModelsChosen_ReadsTheWholeMake() throws Exception {
+        JsonNode menu = tree("""
+                [{"code":"C1830","name":"A6","count":1186},{"code":"C1840","name":"A7","count":300},
+                 {"code":"C1810","name":"A4","count":261},{"code":"C1880","name":"S5","count":4}]""");
+        List<CatalogModel> chosen = List.of(new CatalogModel("C1830", "A6"), new CatalogModel("C1840", "A7"),
+                new CatalogModel("C1810", "A4"), new CatalogModel("C1880", "S5"));
+        assertThat(AutowiniSearch.wholeCheaper(chosen, menu, 1751)).isTrue();
+    }
+
+    @Test
+    void testWholeCheaper_FewSmallModelsOfABigMake_ReadsModelByModel() throws Exception {
+        JsonNode menu = tree("""
+                [{"code":"C1150","name":"Carnival","count":3000},{"code":"C1160","name":"K5","count":70}]""");
+        assertThat(AutowiniSearch.wholeCheaper(List.of(new CatalogModel("C1160", "K5")), menu, 26757)).isFalse();
+    }
+
+    @Test
+    void testWithCodes_EvLeftOutByName_AlsoLeavesOutItsFacetCode() throws Exception {
+        JsonNode facet = tree("""
+                [{"code":"Gasoline","name":"Gasoline","count":10},{"code":"EV","name":"Electric Vehicle (EV)","count":5}]""");
+        List<String> out = AutowiniSearch.withCodes(List.of("Electric Vehicle (EV)"), facet);
+        assertThat(out).containsExactly("Electric Vehicle (EV)", "EV");
+        assertThat(AutowiniSearch.excluded(out, null, "EV")).isTrue();
+        assertThat(AutowiniSearch.excluded(out, null, "Gasoline")).isFalse();
+    }
+
+    @Test
+    void testWithCodes_NothingLeftOut_ReturnsEmpty() throws Exception {
+        assertThat(AutowiniSearch.withCodes(List.of(), tree("[{\"code\":\"EV\",\"name\":\"EV\"}]"))).isEmpty();
+    }
+
+    @Test
     void autowiniPagesEndAtTheTotalNotAtTheFirstShortPage() throws Exception {
         assertThat(AutowiniSearch.totalCount(json.readTree("{\"totalCount\":435}"))).isEqualTo(435);
         assertThat(AutowiniSearch.totalCount(json.readTree("{\"totalCount\":null}"))).isEqualTo(-1);
