@@ -8,6 +8,14 @@ Sibling repos: `premium-cars-frontend` (Next.js, calls this API) and `premium-ca
 Java 21, Spring Boot 3.5, Maven, PostgreSQL 17, Liquibase, Spring Security (session login + CSRF for
 `/api/admin/**`), Spring Cloud Vault (secrets, AppRole), Jsoup (HTML import), springdoc (Swagger UI at `/swagger-ui.html`).
 
+## Where the code lives
+
+GitHub (`ilutov90/premium-cars-backend`) is the main place: a branch from `main`, a pull request to `main`, merged there (with a
+merge commit, not squash or rebase, so GitLab's `main` stays an ancestor). Never push to `main`.
+GitLab (`premium-cars-import/premium-cars-backend`) is the backup way (Google Cloud Build, `cloudbuild.yaml`): it is updated only
+by `.github/workflows/mirror-gitlab.yml`, which pushes `main` there after every push to GitHub's `main` (never
+forced, token `GITLAB_MIRROR_TOKEN` in a header). Do not push branches or merge requests to GitLab.
+
 ## Commands
 
 ```bash
@@ -49,7 +57,8 @@ Always run `mvn test` before finishing a change.
   CORS for the API; the browser reaches the API through the frontend (same origin).
 - Code, comments, identifiers and docs (README, CLAUDE.md) in English; user-facing texts live in the frontend (Bulgarian).
   Exception: the e-mails to the business (`InquiryNotifier`, `AutoImportMailer`) are Bulgarian.
-- `Dockerfile` is the production image (CI pushes it to GHCR); local development never needs it.
+- `Dockerfile` is the production image (GitHub CI pushes it to GHCR, Cloud Build on GitLab to the GitLab registry);
+  local development never needs it.
 
 ## Layout (`com.premiumcars`)
 

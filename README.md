@@ -204,6 +204,16 @@ with the pom's Playwright version), running as a non-root user, photos under `/a
 `/actuator/health`. CI builds it on every pull request and pushes `ghcr.io/ilutov90/premium-cars-backend:latest` and
 `:<commit>` on main. premium-cars-infra's `docker-compose.prod.yml` runs it; local development does not use it.
 
+## Where the code lives
+
+The code lives on GitHub (`ilutov90/premium-cars-backend`): changes go through a branch and a pull request to `main`, merged with
+a merge commit. GitHub Actions (`.github/workflows/ci.yml`) checks every pull request and pushes the image to GHCR on
+main. After every push to `main`, `.github/workflows/mirror-gitlab.yml` pushes `main` on to GitLab
+(`premium-cars-import/premium-cars-backend`), the backup way to build and deploy with Google Cloud Build (`cloudbuild.yaml`,
+premium-cars-infra `docs/gitlab-cloud-build.md`). The mirror never forces: if GitLab's `main` got commits of its own,
+the run fails until they come to GitHub through a pull request. It needs the repository secret `GITLAB_MIRROR_TOKEN`
+(a GitLab token with `write_repository` whose user may push to the protected `main`), sent in a header.
+
 ## Configuration
 
 Everything else is in `src/main/resources/application.yml` (no secrets) and can be overridden with an
