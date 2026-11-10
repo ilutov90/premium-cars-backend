@@ -47,7 +47,7 @@ public class AutoImportRunRepository {
         }
     }
 
-    /** A car a run hid (REMOVED), with where it was posted. */
+    /** A car a run deleted (its listing was gone), with where it was posted. */
     public record Removed(long id, Long carId, CarSource source, String title, String slug, String sourceUrl,
                           boolean manual, List<PostedChannels.Post> posted, Instant removedAt) {
     }
@@ -131,11 +131,22 @@ public class AutoImportRunRepository {
     }
 
     public List<Run> recent(int limit) {
+        return page(0, limit);
+    }
+
+    /** How many runs there are (the report's pages). */
+    public long count() {
+        return jdbc.sql("SELECT count(*) FROM auto_import_run").query(Long.class).single();
+    }
+
+    /** Runs newest first, {@code limit} of them after the first {@code offset}. */
+    public List<Run> page(long offset, int limit) {
         return jdbc.sql("""
                         SELECT id, source, dry_run, status, started_at, finished_at, found, new_count, gone_count,
                                returned_count, brands::text AS brands, message, manual_checked, manual_gone
-                        FROM auto_import_run ORDER BY started_at DESC, id DESC LIMIT :limit""")
+                        FROM auto_import_run ORDER BY started_at DESC, id DESC LIMIT :limit OFFSET :offset""")
                 .param("limit", limit)
+                .param("offset", offset)
                 .query((rs, n) -> new Run(rs.getLong("id"), CarSource.valueOf(rs.getString("source")),
                         rs.getBoolean("dry_run"), rs.getString("status"),
                         rs.getObject("started_at", OffsetDateTime.class).toInstant(),

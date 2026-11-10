@@ -28,6 +28,7 @@ import com.premiumcars.autoimport.AutoImportDtos.SwitchRequest;
 import com.premiumcars.autoimport.AutoImportTypes.CatalogModel;
 import com.premiumcars.autoimport.AutoImportTypes.FuelOption;
 import com.premiumcars.catalog.domain.CarSource;
+import com.premiumcars.common.PageResponse;
 
 /** "Автоматичен импорт" in the admin panel. */
 @RestController
@@ -74,7 +75,14 @@ public class AutoImportController {
         return service.failures(source, q, page, size);
     }
 
-    /** The cars a run hid, with where each one was posted (to take those posts down). */
+    /** The runs' report, newest first, a page at a time. */
+    @GetMapping("/runs")
+    public PageResponse<AutoImportRunRepository.Run> runs(@RequestParam(defaultValue = "0") int page,
+                                                          @RequestParam(defaultValue = "20") int size) {
+        return service.runs(page, size);
+    }
+
+    /** The cars a run deleted, with where each one was posted (to take those posts down); posted ones first. */
     @GetMapping("/runs/{id}/removed")
     public List<AutoImportRunRepository.Removed> removed(@PathVariable long id) {
         return service.removed(id);

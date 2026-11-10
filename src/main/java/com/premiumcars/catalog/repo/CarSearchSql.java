@@ -5,10 +5,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.premiumcars.catalog.domain.CarSort;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.domain.PostedFilter;
 import com.premiumcars.catalog.web.dto.CarFilter;
 
 /**
@@ -57,11 +60,37 @@ final class CarSearchSql {
 
     /** The admin list, also filtered by source site (null = all). */
     static CarSearchSql forAdmin(CarFilter filter, Collection<CarStatus> statuses, CarSource source) {
+        return forAdmin(filter, statuses, source, null);
+    }
+
+    /** The admin list, also filtered by source site and by where the car was posted (null = all). */
+    static CarSearchSql forAdmin(CarFilter filter, Collection<CarStatus> statuses, CarSource source,
+                                 PostedFilter posted) {
         CarSearchSql b = build(filter, statuses, true);
         if (source != null) {
             b.and("c.source = :source", "source", source.name());
         }
+        if (posted != null) {
+            b.where.append(" AND ").append(posted.condition());
+        }
         return b;
+    }
+
+    /** Our site's address of a car, ".../cars/{slug}": what an admin copies from the page a customer saw. */
+    private static final Pattern SITE_LINK = Pattern.compile("/cars/([a-z0-9][a-z0-9-]*)");
+    /** The car's number as the car page shows it ("Обява № 29538"): "29538", "#29538", "№ 29538". */
+    private static final Pattern CAR_NUMBER = Pattern.compile("(?:#|№|[Nn][Oo]?\\.?)?\\s*(\\d{1,18})");
+
+    /** The slug in a pasted link to a car's page on our site; null when the text is not such a link. */
+    static String siteSlug(String q) {
+        Matcher m = SITE_LINK.matcher(q);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** The number when the text is only a car number; null otherwise. */
+    static Long carNumber(String q) {
+        Matcher m = CAR_NUMBER.matcher(q.trim());
+        return m.matches() ? Long.valueOf(m.group(1)) : null;
     }
 
     private static CarSearchSql build(CarFilter filter, Collection<CarStatus> statuses, boolean matchSource) {
@@ -75,12 +104,11 @@ final class CarSearchSql {
     }
 
     private void addFilters(CarFilter f) {
-        if (notBlank(f.q())) {
-            String fields = matchSource
-                    ? "(c.title ILIKE :q OR c.make ILIKE :q OR c.model ILIKE :q"
-                      + " OR c.source_url ILIKE :q OR c.source_ref ILIKE :q)"
-                    : "(c.title ILIKE :q OR c.make ILIKE :q OR c.model ILIKE :q)";
-            and(fields, "q", "%" + escapeLike(f.q().trim()) + "%");
+        if (notBlank(f.q()) && !matchSource) {
+            and("(c.title ILIKE :q OR c.make ILIKE :q OR c.model ILIKE :q)", "q",
+                    "%" + escapeLike(f.q().trim()) + "%");
+        } else if (notBlank(f.q())) {
+            addAdminText(f.q().trim());
         }
         if (notBlank(f.make())) {
             and("lower(c.make) = :make", "make", f.make().trim().toLowerCase(Locale.ROOT));
@@ -111,6 +139,29 @@ final class CarSearchSql {
         }
         if (f.mileageTo() != null) {
             and("c.mileage_km <= :mileageTo", "mileageTo", f.mileageTo());
+        }
+    }
+
+    /**
+     * The admin list's text: a link to the car's page on our site finds that car (by its slug), a number alone the
+     * car with that number (or a source listing id with those digits); anything else is looked for in the title, make, model, slug
+     * and the source listing's link and id.
+     */
+    private void addAdminText(String q) {
+        String like = "%" + escapeLike(q) + "%";
+        String slug = siteSlug(q);
+        Long number = carNumber(q);
+        if (number != null) {
+            // the source's listing id too: autowini's "IC1234567" is found by its digits
+            and("(c.id = :carNumber OR c.source_ref ILIKE :q)", "carNumber", number);
+            params.put("q", "%" + number + "%");
+        } else if (slug != null) {
+            // a source site's link may hold "/cars/" too: it still finds its car
+            and("(c.slug = :slug OR c.source_url ILIKE :q OR c.source_ref ILIKE :q)", "slug", slug);
+            params.put("q", like);
+        } else {
+            and("(c.title ILIKE :q OR c.make ILIKE :q OR c.model ILIKE :q OR c.slug ILIKE :q"
+                    + " OR c.source_url ILIKE :q OR c.source_ref ILIKE :q)", "q", like);
         }
     }
 

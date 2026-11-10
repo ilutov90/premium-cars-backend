@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.premiumcars.catalog.domain.CarSort;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
+import com.premiumcars.catalog.domain.PostedFilter;
 import com.premiumcars.catalog.service.CarService;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCarCounts;
@@ -52,16 +53,19 @@ public class AdminCarController {
                                          @RequestParam(required = false) String q,
                                          @RequestParam(required = false) CarSource source,
                                          @RequestParam(required = false) String sort,
+                                         @RequestParam(required = false) String posted,
                                          @RequestParam(defaultValue = "0") int page,
                                          @RequestParam(defaultValue = "24") int size) {
-        return carService.searchAdmin(status, q, source, CarSort.fromAdminParam(sort), page, size);
+        return carService.searchAdmin(status, q, source, PostedFilter.fromParam(posted),
+                CarSort.fromAdminParam(sort), page, size);
     }
 
-    /** How many cars match the search and source, in all and per status. */
+    /** How many cars match the search, source and posted filter, in all and per status. */
     @GetMapping("/cars/counts")
     public AdminCarCounts counts(@RequestParam(required = false) String q,
-                                 @RequestParam(required = false) CarSource source) {
-        return carService.adminCounts(q, source);
+                                 @RequestParam(required = false) CarSource source,
+                                 @RequestParam(required = false) String posted) {
+        return carService.adminCounts(q, source, PostedFilter.fromParam(posted));
     }
 
     @GetMapping("/cars/{id}")

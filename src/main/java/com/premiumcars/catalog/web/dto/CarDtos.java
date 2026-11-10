@@ -13,6 +13,7 @@ import com.premiumcars.catalog.domain.Origin;
 import com.premiumcars.catalog.domain.PricingInputs;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.pricing.PriceBreakdown;
+import com.premiumcars.social.PostedChannels;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
@@ -75,7 +76,10 @@ public final class CarDtos {
 
     // ---------------------------------------------------------------- admin
 
-    /** A row of the admin car list: like {@link CarSummary} plus where the car was imported from. */
+    /**
+     * A row of the admin car list: like {@link CarSummary} plus where the car was imported from and where it was
+     * posted through the panel (Facebook, Instagram, Viber, mobile.bg, cars.bg; oldest first).
+     */
     public record AdminCarSummary(
             Long id,
             String slug,
@@ -87,7 +91,8 @@ public final class CarDtos {
             String coverImageUrl,
             CarSource source,
             String sourceRef,
-            String sourceUrl
+            String sourceUrl,
+            List<PostedChannels.Post> posted
     ) {
     }
 
