@@ -31,11 +31,15 @@ import com.premiumcars.importing.extract.ValueParsers;
  */
 public final class AutowiniPageParser {
 
-    /** dt label (lowercase, no trailing dot) -> field key. */
+    private static final String MAKE_MODEL = "make_model";
+
+    /** dt label (lowercase, no trailing dot, no spaces around "/") -> field key. */
     static final Map<String, String> LABELS = Map.ofEntries(
             Map.entry("item no", "item_no"),
             Map.entry("make", "make"),
-            Map.entry("model / class / grade", "model"),
+            Map.entry("model/class/grade", "model"),
+            // since Nov 2026 one row "Make/Model/Class": "Hyundai / Grandeur IG (Azera) / 2.4 Modern"
+            Map.entry("make/model/class", MAKE_MODEL),
             Map.entry("model year", "year"),
             Map.entry("odometer reading", "km"),
             Map.entry("engine volume", "engine_cc"),
@@ -51,6 +55,8 @@ public final class AutowiniPageParser {
             Map.entry("fob price", "price"),
             Map.entry("sale price", "price"));
 
+    /** The export name after the model on the mobile page: "Grandeur IG (Azera)". */
+    private static final Pattern EXPORT_NAME = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
     private static final Pattern ITEM_ID = Pattern.compile("(IC\\d+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern SIZED = Pattern.compile("^(.*?)_(?:320|1024)\\.(jpe?g)(\\?.*)?$", Pattern.CASE_INSENSITIVE);
     private static final Pattern MONEY = Pattern.compile("(US\\$|USD|\\$|€|EUR)\\s*([\\d][\\d,]*(?:\\.\\d+)?)",
@@ -105,12 +111,20 @@ public final class AutowiniPageParser {
             if (inSiteChrome(dt)) {
                 continue;
             }
-            String label = dt.text().trim().toLowerCase(Locale.ROOT).replaceAll("\\.$", "");
+            String label = dt.text().trim().toLowerCase(Locale.ROOT).replaceAll("\\.$", "")
+                    .replaceAll("\\s*/\\s*", "/");
             String key = LABELS.get(label);
             if (key == null || fields.containsKey(key)) {
                 continue;
             }
             Element dd = dt.nextElementSibling();
+            if (MAKE_MODEL.equals(key)) {
+                if (dd != null && "dd".equals(dd.tagName())) {
+                    fields.put(key, dd.text());
+                    putMakeModel(fields, dd.wholeText());
+                }
+                continue;
+            }
             if (dd != null && "dd".equals(dd.tagName()) && dd.select("li").isEmpty()) {
                 // without the "!" tooltips: the odometer's says "...real kilometer(mileage)..." (read as miles)
                 Element value = dd.clone();
@@ -142,6 +156,36 @@ public final class AutowiniPageParser {
         String id = fields.getOrDefault("item_no", itemId);
         return new ParsedPage(id, fields, price, currency, price == null ? null : discount, images(doc),
                 optionGroups(doc));
+    }
+
+    /**
+     * "Make / Model [export name] / Class" -> "make" and "model" as the old rows had them ("Grandeur IG / 2.4 Modern").
+     * The export name ("Azera") is on its own line on the desktop page and in brackets on the mobile page: left out,
+     * as autowini's own title leaves it out.
+     */
+    private static void putMakeModel(Map<String, String> fields, String value) {
+        String[] parts = value.replace('\u00a0', ' ').split("/");
+        String make = clean(parts[0]);
+        if (!make.isEmpty()) {
+            fields.putIfAbsent("make", make);
+        }
+        if (parts.length < 2) {
+            return;
+        }
+        String model = parts[1].lines().map(AutowiniPageParser::clean).filter(l -> !l.isEmpty()).findFirst()
+                .orElse("");
+        model = EXPORT_NAME.matcher(model).replaceFirst("").trim();
+        List<String> rest = new ArrayList<>();
+        for (int i = 2; i < parts.length; i++) {
+            String c = clean(parts[i]);
+            if (!c.isEmpty()) {
+                rest.add(c);
+            }
+        }
+        String full = rest.isEmpty() ? model : model + " / " + String.join(" / ", rest);
+        if (!full.isBlank()) {
+            fields.putIfAbsent("model", full.startsWith(" / ") ? full.substring(3) : full);
+        }
     }
 
     private static boolean inSiteChrome(Element element) {

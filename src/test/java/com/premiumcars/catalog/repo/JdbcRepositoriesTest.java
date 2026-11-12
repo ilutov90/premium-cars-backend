@@ -89,6 +89,9 @@ class JdbcRepositoriesTest {
     CarService carService;
 
     @Autowired
+    CarRepository carRepository;
+
+    @Autowired
     PriceRecalcService priceRecalc;
 
     @Autowired
@@ -376,6 +379,34 @@ class JdbcRepositoriesTest {
         assertThat(counts.byStatus()).containsEntry(CarStatus.DRAFT, 1L);
         assertThat(carService.adminCounts(null, null).total())
                 .isEqualTo(carService.searchAdmin(null, null, 0, 1).totalItems());
+
+        carService.delete(car.id());
+    }
+
+    @Test
+    void testUpdateNames_CarImportedAsCarWithoutMake_IsNamedOnceAndNoLongerListed() {
+        String ref = "IC" + UUID.randomUUID().toString().substring(0, 8);
+        String url = "https://www.autowini.com/Cars/" + ref + "/cars-detail";
+        var imported = new ImportedCar(ref, null, CarSpecs.builder().model("Grandeur").build(),
+                new BigDecimal("8000"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
+
+        assertThat(carRepository.findUnnamed(CarSource.AUTOWINI))
+                .anySatisfy(u -> {
+                    assertThat(u.id()).isEqualTo(car.id());
+                    assertThat(u.sourceUrl()).isEqualTo(url);
+                    assertThat(u.model()).isEqualTo("Grandeur");
+                    assertThat(u.status()).isEqualTo(CarStatus.DRAFT);
+                });
+        assertThat(carRepository.updateNames(car.id(), "Hyundai Grandeur IG 2.4 Modern", "Hyundai", "Grandeur",
+                "2.4 Modern")).isTrue();
+        assertThat(carRepository.updateNames(car.id(), "Other", "Other", "Other", null)).isFalse();
+
+        var specs = carService.getAdmin(car.id()).specs();
+        assertThat(specs.title()).isEqualTo("Hyundai Grandeur IG 2.4 Modern");
+        assertThat(specs.make()).isEqualTo("Hyundai");
+        assertThat(specs.trim()).isEqualTo("2.4 Modern");
+        assertThat(carRepository.findUnnamed(CarSource.AUTOWINI)).noneMatch(u -> u.id() == car.id());
 
         carService.delete(car.id());
     }

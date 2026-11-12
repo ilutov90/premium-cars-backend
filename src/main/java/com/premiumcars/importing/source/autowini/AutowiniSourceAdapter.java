@@ -211,6 +211,11 @@ public class AutowiniSourceAdapter implements SourceAdapter {
             }
         }
         CarSpecs specs = AutowiniPageParser.toSpecs(page);
+        if (specs.make() == null) {
+            // the page's layout changed again: no car named "Car" without a make goes on the site
+            throw new BadRequestException("autowini's page " + desktopUrl + " shows no make: its layout may have"
+                    + " changed (AutowiniPageParser). Nothing was imported.");
+        }
 
         if (specs.fuelType() != null && specs.fuelType().hasTractionBattery()) {
             warnings.add("autowini does not list battery capacity or electric range: enter them manually.");

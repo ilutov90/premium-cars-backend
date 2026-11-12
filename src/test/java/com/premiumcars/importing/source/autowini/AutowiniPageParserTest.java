@@ -165,4 +165,52 @@ class AutowiniPageParserTest {
         assertThat(AutowiniClient.looksLikeKeycloak(new Page(200, "https://www.autowini.com/", "<html>home</html>")))
                 .isFalse();
     }
+
+    @Test
+    void testToSpecs_DesktopPageWithMakeModelClassRow_ReadsMakeModelAndTrim() throws IOException {
+        ParsedPage page = AutowiniPageParser.parse(page("autowini-IC4715272.html"), "IC4715272");
+        CarSpecs specs = AutowiniPageParser.toSpecs(page);
+
+        assertThat(page.itemId()).isEqualTo("IC4715272");
+        assertThat(page.price()).isEqualByComparingTo("7984");
+        assertThat(specs.title()).isEqualTo("Hyundai Grandeur IG 2.4 Modern");
+        assertThat(specs.make()).isEqualTo("Hyundai");
+        assertThat(specs.model()).isEqualTo("Grandeur IG");
+        assertThat(specs.trim()).isEqualTo("2.4 Modern");
+        assertThat(specs.year()).isEqualTo(2018);
+        assertThat(specs.fuelType()).isEqualTo(FuelType.PETROL);
+    }
+
+    @Test
+    void testToSpecs_MobilePageWithExportNameInBrackets_LeavesTheExportNameOut() throws IOException {
+        CarSpecs specs = AutowiniPageParser.toSpecs(
+                AutowiniPageParser.parse(page("autowini-mobile-IC4715272.html"), "IC4715272"));
+
+        assertThat(specs.title()).isEqualTo("Hyundai Grandeur IG 2.4 Modern");
+        assertThat(specs.make()).isEqualTo("Hyundai");
+        assertThat(specs.model()).isEqualTo("Grandeur IG");
+        assertThat(specs.trim()).isEqualTo("2.4 Modern");
+    }
+
+    @Test
+    void testToSpecs_MobilePageWithMakeOfTwoWords_KeepsTheWholeMake() throws IOException {
+        CarSpecs specs = AutowiniPageParser.toSpecs(
+                AutowiniPageParser.parse(page("autowini-mobile-IC5011360.html"), "IC5011360"));
+
+        assertThat(specs.title()).isEqualTo("Mercedes Benz E Class W213 E300");
+        assertThat(specs.make()).isEqualTo("Mercedes Benz");
+        assertThat(specs.model()).isEqualTo("E Class W213");
+        assertThat(specs.trim()).isEqualTo("E300");
+        assertThat(specs.year()).isEqualTo(2017);
+    }
+
+    @Test
+    void testToSpecs_PageWithoutAnyMakeRow_HasNoMake() {
+        CarSpecs specs = AutowiniPageParser.toSpecs(AutowiniPageParser.parse(
+                "<dl><dt>Model Year</dt><dd>2018</dd><dt>Make / Model / Trim</dt><dd>Kia / K5 / LX</dd></dl>",
+                "IC1"));
+
+        assertThat(specs.make()).isNull();
+        assertThat(specs.title()).isEqualTo("Car");
+    }
 }
