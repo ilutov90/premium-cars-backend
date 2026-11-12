@@ -121,6 +121,36 @@ public class CarRepository {
                 .update() == 1;
     }
 
+    /** A car whose page was read without its names (autowini's layout change of Nov 2026). */
+    public record UnnamedCar(long id, String sourceUrl, String model, CarStatus status) {
+    }
+
+    /** Cars of a source saved with the fallback title "Car" and no make, oldest first. */
+    public List<UnnamedCar> findUnnamed(CarSource source) {
+        return jdbc.sql("SELECT id, source_url, model, status FROM car WHERE source = :source AND title = 'Car'"
+                        + " AND make IS NULL AND source_url IS NOT NULL ORDER BY id")
+                .param("source", source.name())
+                .query((rs, n) -> new UnnamedCar(rs.getLong("id"), rs.getString("source_url"), rs.getString("model"),
+                        CarStatus.valueOf(rs.getString("status"))))
+                .list();
+    }
+
+    /**
+     * Title, make, model and trim of a car still without names; a car an admin has named meanwhile is left alone.
+     *
+     * @return true when it changed
+     */
+    public boolean updateNames(long id, String title, String make, String model, String trim) {
+        return jdbc.sql("UPDATE car SET title = :title, make = :make, model = :model, trim_level = :trim,"
+                        + " updated_at = now() WHERE id = :id AND title = 'Car' AND make IS NULL")
+                .param("title", title)
+                .param("make", make)
+                .param("model", model)
+                .param("trim", trim)
+                .param("id", id)
+                .update() == 1;
+    }
+
     public void updateSourceUrl(long id, String sourceUrl) {
         jdbc.sql("UPDATE car SET source_url = :url WHERE id = :id AND NOT EXISTS"
                         + " (SELECT 1 FROM car o WHERE o.source_url = :url AND o.id <> :id)")
