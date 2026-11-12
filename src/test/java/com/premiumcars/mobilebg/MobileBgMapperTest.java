@@ -161,4 +161,15 @@ class MobileBgMapperTest {
         assertThat(MobileBgMapper.category("Van")).isEqualTo("Ван");
         assertThat(MobileBgMapper.category("Truck")).isNull();
     }
+
+    @Test
+    void testMap_ElectricCarWithCltcRange_SendsTheWltpRangeWithoutWarning() {
+        CarSpecs ev = CarSpecs.builder().make("BYD").model("Seal").fuelType(FuelType.ELECTRIC)
+                .electricRangeKm(700).rangeStandard("CLTC").bodyType("Sedan").build();
+
+        MobileBgMapper.Result r = MobileBgMapper.map(car(ev, "21077"), CATALOG);
+
+        assertThat(r.draft().rangeKm()).isEqualTo(575);
+        assertThat(r.warnings()).extracting(MobileBgMapper.Warning::code).doesNotContain(Code.RANGE_NOT_WLTP);
+    }
 }

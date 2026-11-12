@@ -27,7 +27,7 @@ import jakarta.validation.constraints.Size;
  * @param powerHp           total system power in metric hp
  * @param batteryKwh        traction battery capacity (electric, plug-in hybrid, range extender)
  * @param electricRangeKm   official electric range
- * @param rangeStandard     test cycle of the range: CLTC, NEDC, WLTP, EPA ...
+ * @param rangeStandard     test cycle of the range: CLTC, NEDC, WLTP, EPA ... (the WLTP range: {@link #wltpRangeKm()})
  * @param motorPowerKw      total electric motor power
  * @param batteryHealthPct  traction battery state of health (SOH) in percent, when the source reports it
  * @param euroStandard      emission class as a Euro number 1-6 (China VI counts as 6), as mobile.bg asks for it
@@ -75,6 +75,13 @@ public record CarSpecs(
         features = Builder.cleanFeatures(features);
         sheet = SpecGroup.clean(sheet);
         inspection = inspection == null || inspection.isEmpty() ? null : inspection;
+    }
+
+    /** The electric range on the WLTP cycle ({@link WltpRange}): sent with the specs, never read from a request. */
+    @com.fasterxml.jackson.annotation.JsonProperty(value = "wltpRangeKm",
+            access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+    public Integer wltpRangeKm() {
+        return WltpRange.km(electricRangeKm, rangeStandard);
     }
 
     public static Builder builder() {
