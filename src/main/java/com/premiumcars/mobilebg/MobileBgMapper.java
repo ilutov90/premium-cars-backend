@@ -37,7 +37,7 @@ public final class MobileBgMapper {
             RANGE_EXTENDER,
             CATEGORY_UNKNOWN,
             COLOR_UNKNOWN,
-            /** The car's electric range is not WLTP (e.g. CLTC), but mobile.bg asks for WLTP. */
+            /** The car's electric range is neither WLTP nor CLTC (e.g. NEDC), but mobile.bg asks for WLTP. */
             RANGE_NOT_WLTP,
             NO_PRICE
         }
@@ -130,8 +130,10 @@ public final class MobileBgMapper {
         }
         boolean battery = s.fuelType() == FuelType.ELECTRIC || s.fuelType() == FuelType.PLUGIN_HYBRID
                 || s.fuelType() == FuelType.RANGE_EXTENDER;
-        Integer range = battery ? s.electricRangeKm() : null;
-        if (range != null && s.rangeStandard() != null && !s.rangeStandard().equalsIgnoreCase("WLTP")) {
+        // mobile.bg asks for WLTP: CLTC is converted (WltpRange); another standard goes as it is, with a warning
+        Integer wltp = battery ? s.wltpRangeKm() : null;
+        Integer range = wltp != null ? wltp : battery ? s.electricRangeKm() : null;
+        if (wltp == null && range != null && s.rangeStandard() != null) {
             warnings.add(new Warning(Warning.Code.RANGE_NOT_WLTP, s.rangeStandard()));
         }
 

@@ -35,6 +35,8 @@ Always run `mvn test` before finishing a change.
 - Domain types are Java records (`Car`, `CarSpecs`, `PricingInputs`, `CarImage`, `Inquiry`). Enums are stored as
   their `name()`. Build `CarSpecs` with `CarSpecs.builder()` / `toBuilder()`: `build()` trims, maps blank to null
   and truncates to the column sizes. EV fields (battery, range, motor) are nullable; combustion cars leave them null.
+  `CarSpecs.wltpRangeKm()` (`WltpRange`) is the WLTP range from the range and its standard (CLTC × 0.82, rounded to
+  5 km; WLTP as it is; others null): not stored, written to JSON, never read from a request; `MobileBgMapper` sends it.
 - Car data is limited to what mobile.bg's "Добави обява" form can take: extras are `CarFeature` (one constant per
   mobile.bg checkbox, `mobileBgLabel()` is the checkbox's exact value, stored by `name()` in `car.features`), plus
   `euroStandard` (1-6), and `batteryHealthPct` (battery SOH, guazi's "Battery Report"). Importers fill what the source shows (`FeatureMapper`), the admins edit the rest.
