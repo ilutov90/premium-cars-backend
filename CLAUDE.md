@@ -3,6 +3,9 @@
 REST API for the Premium Cars Import website (cars imported from South Korea and China, sold in Bulgaria).
 Sibling repos: `premium-cars-frontend` (Next.js, calls this API) and `premium-cars-infra` (local PostgreSQL + Vault).
 
+The owner's session rules (answers in Bulgarian, generated content in English, the lead orchestrator's plan with a
+model per task approved before execution) are in `premium-cars-infra/CLAUDE.md`, "Session rules": they hold here too.
+
 ## Stack
 
 Java 21, Spring Boot 3.5, Maven, PostgreSQL 17, Liquibase, Spring Security (session login + CSRF for
