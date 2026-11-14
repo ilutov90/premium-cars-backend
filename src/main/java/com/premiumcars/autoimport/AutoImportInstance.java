@@ -27,7 +27,7 @@ public record AutoImportInstance(boolean enabled, Duration searchPause, Duration
     public AutoImportInstance(@Value("${app.auto-import.enabled:true}") boolean enabled,
                               @Value("${app.auto-import.search-pause:PT2S}") Duration searchPause,
                               @Value("${app.auto-import.guazi-search-pause:PT3S}") Duration guaziSearchPause,
-                              @Value("${app.auto-import.queue-pause:PT2S}") Duration queuePause,
+                              @Value("${app.auto-import.queue-pause:PT1S}") Duration queuePause,
                               @Value("${app.auto-import.refused-waits:PT30M,PT1H,PT2H}") List<Duration> refusedWaits) {
         this.enabled = enabled;
         this.searchPause = searchPause;

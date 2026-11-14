@@ -39,9 +39,16 @@ public class ImportService {
     private final ImageDownloader downloader;
     private final ImageStorage storage;
     private final AppProperties props;
-    /** Between two photos of an autowini listing: its bot protection refuses a server downloading too fast. */
-    @org.springframework.beans.factory.annotation.Value("${app.importer.photo-pause:PT1S}")
-    private java.time.Duration photoPause = java.time.Duration.ofSeconds(1);
+    /**
+     * How many photos of one listing are downloaded (and stored) at a time; below 1 = 1, which downloads them one by
+     * one. autowini's bot protection refuses a server downloading too fast: if it does, slow down again with this
+     * setting and {@link #photoPause}.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.importer.photo-parallel:4}")
+    private int photoParallel = 4;
+    /** At least this long between the starts of two photo downloads of an autowini listing (0 = no pause). */
+    @org.springframework.beans.factory.annotation.Value("${app.importer.photo-pause:PT0S}")
+    private java.time.Duration photoPause = java.time.Duration.ZERO;
 
     public ImportService(List<SourceAdapter> adapters, CarService carService, ImageDownloader downloader,
                          ImageStorage storage, AppProperties props) {
@@ -142,22 +149,14 @@ public class ImportService {
 
         AdminCar draft = carService.createDraft(data, adapter.source(), key);
 
-        String referer = adapter.referer(canonical);
-        var imageClient = adapter.imageClient();
         List<String> urls = data.imageUrls().stream().limit(maxImages).toList();
         DownloadedImage[] photos = new DownloadedImage[urls.size()];
         String[] working = new String[urls.size()]; // the candidate URL that downloaded
+        List<Fetched> fetched = downloadPhotos(adapter, adapter.referer(canonical), urls);
         for (int i = 0; i < urls.size(); i++) {
-            if (i > 0 && adapter.source() == CarSource.AUTOWINI) {
-                pause(photoPause);
-            }
-            for (String candidate : adapter.imageCandidates(urls.get(i))) {
-                Optional<DownloadedImage> img = downloader.download(candidate, referer, imageClient);
-                if (img.isPresent()) {
-                    photos[i] = img.get();
-                    working[i] = candidate;
-                    break;
-                }
+            if (fetched.get(i) != null) {
+                photos[i] = fetched.get(i).image();
+                working[i] = fetched.get(i).url();
             }
         }
         List<Integer> missing = new ArrayList<>();
@@ -171,18 +170,7 @@ public class ImportService {
             adapter.imagesFromBrowser(canonical, missingUrls)
                     .forEach((k, img) -> photos[missing.get(k)] = img);
         }
-        List<NewCarImage> images = new ArrayList<>();
-        for (int i = 0; i < photos.length; i++) {
-            if (photos[i] == null) {
-                continue;
-            }
-            if (adapter.linksPhotos() && working[i] != null) {
-                images.add(new NewCarImage(null, working[i]));
-            } else {
-                images.add(new NewCarImage(storage.store("cars/" + draft.id(), photos[i].bytes(),
-                        photos[i].extension()), urls.get(i)));
-            }
-        }
+        List<NewCarImage> images = storePhotos(adapter, draft.id(), urls, photos, working);
         if (images.size() < urls.size()) {
             warnings.add("Downloaded " + images.size() + " of " + urls.size() + " photos.");
             log.warn("Downloaded {} of {} photos for {}; last refusal: {}", images.size(), urls.size(), key,
@@ -192,12 +180,43 @@ public class ImportService {
         return new ImportResult(result, false, images.size(), warnings);
     }
 
-    private static void pause(java.time.Duration d) {
-        try {
-            Thread.sleep(d.toMillis());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+    /** A downloaded photo and the candidate URL it came from. */
+    private record Fetched(DownloadedImage image, String url) {
+    }
+
+    /** Each photo's first candidate that downloads, by index (null = none did), {@link #photoParallel} at a time. */
+    private List<Fetched> downloadPhotos(SourceAdapter adapter, String referer, List<String> urls) {
+        var imageClient = adapter.imageClient();
+        var gap = adapter.source() == CarSource.AUTOWINI ? photoPause : java.time.Duration.ZERO;
+        return PhotoTasks.run(urls.size(), photoParallel, gap, i -> {
+            for (String candidate : adapter.imageCandidates(urls.get(i))) {
+                Optional<DownloadedImage> img = downloader.download(candidate, referer, imageClient);
+                if (img.isPresent()) {
+                    return new Fetched(img.get(), candidate);
+                }
+            }
+            return null;
+        });
+    }
+
+    /** The photos in their order: linked ones by their URL, the others stored ({@link #photoParallel} at a time). */
+    private List<NewCarImage> storePhotos(SourceAdapter adapter, Long carId, List<String> urls,
+                                          DownloadedImage[] photos, String[] working) {
+        List<String> stored = PhotoTasks.run(photos.length, photoParallel, java.time.Duration.ZERO, i ->
+                photos[i] == null || adapter.linksPhotos() && working[i] != null ? null
+                        : storage.store("cars/" + carId, photos[i].bytes(), photos[i].extension()));
+        List<NewCarImage> images = new ArrayList<>();
+        for (int i = 0; i < photos.length; i++) {
+            if (photos[i] == null) {
+                continue;
+            }
+            if (adapter.linksPhotos() && working[i] != null) {
+                images.add(new NewCarImage(null, working[i]));
+            } else {
+                images.add(new NewCarImage(stored.get(i), urls.get(i)));
+            }
         }
+        return images;
     }
 
     private static void addGeneralWarnings(ImportedCar d, List<String> w) {
