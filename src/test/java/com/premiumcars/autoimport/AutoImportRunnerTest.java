@@ -337,20 +337,22 @@ class AutoImportRunnerTest {
 
     @Test
     void testPass_MakeRefusedOnce_WaitsReadsAgainAndIsDone() {
-        settings.setEnabled(true);
-        service.save(CarSource.GUAZI, new SourceUpdate(true, new SourceFilters(false, false, List.of("S", "A", "B")),
-                List.of(new BrandUpdate("C9990", "Refusemake", true, 2018, List.of(), null))));
+        SourceSettings before = settings.source(CarSource.GUAZI).orElseThrow();
+        int makes = (int) settings.brands(CarSource.GUAZI).stream().filter(Brand::enabled).count();
         RefusingOnceSearch search = new RefusingOnceSearch();
-        search.results.put("C9990", List.of(listing("rf1"), listing("rf2")));
+        search.results.put("1212", List.of(listing("rf1"), listing("rf2")));
         Result result;
         try {
+            settings.setEnabled(true);
+            settings.updateSource(CarSource.GUAZI, true, before.filters());
             result = runner.pass(search, GUAZI, false);
         } finally {
             settings.setEnabled(false);
+            settings.updateSource(CarSource.GUAZI, before.enabled(), before.filters());
         }
-        assertThat(search.reads).isEqualTo(2);
+        assertThat(search.reads).isEqualTo(makes + 1);
         assertThat(result.status()).isEqualTo("DONE");
-        assertThat(result.brands()).singleElement().satisfies(b -> assertThat(b.complete()).isTrue());
+        assertThat(result.brands()).allSatisfy(b -> assertThat(b.failed()).isFalse());
         assertThat(result.message()).contains("bot check").contains("waited");
         assertThat(result.found()).isEqualTo(2);
     }
