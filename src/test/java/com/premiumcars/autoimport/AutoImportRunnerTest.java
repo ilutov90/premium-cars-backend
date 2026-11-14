@@ -122,6 +122,26 @@ class AutoImportRunnerTest {
         }
     }
 
+    static class RefusingOnceSearch extends FakeSearch {
+        int reads;
+        volatile Instant refused;
+
+        @Override
+        public Instant lastRefused() {
+            return refused;
+        }
+
+        @Override
+        public BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
+            reads++;
+            if (reads == 1) {
+                refused = Instant.now();
+                return new BrandPass(brand.code(), brand.name(), 0, 0, false, "bot check", true);
+            }
+            return super.list(brand, filters, found);
+        }
+    }
+
     private static FoundListing listing(String id) {
         return listing(id, null);
     }
@@ -313,6 +333,31 @@ class AutoImportRunnerTest {
         assertThat(worker.pausedUntil(CarSource.AUTOWINI)).isAfter(Instant.now().plusSeconds(14 * 60));
         assertThat(service.overview().sources()).filteredOn(v -> v.source() == CarSource.AUTOWINI).singleElement()
                 .satisfies(v -> assertThat(v.pausedUntil()).isNotNull());
+    }
+
+    @Test
+    void testPass_MakeRefusedOnce_WaitsReadsAgainAndIsDone() {
+        SourceSettings before = settings.source(CarSource.GUAZI).orElseThrow();
+        int makes = (int) settings.brands(CarSource.GUAZI).stream().filter(Brand::enabled).count();
+        RefusingOnceSearch search = new RefusingOnceSearch();
+        search.results.put("1212", List.of(listing("rf1"), listing("rf2")));
+        Result result;
+        try {
+            settings.setEnabled(true);
+            settings.updateSource(CarSource.GUAZI, true, before.filters());
+            result = runner.pass(search, GUAZI, false);
+        } finally {
+            settings.setEnabled(false);
+            settings.updateSource(CarSource.GUAZI, before.enabled(), before.filters());
+        }
+        assertThat(search.reads).isEqualTo(makes + 1);
+        assertThat(result.status()).isNotEqualTo("INCOMPLETE");
+        assertThat(result.brands()).allSatisfy(b -> {
+            assertThat(b.failed()).isFalse();
+            assertThat(b.complete()).isTrue();
+        });
+        assertThat(result.message()).contains("bot check").contains("waited").contains("read on");
+        assertThat(result.found()).isEqualTo(2);
     }
 
     @Test

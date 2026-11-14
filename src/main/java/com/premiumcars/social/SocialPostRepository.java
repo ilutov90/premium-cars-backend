@@ -1,7 +1,10 @@
 package com.premiumcars.social;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -47,5 +50,24 @@ public class SocialPostRepository {
                 .param("photos", photos)
                 .query(MAPPER)
                 .single();
+    }
+
+    /**
+     * The latest post of this car on this network made after {@code since}, by hand or published at once: the post of
+     * another publication planned for later does not count (two planned posts of one car do not cancel each other).
+     */
+    public Optional<SocialPost> findPostedAfter(long carId, SocialNetwork network, Instant since) {
+        return jdbc.sql("""
+                        SELECT id, car_id, network, external_id, permalink, photos, created_at
+                        FROM social_post s
+                        WHERE car_id = :carId AND network = :network AND created_at > :since
+                          AND NOT EXISTS (SELECT 1 FROM scheduled_post p WHERE p.social_post_id = s.id
+                                          AND p.publish_at > p.created_at + INTERVAL '1 minute')
+                        ORDER BY created_at DESC, id DESC LIMIT 1""")
+                .param("carId", carId)
+                .param("network", network.name())
+                .param("since", OffsetDateTime.ofInstant(since, ZoneOffset.UTC))
+                .query(MAPPER)
+                .optional();
     }
 }

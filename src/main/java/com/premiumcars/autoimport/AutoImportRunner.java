@@ -199,6 +199,42 @@ public class AutoImportRunner {
         }
     }
 
+    private BrandPass readBrand(SourceSearch search, Brand brand, SourceSettings s, Map<String, FoundListing> found,
+                                Map<String, String> brandOf) {
+        return search.list(brand, s.filters(), l -> {
+            if (found.putIfAbsent(l.id(), l) == null) {
+                brandOf.put(l.id(), brand.code());
+            }
+        });
+    }
+
+    private static boolean refusedSince(SourceSearch search, Instant started) {
+        Instant refused = search.lastRefused();
+        return refused != null && !refused.isBefore(started);
+    }
+
+    private boolean importOn(CarSource source) {
+        return settings.enabled() && settings.source(source).map(SourceSettings::enabled).orElse(false);
+    }
+
+    /** Sleeps in slices of at most 30 s; false when the import was switched off or the thread interrupted. */
+    private boolean waitWhileOn(CarSource source, Duration wait) {
+        long end = System.nanoTime() + wait.toNanos();
+        try {
+            long left;
+            while ((left = end - System.nanoTime()) > 0) {
+                Thread.sleep(Math.min(30_000L, Math.max(1L, left / 1_000_000L)));
+                if (!importOn(source)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     Result pass(SourceSearch search, SourceSettings s, boolean dryRun) {
         return pass(search, s, dryRun, null);
     }
@@ -209,12 +245,24 @@ public class AutoImportRunner {
         Map<String, FoundListing> found = new LinkedHashMap<>();
         Map<String, String> brandOf = new HashMap<>();
         List<BrandPass> passes = new ArrayList<>();
+        List<Duration> waited = new ArrayList<>();
+        boolean stillRefused = false;
         for (Brand brand : brands) {
-            BrandPass p = search.list(brand, s.filters(), l -> {
-                if (found.putIfAbsent(l.id(), l) == null) {
-                    brandOf.put(l.id(), brand.code());
+            Instant started = Instant.now();
+            BrandPass p = readBrand(search, brand, s, found, brandOf);
+            while (p.failed() && !dryRun && waited.size() < instance.refusedWaits().size()
+                    && refusedSince(search, started) && importOn(source)) {
+                Duration wait = instance.refusedWaits().get(waited.size());
+                log.warn("Auto-import {}: the site refused {}; waiting {} before reading it again", source,
+                        brand.name(), wait);
+                if (!waitWhileOn(source, wait)) {
+                    break;
                 }
-            });
+                waited.add(wait);
+                started = Instant.now();
+                p = readBrand(search, brand, s, found, brandOf);
+                stillRefused = p.failed() && refusedSince(search, started);
+            }
             passes.add(p);
         }
         Set<String> complete = passes.stream().filter(BrandPass::complete).map(BrandPass::code)
@@ -279,6 +327,11 @@ public class AutoImportRunner {
         long carsToDelete = toRemove.stream().filter(l -> l.carId() != null).count();
 
         List<String> notes = new ArrayList<>();
+        if (!waited.isEmpty()) {
+            notes.add("the site asked for a bot check: waited "
+                    + waited.stream().map(d -> d.toMinutes() + " min").collect(Collectors.joining(", "))
+                    + (stillRefused ? " and it still refused" : " and read on"));
+        }
         passes.stream().filter(p -> !p.complete())
                 .forEach(p -> notes.add(p.name() + ": " + (p.error() == null ? "not read whole" : p.error())
                         + (p.failed() ? " (nothing of it removed)"

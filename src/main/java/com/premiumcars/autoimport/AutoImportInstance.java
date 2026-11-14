@@ -1,6 +1,7 @@
 package com.premiumcars.autoimport;
 
 import java.time.Duration;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -16,18 +17,22 @@ import org.springframework.stereotype.Component;
  * @param searchPause      at least this long between two requests to a site's search
  * @param guaziSearchPause the same for guazi's search, which blocks the server's address sooner: longer
  * @param queuePause       at least this long between two imported listings of a site's queue
+ * @param refusedWaits     how long a run waits, one wait after another (one budget per run), before it reads again
+ *                         a make the site refused (a bot check); empty = never waits
  */
 @Component
 public record AutoImportInstance(boolean enabled, Duration searchPause, Duration guaziSearchPause,
-                                 Duration queuePause) {
+                                 Duration queuePause, List<Duration> refusedWaits) {
 
     public AutoImportInstance(@Value("${app.auto-import.enabled:true}") boolean enabled,
                               @Value("${app.auto-import.search-pause:PT2S}") Duration searchPause,
                               @Value("${app.auto-import.guazi-search-pause:PT3S}") Duration guaziSearchPause,
-                              @Value("${app.auto-import.queue-pause:PT2S}") Duration queuePause) {
+                              @Value("${app.auto-import.queue-pause:PT2S}") Duration queuePause,
+                              @Value("${app.auto-import.refused-waits:PT30M,PT1H,PT2H}") List<Duration> refusedWaits) {
         this.enabled = enabled;
         this.searchPause = searchPause;
         this.guaziSearchPause = guaziSearchPause;
         this.queuePause = queuePause;
+        this.refusedWaits = List.copyOf(refusedWaits);
     }
 }

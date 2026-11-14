@@ -3,6 +3,7 @@ package com.premiumcars.autoimport;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -124,6 +125,11 @@ public class AutowiniSearch implements SourceSearch {
      * read and its listings kept by the chosen models and fuel types; only when the chosen models are few enough
      * that their own searches take fewer pages are they read model by model.
      */
+    @Override
+    public Instant lastRefused() {
+        return http.lastRefused();
+    }
+
     @Override
     public BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
         Set<String> seen = new HashSet<>();

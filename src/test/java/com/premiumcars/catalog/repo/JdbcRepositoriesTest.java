@@ -494,6 +494,29 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void testFindPostedAfter_PostsOfOneNetworkAfterTheTime_LatestOneOnly() {
+        String url = "https://www.autowini.com/test/" + UUID.randomUUID();
+        var imported = new ImportedCar("IC5", null, CarSpecs.builder().title("Kia K5 2022").build(),
+                new BigDecimal("14000"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI, url);
+        var before = java.time.Instant.now().minusSeconds(60);
+        SocialPost byHand = socialPosts.insert(car.id(), SocialNetwork.FACEBOOK, "PAGE_A", null, 1);
+        SocialPost latest = socialPosts.insert(car.id(), SocialNetwork.FACEBOOK, "PAGE_B", null, 1);
+
+        assertThat(socialPosts.findPostedAfter(car.id(), SocialNetwork.FACEBOOK, before))
+                .map(SocialPost::id).contains(latest.id());
+        assertThat(socialPosts.findPostedAfter(car.id(), SocialNetwork.VIBER, before)).isEmpty();
+        assertThat(socialPosts.findPostedAfter(car.id(), SocialNetwork.FACEBOOK,
+                java.time.Instant.now().plusSeconds(60))).isEmpty();
+
+        ScheduledPost planned = scheduledPosts.insert(car.id(), SocialNetwork.FACEBOOK, "planned", List.of(),
+                java.time.Instant.now().plusSeconds(600), "admin");
+        scheduledPosts.markPublished(planned.id(), latest.id());
+        assertThat(socialPosts.findPostedAfter(car.id(), SocialNetwork.FACEBOOK, before))
+                .map(SocialPost::id).contains(byHand.id());
+    }
+
+    @Test
     void aPublicationRecordsOnePostPerNetworkInOrder() {
         String url = "https://www.autowini.com/test/" + UUID.randomUUID();
         var imported = new ImportedCar("IC4", null, CarSpecs.builder().title("Kia K5 2022").build(),
