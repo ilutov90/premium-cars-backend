@@ -122,6 +122,26 @@ class AutoImportRunnerTest {
         }
     }
 
+    static class RefusingOnceSearch extends FakeSearch {
+        int reads;
+        volatile Instant refused;
+
+        @Override
+        public Instant lastRefused() {
+            return refused;
+        }
+
+        @Override
+        public BrandPass list(Brand brand, SourceFilters filters, Consumer<FoundListing> found) {
+            reads++;
+            if (reads == 1) {
+                refused = Instant.now();
+                return new BrandPass(brand.code(), brand.name(), 0, 0, false, "bot check", true);
+            }
+            return super.list(brand, filters, found);
+        }
+    }
+
     private static FoundListing listing(String id) {
         return listing(id, null);
     }
@@ -313,6 +333,26 @@ class AutoImportRunnerTest {
         assertThat(worker.pausedUntil(CarSource.AUTOWINI)).isAfter(Instant.now().plusSeconds(14 * 60));
         assertThat(service.overview().sources()).filteredOn(v -> v.source() == CarSource.AUTOWINI).singleElement()
                 .satisfies(v -> assertThat(v.pausedUntil()).isNotNull());
+    }
+
+    @Test
+    void testPass_MakeRefusedOnce_WaitsReadsAgainAndIsDone() {
+        settings.setEnabled(true);
+        service.save(CarSource.GUAZI, new SourceUpdate(true, new SourceFilters(false, false, List.of("S", "A", "B")),
+                List.of(new BrandUpdate("C9990", "Refusemake", true, 2018, List.of(), null))));
+        RefusingOnceSearch search = new RefusingOnceSearch();
+        search.results.put("C9990", List.of(listing("rf1"), listing("rf2")));
+        Result result;
+        try {
+            result = runner.pass(search, GUAZI, false);
+        } finally {
+            settings.setEnabled(false);
+        }
+        assertThat(search.reads).isEqualTo(2);
+        assertThat(result.status()).isEqualTo("DONE");
+        assertThat(result.brands()).singleElement().satisfies(b -> assertThat(b.complete()).isTrue());
+        assertThat(result.message()).contains("bot check").contains("waited");
+        assertThat(result.found()).isEqualTo(2);
     }
 
     @Test

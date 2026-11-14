@@ -7,7 +7,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -43,6 +46,7 @@ final class SearchHttp {
     private final BrowserFetch browser;
     private final String startUrl;
     private volatile long browserUntil;
+    private volatile Instant lastRefused;
     private long last;
 
     SearchHttp(ObjectMapper json, long pauseMs, Map<String, String> headers) {
@@ -78,7 +82,21 @@ final class SearchHttp {
         return browserUntil > System.currentTimeMillis();
     }
 
+    /** When a refusal last left {@link #send} (the browser refused too, or there is none); null = never. */
+    Instant lastRefused() {
+        return lastRefused;
+    }
+
     private JsonNode send(String method, URI uri, String body) {
+        try {
+            return sendOnce(method, uri, body);
+        } catch (Refused e) {
+            lastRefused = Instant.now();
+            throw e;
+        }
+    }
+
+    private JsonNode sendOnce(String method, URI uri, String body) {
         if (viaBrowser()) {
             return sendFromBrowser(method, uri, body);
         }
@@ -164,8 +182,26 @@ final class SearchHttp {
         } catch (JsonProcessingException e) {
             String start = body.strip();
             throw new Refused(host + " answered HTTP " + status + " with a page instead of data (a bot check?): "
-                    + (start.length() > 200 ? start.substring(0, 200) : start));
+                    + refusalDetail(start));
         }
+    }
+
+    private static final Pattern TITLE = Pattern.compile("<title[^>]*>(.*?)</title>",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** What to say of a refusing page: its title in quotes, else its first 80 characters without tags. */
+    static String refusalDetail(String page) {
+        String html = page == null ? "" : page;
+        Matcher m = TITLE.matcher(html);
+        if (m.find()) {
+            String title = m.group(1).replaceAll("\\s+", " ").strip();
+            if (!title.isEmpty()) {
+                return "\"" + (title.length() > 80 ? title.substring(0, 80) : title) + "\"";
+            }
+        }
+        String text = html.replaceAll("(?is)<(script|style)[^>]*>.*?</\\1>", " ").replaceAll("<[^>]*>", " ")
+                .replaceAll("\\s+", " ").strip();
+        return text.length() > 80 ? text.substring(0, 80) : text;
     }
 
     /** The site refused us: a bot check or HTTP 403 instead of data. */

@@ -1,5 +1,6 @@
 package com.premiumcars.autoimport;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -24,6 +25,14 @@ public interface SourceSearch {
     /** The currency of the prices in the search results (both sites: FOB in USD). */
     default String currency() {
         return "USD";
+    }
+
+    /**
+     * When the site last refused this search for good (a bot check or HTTP 403 that the headless browser met too, or
+     * with no browser); null when it never did. The run waits and reads a make again when it was refused.
+     */
+    default Instant lastRefused() {
+        return null;
     }
 
     /** The site's makes (models are loaded per make, see {@link #models}, unless the list already has them). */

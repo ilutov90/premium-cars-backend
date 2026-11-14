@@ -3,7 +3,9 @@ package com.premiumcars.social;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +30,9 @@ import com.premiumcars.common.NotFoundException;
  * seconds the due posts are published through {@link SocialPublisher}, also in parallel.
  * A failed post is not retried automatically: a network can fail half-way (Viber photos sent, the text not; a
  * Facebook post created, its link not read), and a retry would post twice. It is marked FAILED with the reason,
- * and the admin publishes it again by hand. Sold or archived cars are not posted.
+ * and the admin publishes it again by hand. Sold or archived cars are not posted. A due post is skipped (CANCELLED,
+ * the reason in its error) when the car was posted to the same network after the post was scheduled, e.g. by
+ * hand: no duplicates.
  */
 @Service
 public class ScheduledPostService {
@@ -49,14 +53,17 @@ public class ScheduledPostService {
 
     private final ScheduledPostRepository scheduled;
     private final SocialPublisher publisher;
+    private final SocialPostRepository socialPosts;
     private final CarRepository cars;
     private final Clock clock;
     private final TaskExecutor executor;
 
-    public ScheduledPostService(ScheduledPostRepository scheduled, SocialPublisher publisher, CarRepository cars,
-                                Clock clock, @Qualifier("applicationTaskExecutor") TaskExecutor executor) {
+    public ScheduledPostService(ScheduledPostRepository scheduled, SocialPublisher publisher,
+                                SocialPostRepository socialPosts, CarRepository cars, Clock clock,
+                                @Qualifier("applicationTaskExecutor") TaskExecutor executor) {
         this.scheduled = scheduled;
         this.publisher = publisher;
+        this.socialPosts = socialPosts;
         this.cars = cars;
         this.clock = clock;
         this.executor = executor;
@@ -167,6 +174,17 @@ public class ScheduledPostService {
             }
             if (car.status() == CarStatus.SOLD || car.status() == CarStatus.ARCHIVED) {
                 scheduled.markFailed(post.id(), "Not posted: the car is " + car.status());
+                return;
+            }
+            Optional<SocialPost> postedMeanwhile = socialPosts.findPostedAfter(post.carId(), post.network(),
+                    post.createdAt());
+            if (postedMeanwhile.isPresent()) {
+                String reason = "Skipped: already posted to " + post.network() + " on "
+                        + postedMeanwhile.get().createdAt().truncatedTo(ChronoUnit.SECONDS)
+                        + " after this was scheduled";
+                scheduled.markSkipped(post.id(), reason);
+                log.info("Scheduled post {} (car {}, {}) not published. {}", post.id(), post.carId(),
+                        post.network(), reason);
                 return;
             }
             List<Long> imageIds = post.imageIds().isEmpty() ? null : post.imageIds();

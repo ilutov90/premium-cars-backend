@@ -36,10 +36,11 @@ class ScheduledPostServiceTest {
 
     private final ScheduledPostRepository repo = mock(ScheduledPostRepository.class);
     private final SocialPublisher publisher = mock(SocialPublisher.class);
+    private final SocialPostRepository socialPosts = mock(SocialPostRepository.class);
     private final CarRepository cars = mock(CarRepository.class);
     /** Runs the background work right away, on the test's thread. */
     private final ScheduledPostService service =
-            new ScheduledPostService(repo, publisher, cars, Clock.fixed(NOW, ZoneOffset.UTC), Runnable::run);
+            new ScheduledPostService(repo, publisher, socialPosts, cars, Clock.fixed(NOW, ZoneOffset.UTC), Runnable::run);
 
     private static Car car(CarStatus status) {
         return new Car(7, "kia-7", status, CarSource.AUTOWINI, null, null, null,
@@ -168,5 +169,55 @@ class ScheduledPostServiceTest {
 
         verify(repo).markFailed(eq(1L), contains("token expired"));
         verify(repo, never()).markPublished(anyLong(), anyLong());
+    }
+
+    private static ScheduledPost scheduledAt(Instant createdAt, SocialNetwork network) {
+        return new ScheduledPost(1, 7, "Kia", network, "text", List.of(1L), NOW, ScheduledPost.Status.PUBLISHING, 1,
+                null, null, "admin", createdAt, createdAt);
+    }
+
+    @Test
+    void testPublish_PostedByHandAfterScheduling_SkippedAsCancelled() {
+        Instant scheduledOn = Instant.parse("2026-11-08T09:00:00Z");
+        Instant byHand = Instant.parse("2026-11-09T10:15:30.789Z");
+        when(cars.findById(7)).thenReturn(Optional.of(car(CarStatus.PUBLISHED)));
+        when(socialPosts.findPostedAfter(7, SocialNetwork.FACEBOOK, scheduledOn))
+                .thenReturn(Optional.of(new SocialPost(60, 7, SocialNetwork.FACEBOOK, "PAGE_9", null, 5, byHand)));
+
+        service.publish(scheduledAt(scheduledOn, SocialNetwork.FACEBOOK));
+
+        verify(repo).markSkipped(1, "Skipped: already posted to FACEBOOK on 2026-11-09T10:15:30Z after this was scheduled");
+        verify(publisher, never()).publish(anyLong(), any(), any(), any());
+        verify(repo, never()).markPublished(anyLong(), anyLong());
+    }
+
+    @Test
+    void testPublish_OtherNetworkPostedByHand_StillPublished() {
+        Instant scheduledOn = Instant.parse("2026-11-08T09:00:00Z");
+        when(cars.findById(7)).thenReturn(Optional.of(car(CarStatus.PUBLISHED)));
+        when(socialPosts.findPostedAfter(7, SocialNetwork.FACEBOOK, scheduledOn))
+                .thenReturn(Optional.of(new SocialPost(60, 7, SocialNetwork.FACEBOOK, "PAGE_9", null, 5, NOW)));
+        when(socialPosts.findPostedAfter(7, SocialNetwork.VIBER, scheduledOn)).thenReturn(Optional.empty());
+        when(publisher.publish(7, SocialNetwork.VIBER, "text", List.of(1L)))
+                .thenReturn(new SocialPost(61, 7, SocialNetwork.VIBER, "5", null, 1, NOW));
+
+        service.publish(scheduledAt(scheduledOn, SocialNetwork.VIBER));
+
+        verify(repo).markPublished(1, 61);
+        verify(repo, never()).markSkipped(anyLong(), any());
+    }
+
+    @Test
+    void testPublish_PostOlderThanScheduling_StillPublished() {
+        Instant scheduledOn = Instant.parse("2026-11-08T09:00:00Z");
+        when(cars.findById(7)).thenReturn(Optional.of(car(CarStatus.PUBLISHED)));
+        when(socialPosts.findPostedAfter(7, SocialNetwork.FACEBOOK, scheduledOn)).thenReturn(Optional.empty());
+        when(publisher.publish(7, SocialNetwork.FACEBOOK, "text", List.of(1L)))
+                .thenReturn(new SocialPost(62, 7, SocialNetwork.FACEBOOK, "PAGE_10", null, 1, NOW));
+
+        service.publish(scheduledAt(scheduledOn, SocialNetwork.FACEBOOK));
+
+        verify(repo).markPublished(1, 62);
+        verify(repo, never()).markSkipped(anyLong(), any());
     }
 }

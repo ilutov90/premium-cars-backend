@@ -137,6 +137,14 @@ public class ScheduledPostRepository {
                 .update() > 0;
     }
 
+    /** A post that was not published because of the reason (CANCELLED, with the reason in {@code error}). */
+    public void markSkipped(long id, String reason) {
+        jdbc.sql("UPDATE scheduled_post SET status = 'CANCELLED', error = :error, updated_at = now() WHERE id = :id")
+                .param("error", trim(reason))
+                .param("id", id)
+                .update();
+    }
+
     /**
      * Posts left PUBLISHING by a stop in the middle of publishing: unknown whether they went out, so they are not
      * retried (no double posts) but marked FAILED for the admin to check.

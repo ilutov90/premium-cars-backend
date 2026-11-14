@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Year;
 import java.time.ZoneId;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -79,6 +80,11 @@ public class GuaziSearch implements SourceSearch {
     @Override
     public int count(Brand brand, SourceFilters filters) {
         return total(new Slice(brand, filters, ids(brand.models()), brand.yearFrom(), null));
+    }
+
+    @Override
+    public Instant lastRefused() {
+        return http.lastRefused();
     }
 
     @Override
