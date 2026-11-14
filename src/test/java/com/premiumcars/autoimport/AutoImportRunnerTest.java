@@ -351,9 +351,12 @@ class AutoImportRunnerTest {
             settings.updateSource(CarSource.GUAZI, before.enabled(), before.filters());
         }
         assertThat(search.reads).isEqualTo(makes + 1);
-        assertThat(result.status()).isEqualTo("DONE");
-        assertThat(result.brands()).allSatisfy(b -> assertThat(b.failed()).isFalse());
-        assertThat(result.message()).contains("bot check").contains("waited");
+        assertThat(result.status()).isNotEqualTo("INCOMPLETE");
+        assertThat(result.brands()).allSatisfy(b -> {
+            assertThat(b.failed()).isFalse();
+            assertThat(b.complete()).isTrue();
+        });
+        assertThat(result.message()).contains("bot check").contains("waited").contains("read on");
         assertThat(result.found()).isEqualTo(2);
     }
 
