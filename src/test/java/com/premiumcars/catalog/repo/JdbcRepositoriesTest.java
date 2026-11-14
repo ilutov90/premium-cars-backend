@@ -65,6 +65,7 @@ import com.premiumcars.social.PublicContactController;
 import com.premiumcars.social.ScheduledPost;
 import com.premiumcars.social.ScheduledPostRepository;
 import com.premiumcars.social.ScheduledPostService;
+import com.premiumcars.social.SiteLogoRepository;
 import com.premiumcars.social.SocialNetwork;
 import com.premiumcars.social.SocialPost;
 import com.premiumcars.social.SocialPostRepository;
@@ -129,6 +130,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     PostSettingsRepository postSettings;
+
+    @Autowired
+    SiteLogoRepository siteLogo;
 
     @Autowired
     PublicContactController publicContact;
@@ -635,6 +639,32 @@ class JdbcRepositoriesTest {
         templates.delete(TemplateKey.MOBILE_BG);
         assertThat(templates.findAll()).extracting(PostTemplate::network)
                 .doesNotContain(TemplateKey.VIBER, TemplateKey.FACEBOOK, TemplateKey.MOBILE_BG);
+    }
+
+    @Test
+    void testSiteLogo_SaveFindReplaceDelete_RowFollowsAndSettingsLeaveIt() {
+        PostSettings before = postSettings.find();
+        try {
+            siteLogo.delete();
+            assertThat(siteLogo.findPath()).isEmpty();
+
+            siteLogo.savePath("site/a.png");
+            assertThat(siteLogo.findPath()).contains("site/a.png");
+
+            postSettings.save(new PostSettings("0888123456", null, null, null));
+            assertThat(siteLogo.findPath()).contains("site/a.png");
+            postSettings.save(new PostSettings(null, null, null, null));
+            assertThat(siteLogo.findPath()).contains("site/a.png");
+
+            siteLogo.savePath("site/b.webp");
+            assertThat(siteLogo.findPath()).contains("site/b.webp");
+
+            siteLogo.delete();
+            assertThat(siteLogo.findPath()).isEmpty();
+        } finally {
+            siteLogo.delete();
+            postSettings.save(before);
+        }
     }
 
     @Test
