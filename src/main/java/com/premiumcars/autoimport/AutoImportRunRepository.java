@@ -1,9 +1,12 @@
 package com.premiumcars.autoimport;
 
+import java.math.BigDecimal;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -50,6 +53,26 @@ public class AutoImportRunRepository {
     /** A car a run deleted (its listing was gone), with where it was posted. */
     public record Removed(long id, Long carId, CarSource source, String title, String slug, String sourceUrl,
                           boolean manual, List<PostedChannels.Post> posted, Instant removedAt) {
+    }
+
+    /**
+     * What a deleted car was, for the statistics of what sells (039); every part may be null.
+     *
+     * @param make        the make as the source site's own list names it; null = not recognised
+     * @param model       the model as that make's menu names it, else the car's own model text
+     * @param fuelType    the car's {@code FuelType} name
+     * @param fobPriceEur the FOB price in EUR of the kept price breakdown ({@code carPriceEur})
+     * @param priceEur    the final customer price
+     * @param firstSeen   when its listing was first found by the automatic import, else when the car was created
+     */
+    public record RemovedFacts(String make, String model, Integer year, String fuelType, Integer mileageKm,
+                               BigDecimal fobPriceEur, BigDecimal priceEur, Instant firstSeen) {
+
+        public static final RemovedFacts NONE = new RemovedFacts(null, null, null, null, null, null, null, null);
+    }
+
+    /** A noted car without a make (noted before 039, or not recognised): what is left to name it from. */
+    public record UnnamedRemoved(long id, CarSource source, String title, String slug) {
     }
 
     private final JdbcClient jdbc;
@@ -161,10 +184,28 @@ public class AutoImportRunRepository {
     /** Notes a car the run hid; {@code runId} null outside a recorded run (tests). */
     public void addRemoved(Long runId, CarSource source, Long carId, String title, String slug, String sourceUrl,
                            boolean manual, List<PostedChannels.Post> posted) {
+        addRemoved(runId, source, carId, title, slug, sourceUrl, manual, posted, RemovedFacts.NONE);
+    }
+
+    /** Notes a car the run hid with what it was ({@code facts}); {@code runId} null outside a recorded run (tests). */
+    public void addRemoved(Long runId, CarSource source, Long carId, String title, String slug, String sourceUrl,
+                           boolean manual, List<PostedChannels.Post> posted, RemovedFacts facts) {
+        RemovedFacts f = facts == null ? RemovedFacts.NONE : facts;
         try {
             jdbc.sql("""
-                            INSERT INTO auto_import_removed (run_id, car_id, source, title, slug, source_url, manual, posted)
-                            VALUES (:run, :carId, :source, :title, :slug, :url, :manual, CAST(:posted AS jsonb))""")
+                            INSERT INTO auto_import_removed (run_id, car_id, source, title, slug, source_url, manual, posted,
+                                make, model, year, fuel_type, mileage_km, fob_price_eur, price_eur, first_seen)
+                            VALUES (:run, :carId, :source, :title, :slug, :url, :manual, CAST(:posted AS jsonb),
+                                :make, :model, :year, :fuel, :km, :fob, :price, :firstSeen)""")
+                    .param("make", cut(f.make(), 100), Types.VARCHAR)
+                    .param("model", cut(f.model(), 150), Types.VARCHAR)
+                    .param("year", f.year(), Types.INTEGER)
+                    .param("fuel", cut(f.fuelType(), 30), Types.VARCHAR)
+                    .param("km", f.mileageKm(), Types.INTEGER)
+                    .param("fob", f.fobPriceEur(), Types.NUMERIC)
+                    .param("price", f.priceEur(), Types.NUMERIC)
+                    .param("firstSeen", f.firstSeen() == null ? null
+                            : OffsetDateTime.ofInstant(f.firstSeen(), ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE)
                     .param("run", runId, Types.BIGINT)
                     .param("carId", carId, Types.BIGINT)
                     .param("source", source.name())
@@ -179,6 +220,53 @@ public class AutoImportRunRepository {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** What a noted car was (039's columns). */
+    public Optional<RemovedFacts> facts(long removedId) {
+        return jdbc.sql("""
+                        SELECT make, model, year, fuel_type, mileage_km, fob_price_eur, price_eur, first_seen
+                        FROM auto_import_removed WHERE id = :id""")
+                .param("id", removedId)
+                .query((rs, n) -> new RemovedFacts(rs.getString("make"), rs.getString("model"),
+                        rs.getObject("year", Integer.class), rs.getString("fuel_type"),
+                        rs.getObject("mileage_km", Integer.class), rs.getBigDecimal("fob_price_eur"),
+                        rs.getBigDecimal("price_eur"),
+                        rs.getObject("first_seen", OffsetDateTime.class) == null ? null
+                                : rs.getObject("first_seen", OffsetDateTime.class).toInstant()))
+                .optional();
+    }
+
+    /** Noted cars without a make, after {@code afterId}, by id: a batch for {@link RemovedCarNaming}. */
+    public List<UnnamedRemoved> unnamedRemoved(long afterId, int limit) {
+        return jdbc.sql("""
+                        SELECT id, source, title, slug FROM auto_import_removed
+                        WHERE make IS NULL AND id > :after ORDER BY id LIMIT :limit""")
+                .param("after", afterId)
+                .param("limit", limit)
+                .query((rs, n) -> new UnnamedRemoved(rs.getLong("id"), CarSource.valueOf(rs.getString("source")),
+                        rs.getString("title"), rs.getString("slug")))
+                .list();
+    }
+
+    /**
+     * Names a noted car still without a make: the make and model where a make was found, the year where it had
+     * none. Changes nothing of a row named meanwhile.
+     */
+    public boolean nameRemoved(long id, String make, String model, Integer year) {
+        return jdbc.sql("""
+                        UPDATE auto_import_removed SET make = :make, model = COALESCE(:model, model),
+                            year = COALESCE(year, :year)
+                        WHERE id = :id AND make IS NULL""")
+                .param("make", cut(make, 100), Types.VARCHAR)
+                .param("model", make == null ? null : cut(model, 150), Types.VARCHAR)
+                .param("year", year, Types.INTEGER)
+                .param("id", id)
+                .update() > 0;
+    }
+
+    private static String cut(String s, int max) {
+        return s == null || s.length() <= max ? s : s.substring(0, max);
     }
 
     /** The cars a run hid, the posted ones first. */

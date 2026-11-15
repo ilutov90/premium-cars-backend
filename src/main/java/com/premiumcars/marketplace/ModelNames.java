@@ -39,8 +39,13 @@ public final class ModelNames {
         if (model == null) {
             return "";
         }
-        String k = key(NOISE.matcher(model).replaceAll(" "));
+        String k = key(stripped(model));
         return k.isEmpty() ? key(model) : k;
+    }
+
+    /** The model without the sources' extra words, as text ("Song PLUS New Energy" -> "Song PLUS"); may be blank. */
+    public static String stripped(String model) {
+        return model == null ? "" : NOISE.matcher(model).replaceAll(" ").trim().replaceAll("\\s+", " ");
     }
 
     /** Our make's key -> how each site writes it (when not the same key). */
