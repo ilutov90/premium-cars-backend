@@ -21,9 +21,8 @@ public class RemovedReportRepository {
 
     private static final String PERIOD = " AND r.removed_at >= now() - make_interval(days => :days)";
     private static final String SOURCE = " AND r.source = :source";
-    private static final String COUNTED = """
-             AND r.make IS NOT NULL AND EXISTS (SELECT 1 FROM auto_import_brand b
-                 WHERE b.source = r.source AND lower(b.name) = lower(r.make))""";
+    private static final String COUNTED = " AND r.make IS NOT NULL AND EXISTS (SELECT 1 FROM auto_import_brand b"
+            + " WHERE b.source = r.source AND lower(b.name) = lower(r.make))";
     private static final String MAKE = " AND lower(r.make) = lower(:make)";
     private static final String MODEL = " AND r.model = :model";
 
@@ -70,11 +69,9 @@ public class RemovedReportRepository {
                 })
                 .list();
 
-        List<Week> weeks = jdbc.sql("""
-                        SELECT CAST(date_trunc('week', r.removed_at AT TIME ZONE 'Europe/Sofia') AS date) AS week_start,
-                            count(*) AS cnt
-                        FROM auto_import_removed r WHERE true""" + filtered.sql() + """
-                         GROUP BY week_start ORDER BY week_start""")
+        List<Week> weeks = jdbc.sql("SELECT CAST(date_trunc('week', r.removed_at AT TIME ZONE 'Europe/Sofia') AS date)"
+                        + " AS week_start, count(*) AS cnt FROM auto_import_removed r WHERE true" + filtered.sql()
+                        + " GROUP BY week_start ORDER BY week_start")
                 .params(filtered.params())
                 .query((rs, n) -> new Week(rs.getString("week_start"), rs.getInt("cnt")))
                 .list();
