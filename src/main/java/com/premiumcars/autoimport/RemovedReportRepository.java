@@ -2,7 +2,9 @@ package com.premiumcars.autoimport;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +23,8 @@ public class RemovedReportRepository {
 
     private static final String PERIOD = " AND r.removed_at >= now() - make_interval(days => :days)";
     private static final String SOURCE = " AND r.source = :source";
+    private static final String SINCE_RESET = " AND r.removed_at >= :statsFrom";
+    private static final String IN_FILTERS = " AND NOT r.out_of_filters";
     private static final String COUNTED = " AND r.make IS NOT NULL AND EXISTS (SELECT 1 FROM auto_import_brand b"
             + " WHERE b.source = r.source AND lower(b.name) = lower(r.make))";
     private static final String MAKE = " AND lower(r.make) = lower(:make)";
@@ -35,13 +39,17 @@ public class RemovedReportRepository {
         this.jdbc = jdbc;
     }
 
-    public RemovedReport report(Integer days, CarSource source, RemovedGroupBy groupBy, String make, String model) {
+    /**
+     * @param statsFrom the last reset of the statistics: only rows removed since then count (null = all); rows of
+     *                  cars deleted only because they were out of the import's filters never count
+     */
+    public RemovedReport report(Integer days, CarSource source, RemovedGroupBy groupBy, String make, String model,
+                                Instant statsFrom) {
         String mk = blankToNull(make);
         String md = blankToNull(model);
-        Where period = where(days, source, null, null, false);
-        Where filtered = where(days, source, mk, md, true);
-        Where counted = where(days, source, null, null, true);
-        Where unnamed = where(days, source, null, null, false);
+        Where filtered = where(days, source, mk, md, true, statsFrom);
+        Where counted = where(days, source, null, null, true, statsFrom);
+        Where unnamed = where(days, source, null, null, false, statsFrom);
 
         int total = jdbc.sql("SELECT count(*) FROM auto_import_removed r WHERE true" + filtered.sql())
                 .params(filtered.params()).query(Integer.class).single();
@@ -82,18 +90,23 @@ public class RemovedReportRepository {
 
         List<String> models = List.of();
         if (mk != null) {
-            Where forMake = where(days, source, mk, null, true);
+            Where forMake = where(days, source, mk, null, true, statsFrom);
             models = jdbc.sql("SELECT DISTINCT r.model FROM auto_import_removed r WHERE r.model IS NOT NULL"
                             + forMake.sql() + " ORDER BY r.model")
                     .params(forMake.params()).query(String.class).list();
         }
         return new RemovedReport(total, unrecognized, firstRemovedAt == null ? null : firstRemovedAt.toInstant(),
-                rows, weeks, makes, models);
+                statsFrom, rows, weeks, makes, models);
     }
 
-    private static Where where(Integer days, CarSource source, String make, String model, boolean ourMakesOnly) {
-        StringBuilder sql = new StringBuilder();
+    private static Where where(Integer days, CarSource source, String make, String model, boolean ourMakesOnly,
+                               Instant statsFrom) {
+        StringBuilder sql = new StringBuilder(IN_FILTERS);
         Map<String, Object> params = new HashMap<>();
+        if (statsFrom != null) {
+            sql.append(SINCE_RESET);
+            params.put("statsFrom", OffsetDateTime.ofInstant(statsFrom, ZoneOffset.UTC));
+        }
         if (days != null) {
             sql.append(PERIOD);
             params.put("days", days);

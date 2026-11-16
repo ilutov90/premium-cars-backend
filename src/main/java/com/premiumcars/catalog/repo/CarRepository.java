@@ -185,6 +185,22 @@ public class CarRepository {
                 .list();
     }
 
+    /**
+     * The ids of the cars (of one site, or all when null) after {@code afterId} up to {@code upToId}, in order: the
+     * rest of a price recalculation that was cut.
+     */
+    public List<Long> findIds(CarSource source, long afterId, long upToId) {
+        Map<String, Object> params = new java.util.HashMap<>(Map.of("after", afterId, "upTo", upToId));
+        if (source != null) {
+            params.put("source", source.name());
+        }
+        return jdbc.sql("SELECT id FROM car WHERE id > :after AND id <= :upTo"
+                        + (source == null ? "" : " AND source = :source") + " ORDER BY id")
+                .params(params)
+                .query(Long.class)
+                .list();
+    }
+
     /** A car as the automatic import checks it at its source. */
     public record CheckedCar(long id, CarStatus status, String make, Integer year, String sourceUrl, String title,
                              String slug, String sourceRef) {
