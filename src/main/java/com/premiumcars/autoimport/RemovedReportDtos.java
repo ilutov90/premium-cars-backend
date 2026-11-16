@@ -17,11 +17,16 @@ public final class RemovedReportDtos {
     public record Week(String weekStart, int count) {
     }
 
+    /** The answer to a reset: the new moment from which removals count. */
+    public record StatsReset(Instant statsFrom) {
+    }
+
     /**
      * @param total        rows counted (makes in our import filters only)
      * @param unrecognized rows of the same period and source without a make
+     * @param statsFrom    the last reset: only cars removed since then are counted; null = never reset
      */
-    public record RemovedReport(int total, int unrecognized, Instant firstRemovedAt, List<Row> rows,
+    public record RemovedReport(int total, int unrecognized, Instant firstRemovedAt, Instant statsFrom, List<Row> rows,
                                 List<Week> weeks, List<String> makes, List<String> models) {
     }
 }

@@ -16,6 +16,11 @@ public class PostSettingsRepository {
     static final String VIBER_LINK = "VIBER_LINK";
     static final String OFFICE = "OFFICE";
     static final String META_PIXEL_ID = "META_PIXEL_ID";
+    static final String GOOGLE_ADS_ID = "GOOGLE_ADS_ID";
+    static final String GOOGLE_ANALYTICS_ID = "GOOGLE_ANALYTICS_ID";
+    static final String GOOGLE_LEAD_LABEL = "GOOGLE_LEAD_LABEL";
+    static final String GOOGLE_PHONE_LABEL = "GOOGLE_PHONE_LABEL";
+    static final String GOOGLE_VIBER_LABEL = "GOOGLE_VIBER_LABEL";
 
     private final JdbcClient jdbc;
 
@@ -28,7 +33,9 @@ public class PostSettingsRepository {
         jdbc.sql("SELECT name, value FROM post_setting")
                 .query((rs, i) -> values.put(rs.getString("name"), rs.getString("value")))
                 .list();
-        return new PostSettings(values.get(PHONE), values.get(VIBER_LINK), values.get(OFFICE), values.get(META_PIXEL_ID));
+        return new PostSettings(values.get(PHONE), values.get(VIBER_LINK), values.get(OFFICE), values.get(META_PIXEL_ID),
+                values.get(GOOGLE_ADS_ID), values.get(GOOGLE_ANALYTICS_ID), values.get(GOOGLE_LEAD_LABEL),
+                values.get(GOOGLE_PHONE_LABEL), values.get(GOOGLE_VIBER_LABEL));
     }
 
     /** Replaces all details; an empty one goes back to the default. */
@@ -39,6 +46,11 @@ public class PostSettingsRepository {
         values.put(VIBER_LINK, settings.viberLink());
         values.put(OFFICE, settings.office());
         values.put(META_PIXEL_ID, settings.metaPixelId());
+        values.put(GOOGLE_ADS_ID, settings.googleAdsId());
+        values.put(GOOGLE_ANALYTICS_ID, settings.googleAnalyticsId());
+        values.put(GOOGLE_LEAD_LABEL, settings.googleLeadLabel());
+        values.put(GOOGLE_PHONE_LABEL, settings.googlePhoneLabel());
+        values.put(GOOGLE_VIBER_LABEL, settings.googleViberLabel());
         values.forEach((name, value) -> {
             if (value == null) {
                 jdbc.sql("DELETE FROM post_setting WHERE name = :name").param("name", name).update();

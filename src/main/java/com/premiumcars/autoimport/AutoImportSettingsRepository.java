@@ -77,6 +77,29 @@ public class AutoImportSettingsRepository {
                 .update();
     }
 
+    /** Since when the removed-cars statistics count (the last reset); null = all removals. */
+    public Instant removedStatsFrom() {
+        return jdbc.sql("SELECT removed_stats_from FROM auto_import_state WHERE id = 1")
+                .query((rs, n) -> rs.getObject("removed_stats_from", OffsetDateTime.class)).optional()
+                .map(OffsetDateTime::toInstant).orElse(null);
+    }
+
+    /** Resets the removed-cars statistics: from now on (the database's clock) only later removals count. */
+    public Instant resetRemovedStats() {
+        return jdbc.sql("UPDATE auto_import_state SET removed_stats_from = now() WHERE id = 1"
+                        + " RETURNING removed_stats_from")
+                .query((rs, n) -> rs.getObject("removed_stats_from", OffsetDateTime.class).toInstant())
+                .single();
+    }
+
+    /** Sets the moment directly (null = all removals count again). */
+    public void setRemovedStatsFrom(Instant from) {
+        jdbc.sql("UPDATE auto_import_state SET removed_stats_from = :from WHERE id = 1")
+                .param("from", from == null ? null : OffsetDateTime.ofInstant(from, java.time.ZoneOffset.UTC),
+                        Types.TIMESTAMP_WITH_TIMEZONE)
+                .update();
+    }
+
     // ---------------------------------------------------------------- sources
 
     public List<SourceSettings> sources() {

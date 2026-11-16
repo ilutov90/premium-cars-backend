@@ -38,6 +38,17 @@ public class PriceRecalcRepository {
                        BigDecimal newSourcePrice, String sourceCurrency, String note, List<Post> posted) {
     }
 
+    /**
+     * How far a run got: the cars are taken by id; {@code lastCarId} the last one done (null = none yet),
+     * {@code endCarId} the largest id of the run's cars when it started (0 = none), null for runs from before 041.
+     */
+    public record Position(Long lastCarId, Long endCarId) {
+
+        public boolean resumable() {
+            return endCarId != null;
+        }
+    }
+
     private static final TypeReference<List<Post>> POSTS = new TypeReference<>() {
     };
 
@@ -64,27 +75,73 @@ public class PriceRecalcRepository {
                 readPosts(rs.getString("posted")));
     }
 
-    public long start(String scope, String mode, String by, int total) {
+    /** @param endCarId the largest id of the run's cars (0 = none): the run never goes past it */
+    public long start(String scope, String mode, String by, int total, long endCarId) {
         return jdbc.sql("""
-                        INSERT INTO price_recalc_run (scope, mode, status, started_by, total)
-                        VALUES (:scope, :mode, 'RUNNING', :by, :total) RETURNING id""")
+                        INSERT INTO price_recalc_run (scope, mode, status, started_by, total, end_car_id)
+                        VALUES (:scope, :mode, 'RUNNING', :by, :total, :endCarId) RETURNING id""")
                 .param("scope", scope)
                 .param("mode", mode)
                 .param("by", by, Types.VARCHAR)
                 .param("total", total)
+                .param("endCarId", endCarId)
                 .query(Long.class)
                 .single();
     }
 
-    public void progress(long id, int processed, int changed, int fixedPrice, int failed) {
+    /** The counters and the last car done ({@code lastCarId} null = none yet: kept as it is). */
+    public void progress(long id, int processed, int changed, int fixedPrice, int failed, Long lastCarId) {
         jdbc.sql("""
                         UPDATE price_recalc_run SET processed = :processed, changed = :changed,
-                            fixed_price = :fixedPrice, failed = :failed
+                            fixed_price = :fixedPrice, failed = :failed,
+                            last_car_id = COALESCE(:lastCarId, last_car_id)
                         WHERE id = :id""")
                 .param("processed", processed)
                 .param("changed", changed)
                 .param("fixedPrice", fixedPrice)
                 .param("failed", failed)
+                .param("lastCarId", lastCarId, Types.BIGINT)
+                .param("id", id)
+                .update();
+    }
+
+    public Optional<Position> position(long id) {
+        return jdbc.sql("SELECT last_car_id, end_car_id FROM price_recalc_run WHERE id = :id")
+                .param("id", id)
+                .query((rs, n) -> new Position(rs.getObject("last_car_id", Long.class),
+                        rs.getObject("end_car_id", Long.class)))
+                .optional();
+    }
+
+    /**
+     * Gives a run started before 041 a position, so it can continue too: the last car it noted a new price for
+     * (the largest {@code car_id} of its items) and {@code endCarId}. That is at or before where it really stopped,
+     * so cars may be done twice (no harm: the second time changes nothing) but none is skipped. Empty when the run
+     * noted no car, which leaves nothing to go by.
+     */
+    public Optional<Position> adoptPosition(long id, long endCarId) {
+        int n = jdbc.sql("""
+                        UPDATE price_recalc_run SET end_car_id = :end,
+                            last_car_id = (SELECT max(car_id) FROM price_recalc_item WHERE run_id = :id)
+                        WHERE id = :id AND status = 'RUNNING' AND end_car_id IS NULL
+                          AND EXISTS (SELECT 1 FROM price_recalc_item WHERE run_id = :id AND car_id IS NOT NULL)""")
+                .param("id", id)
+                .param("end", endCarId)
+                .update();
+        return n == 0 ? Optional.empty() : position(id);
+    }
+
+    /** The runs marked RUNNING (at startup: cut by the restart), the newest first. */
+    public List<Run> findRunning() {
+        return jdbc.sql("SELECT * FROM price_recalc_run WHERE status = 'RUNNING' ORDER BY id DESC").query(RUN).list();
+    }
+
+    /** At startup: a recalculation cut by a restart that cannot continue stays as far as it got. */
+    public void abandon(long id) {
+        jdbc.sql("""
+                        UPDATE price_recalc_run SET status = 'FAILED', finished_at = now(),
+                            message = 'Interrupted (the server restarted): the cars processed so far keep the new price'
+                        WHERE id = :id AND status = 'RUNNING'""")
                 .param("id", id)
                 .update();
     }
@@ -94,15 +151,6 @@ public class PriceRecalcRepository {
                 .param("status", status)
                 .param("message", cut(message, 1000), Types.VARCHAR)
                 .param("id", id)
-                .update();
-    }
-
-    /** At startup: a recalculation cut by a restart stays as far as it got. */
-    public void abandonRunning() {
-        jdbc.sql("""
-                        UPDATE price_recalc_run SET status = 'FAILED', finished_at = now(),
-                            message = 'Interrupted (the server restarted): the cars processed so far keep the new price'
-                        WHERE status = 'RUNNING'""")
                 .update();
     }
 

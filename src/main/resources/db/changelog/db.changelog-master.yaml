@@ -77,3 +77,7 @@ databaseChangeLog:
       file: db/changelog/changes/038-no-removed-status.sql
   - include:
       file: db/changelog/changes/039-auto-import-removed-facts.sql
+  - include:
+      file: db/changelog/changes/040-removed-stats-reset.sql
+  - include:
+      file: db/changelog/changes/041-price-recalc-position.sql

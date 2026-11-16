@@ -187,16 +187,28 @@ public class AutoImportRunRepository {
         addRemoved(runId, source, carId, title, slug, sourceUrl, manual, posted, RemovedFacts.NONE);
     }
 
-    /** Notes a car the run hid with what it was ({@code facts}); {@code runId} null outside a recorded run (tests). */
     public void addRemoved(Long runId, CarSource source, Long carId, String title, String slug, String sourceUrl,
                            boolean manual, List<PostedChannels.Post> posted, RemovedFacts facts) {
+        addRemoved(runId, source, carId, title, slug, sourceUrl, manual, posted, facts, false);
+    }
+
+    /**
+     * Notes a car the run hid with what it was ({@code facts}); {@code runId} null outside a recorded run (tests).
+     *
+     * @param outOfFilters deleted only because it is outside the import's filters: left out of the statistics
+     */
+    public void addRemoved(Long runId, CarSource source, Long carId, String title, String slug, String sourceUrl,
+                           boolean manual, List<PostedChannels.Post> posted, RemovedFacts facts,
+                           boolean outOfFilters) {
         RemovedFacts f = facts == null ? RemovedFacts.NONE : facts;
         try {
             jdbc.sql("""
                             INSERT INTO auto_import_removed (run_id, car_id, source, title, slug, source_url, manual, posted,
-                                make, model, year, fuel_type, mileage_km, fob_price_eur, price_eur, first_seen)
+                                make, model, year, fuel_type, mileage_km, fob_price_eur, price_eur, first_seen,
+                                out_of_filters)
                             VALUES (:run, :carId, :source, :title, :slug, :url, :manual, CAST(:posted AS jsonb),
-                                :make, :model, :year, :fuel, :km, :fob, :price, :firstSeen)""")
+                                :make, :model, :year, :fuel, :km, :fob, :price, :firstSeen, :outOfFilters)""")
+                    .param("outOfFilters", outOfFilters)
                     .param("make", cut(f.make(), 100), Types.VARCHAR)
                     .param("model", cut(f.model(), 150), Types.VARCHAR)
                     .param("year", f.year(), Types.INTEGER)

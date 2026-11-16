@@ -18,12 +18,12 @@ public class SiteLogoController {
     }
 
     @GetMapping("/api/public/logo")
-    public SiteLogo publicLogo() {
+    public SiteImage publicLogo() {
         return service.get();
     }
 
     @GetMapping("/api/admin/logo")
-    public SiteLogo get() {
+    public SiteImage get() {
         return service.get();
     }
 
@@ -31,12 +31,12 @@ public class SiteLogoController {
     @PutMapping(value = "/api/admin/logo",
             consumes = {MediaType.IMAGE_JPEG_VALUE, MediaType.IMAGE_PNG_VALUE, "image/webp",
                     MediaType.APPLICATION_OCTET_STREAM_VALUE})
-    public SiteLogo set(@RequestBody byte[] image) {
+    public SiteImage set(@RequestBody byte[] image) {
         return service.set(image);
     }
 
     @DeleteMapping("/api/admin/logo")
-    public SiteLogo delete() {
+    public SiteImage delete() {
         return service.delete();
     }
 }

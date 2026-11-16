@@ -66,6 +66,7 @@ import com.premiumcars.social.ScheduledPost;
 import com.premiumcars.social.ScheduledPostRepository;
 import com.premiumcars.social.ScheduledPostService;
 import com.premiumcars.social.SiteLogoRepository;
+import com.premiumcars.social.SiteShareImageRepository;
 import com.premiumcars.social.SocialNetwork;
 import com.premiumcars.social.SocialPost;
 import com.premiumcars.social.SocialPostRepository;
@@ -97,6 +98,12 @@ class JdbcRepositoriesTest {
 
     @Autowired
     com.premiumcars.autoimport.RemovedReportRepository removedReport;
+
+    @Autowired
+    com.premiumcars.autoimport.AutoImportSettingsRepository autoImportSettings;
+
+    @Autowired
+    PriceRecalcRepository priceRecalcRuns;
 
     @Autowired
     CarRepository carRepository;
@@ -142,6 +149,9 @@ class JdbcRepositoriesTest {
 
     @Autowired
     SiteLogoRepository siteLogo;
+
+    @Autowired
+    SiteShareImageRepository siteShareImage;
 
     @Autowired
     PublicContactController publicContact;
@@ -336,7 +346,7 @@ class JdbcRepositoriesTest {
             assertThat(carService.pricingProfiles().stream().filter(p -> p.id() == PriceProfile.AUTOWINI)
                     .findFirst().orElseThrow().dutyBrackets()).isEqualTo(original.dutyBrackets());
             // a new formula does not touch existing prices (they may be posted already)
-            assertThat(carService.getAdmin(car.id()).price().totalEur()).isEqualByComparingTo("32700");
+            assertThat(carRepository.findById(car.id()).orElseThrow().totalPriceEur()).isEqualByComparingTo("32700");
             assertThat(carService.getAdmin(car.id()).price().seaFreightEur()).isEqualByComparingTo("1200");
 
             // saving other fields keeps the price, also with amounts written differently (25000 vs 25000.00)
@@ -677,6 +687,39 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void testSiteShareImage_SaveFindReplaceDelete_RowIsSeparateFromLogoAndSettings() {
+        PostSettings before = postSettings.find();
+        String logoBefore = siteLogo.findPath().orElse(null);
+        try {
+            siteShareImage.delete();
+            siteLogo.savePath("site/logo.png");
+            assertThat(siteShareImage.findPath()).isEmpty();
+
+            siteShareImage.savePath("site/share-a.png");
+            assertThat(siteShareImage.findPath()).contains("site/share-a.png");
+            assertThat(siteLogo.findPath()).contains("site/logo.png");
+
+            postSettings.save(new PostSettings(null, null, null, null));
+            assertThat(siteShareImage.findPath()).contains("site/share-a.png");
+
+            siteShareImage.savePath("site/share-b.webp");
+            assertThat(siteShareImage.findPath()).contains("site/share-b.webp");
+
+            siteShareImage.delete();
+            assertThat(siteShareImage.findPath()).isEmpty();
+            assertThat(siteLogo.findPath()).contains("site/logo.png");
+        } finally {
+            siteShareImage.delete();
+            if (logoBefore == null) {
+                siteLogo.delete();
+            } else {
+                siteLogo.savePath(logoBefore);
+            }
+            postSettings.save(before);
+        }
+    }
+
+    @Test
     void postSettingsAreSavedAndBlankMeansDefault() {
         assertThat(postSettings.save(new PostSettings(" 0888123456 ", "https://invite.viber.com/x", "Пловдив",
                 " 1234567890 "))).isEqualTo(new PostSettings("0888123456", "https://invite.viber.com/x", "Пловдив",
@@ -690,6 +733,36 @@ class JdbcRepositoriesTest {
 
         postSettings.save(new PostSettings(null, null, null, null));
         assertThat(postSettings.find()).isEqualTo(new PostSettings(null, null, null, null));
+    }
+
+    @Test
+    void testPostSettings_GoogleFields_SavedReadBackAndBlankRemoves() {
+        PostSettings before = postSettings.find();
+        try {
+            var full = new PostSettings("0888123456", null, null, null, " AW-1234567890 ", "G-ABCDEF1234",
+                    "lead_Label-1", " phoneLabel2 ", "viber-label3");
+            PostSettings saved = postSettings.save(full);
+            assertThat(saved.googleAdsId()).isEqualTo("AW-1234567890");
+            assertThat(saved.googleAnalyticsId()).isEqualTo("G-ABCDEF1234");
+            assertThat(saved.googleLeadLabel()).isEqualTo("lead_Label-1");
+            assertThat(saved.googlePhoneLabel()).isEqualTo("phoneLabel2");
+            assertThat(saved.googleViberLabel()).isEqualTo("viber-label3");
+            assertThat(postSettings.find()).isEqualTo(saved);
+            assertThat(publicContact.contact()).isEqualTo(saved);
+
+            PostSettings partial = postSettings.save(new PostSettings(null, null, null, null, "AW-1234567890", "  ",
+                    null, "", "viber-label3"));
+            assertThat(partial.googleAnalyticsId()).isNull();
+            assertThat(partial.googleLeadLabel()).isNull();
+            assertThat(partial.googlePhoneLabel()).isNull();
+            assertThat(partial.googleAdsId()).isEqualTo("AW-1234567890");
+            assertThat(postSettings.find()).isEqualTo(partial);
+
+            postSettings.save(new PostSettings(null, null, null, null));
+            assertThat(postSettings.find()).isEqualTo(new PostSettings(null, null, null, null));
+        } finally {
+            postSettings.save(before);
+        }
     }
 
     @Test
@@ -860,6 +933,120 @@ class JdbcRepositoriesTest {
         }
     }
 
+    private AdminCar recalcCar(String title) {
+        AdminCar car = carService.createDraft(new ImportedCar("IC" + UUID.randomUUID(), null,
+                CarSpecs.builder().title(title).build(), new BigDecimal("25000"), "EUR", List.of(), List.of()),
+                CarSource.AUTOWINI, "https://www.autowini.com/test/" + UUID.randomUUID());
+        carRepository.savePrice(car.id(), BigDecimal.ONE, null);
+        return car;
+    }
+
+    private PriceRecalcRepository.Run awaitRecalc(long runId) throws InterruptedException {
+        for (int i = 0; i < 300 && priceRecalcRuns.find(runId).orElseThrow().status().equals("RUNNING"); i++) {
+            Thread.sleep(100);
+        }
+        return priceRecalcRuns.find(runId).orElseThrow();
+    }
+
+    @Test
+    void testResumeRunning_RunStoppedAfterFirstCar_ContinuesWithNextAndCountsWholeRun() throws InterruptedException {
+        AdminCar first = recalcCar("Kia K5 Resume 1");
+        AdminCar second = recalcCar("Kia K5 Resume 2");
+        AdminCar third = recalcCar("Kia K5 Resume 3");
+        long runId = priceRecalcRuns.start("AUTOWINI", "STORED", "admin", 3, third.id());
+        try {
+            priceRecalcRuns.progress(runId, 1, 1, 0, 0, first.id());
+
+            priceRecalc.resumeRunning();
+            var done = awaitRecalc(runId);
+
+            assertThat(done.status()).isEqualTo("DONE");
+            assertThat(done.total()).isEqualTo(3);
+            assertThat(done.processed()).isEqualTo(3);
+            assertThat(done.changed()).isEqualTo(3);
+            assertThat(priceRecalcRuns.position(runId)).hasValue(
+                    new PriceRecalcRepository.Position(third.id(), third.id()));
+            assertThat(carRepository.findById(first.id()).orElseThrow().totalPriceEur()).isEqualByComparingTo("1");
+            assertThat(carRepository.findById(second.id()).orElseThrow().totalPriceEur()).isGreaterThan(new BigDecimal("25000"));
+            assertThat(carRepository.findById(third.id()).orElseThrow().totalPriceEur()).isGreaterThan(new BigDecimal("25000"));
+            assertThat(priceRecalc.items(runId, "CHANGED", false, 0, 50).items()).extracting(i -> i.carId())
+                    .containsExactlyInAnyOrder(second.id(), third.id());
+        } finally {
+            jdbcClient.sql("DELETE FROM price_recalc_run WHERE id = :id").param("id", runId).update();
+            carService.delete(first.id());
+            carService.delete(second.id());
+            carService.delete(third.id());
+        }
+    }
+
+    @Test
+    void testResumeRunning_OldRunWithNotedCar_ContinuesAfterThatCar() throws InterruptedException {
+        AdminCar first = recalcCar("Kia K5 Old Resume 1");
+        AdminCar second = recalcCar("Kia K5 Old Resume 2");
+        long runId = jdbcClient.sql("""
+                INSERT INTO price_recalc_run (scope, mode, status, started_by, total, processed, changed)
+                VALUES ('AUTOWINI', 'STORED', 'RUNNING', 'admin', 2, 1, 1) RETURNING id""")
+                .query(Long.class).single();
+        jdbcClient.sql("INSERT INTO price_recalc_item (run_id, car_id, kind, title) VALUES (:run, :car, 'CHANGED', 'x')")
+                .param("run", runId).param("car", first.id()).update();
+        try {
+            priceRecalc.resumeRunning();
+            var done = awaitRecalc(runId);
+
+            assertThat(done.status()).isEqualTo("DONE");
+            assertThat(priceRecalcRuns.position(runId).orElseThrow().lastCarId()).isGreaterThanOrEqualTo(second.id());
+            assertThat(carRepository.findById(first.id()).orElseThrow().totalPriceEur()).isEqualByComparingTo("1");
+            assertThat(carRepository.findById(second.id()).orElseThrow().totalPriceEur())
+                    .isGreaterThan(new BigDecimal("25000"));
+        } finally {
+            jdbcClient.sql("DELETE FROM price_recalc_run WHERE id = :id").param("id", runId).update();
+            carService.delete(first.id());
+            carService.delete(second.id());
+        }
+    }
+
+    @Test
+    void testResumeRunning_RunWithoutPosition_Abandoned() throws InterruptedException {
+        AdminCar car = recalcCar("Kia K5 Old Run");
+        long runId = jdbcClient.sql("""
+                INSERT INTO price_recalc_run (scope, mode, status, started_by, total, processed)
+                VALUES ('AUTOWINI', 'STORED', 'RUNNING', 'admin', 10, 4) RETURNING id""")
+                .query(Long.class).single();
+        try {
+            priceRecalc.resumeRunning();
+            var run = awaitRecalc(runId);
+
+            assertThat(run.status()).isEqualTo("FAILED");
+            assertThat(run.processed()).isEqualTo(4);
+            assertThat(run.message()).startsWith("Interrupted");
+            assertThat(run.finishedAt()).isNotNull();
+            assertThat(carRepository.findById(car.id()).orElseThrow().totalPriceEur()).isEqualByComparingTo("1");
+        } finally {
+            jdbcClient.sql("DELETE FROM price_recalc_run WHERE id = :id").param("id", runId).update();
+            carService.delete(car.id());
+        }
+    }
+
+    @Test
+    void testStart_WhileResumedRunGoesOn_Refused() throws InterruptedException {
+        AdminCar car = recalcCar("Kia K5 Busy");
+        long runId = priceRecalcRuns.start("AUTOWINI", "STORED", "admin", 1, car.id());
+        try {
+            priceRecalcRuns.progress(runId, 0, 0, 0, 0, car.id() - 1);
+            assertThatThrownBy(() -> priceRecalc.start(CarSource.AUTOWINI, PriceRecalcService.Mode.STORED, "admin"))
+                    .isInstanceOf(BadRequestException.class);
+            assertThatThrownBy(() -> priceRecalc.delete(runId)).isInstanceOf(BadRequestException.class);
+
+            priceRecalc.resumeRunning();
+
+            assertThat(awaitRecalc(runId).status()).isEqualTo("DONE");
+            assertThat(carRepository.findById(car.id()).orElseThrow().totalPriceEur()).isGreaterThan(new BigDecimal("25000"));
+        } finally {
+            jdbcClient.sql("DELETE FROM price_recalc_run WHERE id = :id").param("id", runId).update();
+            carService.delete(car.id());
+        }
+    }
+
     @Test
     void testAddRemoved_WithFacts_ReadsThemBack() {
         long runId = autoImportRuns.start(CarSource.GUAZI, false);
@@ -942,7 +1129,7 @@ class JdbcRepositoriesTest {
 
             var src = CarSource.AUTOWINI;
             var byMake = removedReport.report(30, src, com.premiumcars.autoimport.RemovedGroupBy.MAKE,
-                    "testmake q7z", null);
+                    "testmake q7z", null, null);
             assertThat(byMake.total()).isEqualTo(3);
             assertThat(byMake.rows()).singleElement().satisfies(r -> {
                 assertThat(r.make()).isEqualTo(make);
@@ -959,12 +1146,13 @@ class JdbcRepositoriesTest {
             assertThat(byMake.weeks()).singleElement().satisfies(w -> assertThat(w.count()).isEqualTo(3));
             assertThat(byMake.firstRemovedAt()).isNotNull();
 
-            var byModel = removedReport.report(30, src, com.premiumcars.autoimport.RemovedGroupBy.MODEL, make, null);
+            var byModel = removedReport.report(30, src, com.premiumcars.autoimport.RemovedGroupBy.MODEL, make, null,
+                    null);
             assertThat(byModel.rows()).extracting(r -> r.model(), r -> r.count(), r -> r.sharePct())
                     .containsExactly(tuple("M1", 2, 66.7), tuple("M2", 1, 33.3));
 
             var byModelYear = removedReport.report(null, src,
-                    com.premiumcars.autoimport.RemovedGroupBy.MODEL_YEAR, make, null);
+                    com.premiumcars.autoimport.RemovedGroupBy.MODEL_YEAR, make, null, null);
             assertThat(byModelYear.total()).isEqualTo(4);
             assertThat(byModelYear.rows()).extracting(r -> r.model(), r -> r.year(), r -> r.count())
                     .containsExactly(tuple("M1", 2022, 3), tuple("M2", 2023, 1));
@@ -972,7 +1160,7 @@ class JdbcRepositoriesTest {
             assertThat(byModelYear.weeks().stream().mapToInt(w -> w.count()).sum()).isEqualTo(4);
             assertThat(byModelYear.weeks().getFirst().weekStart()).matches("\\d{4}-\\d{2}-\\d{2}");
 
-            var byYear = removedReport.report(30, src, com.premiumcars.autoimport.RemovedGroupBy.YEAR, make, "M1");
+            var byYear = removedReport.report(30, src, com.premiumcars.autoimport.RemovedGroupBy.YEAR, make, "M1", null);
             assertThat(byYear.total()).isEqualTo(2);
             assertThat(byYear.rows()).singleElement().satisfies(r -> {
                 assertThat(r.make()).isNull();
@@ -980,12 +1168,86 @@ class JdbcRepositoriesTest {
             });
 
             var other = removedReport.report(30, CarSource.GUAZI, com.premiumcars.autoimport.RemovedGroupBy.MAKE,
-                    make, null);
+                    make, null, null);
             assertThat(other.total()).isZero();
             assertThat(other.rows()).isEmpty();
         } finally {
             jdbcClient.sql("DELETE FROM auto_import_run WHERE id = :id").param("id", runId).update();
             jdbcClient.sql("DELETE FROM auto_import_brand WHERE source = 'AUTOWINI' AND code = 'TQ7Z'").update();
+        }
+    }
+
+    @Test
+    void testResetRemovedStats_RowsBeforeAndAfter_CountsOnlyLaterRows() {
+        String make = "Testmake R8X";
+        java.time.Instant previous = autoImportSettings.removedStatsFrom();
+        long runId = autoImportRuns.start(CarSource.AUTOWINI, false);
+        jdbcClient.sql("""
+                INSERT INTO auto_import_brand (source, code, name, year_from)
+                VALUES ('AUTOWINI', 'TR8X', :name, 2018)""").param("name", make).update();
+        try {
+            removedRow(runId, make, "M1", 2022, "10000", null);
+            removedRow(runId, make, "M2", 2022, "20000", null);
+            jdbcClient.sql("""
+                    UPDATE auto_import_removed SET removed_at = now() - interval '1 hour'
+                    WHERE run_id = :run""").param("run", runId).update();
+
+            java.time.Instant from = autoImportSettings.resetRemovedStats();
+            assertThat(autoImportSettings.removedStatsFrom()).isEqualTo(from);
+            removedRow(runId, make, "M1", 2023, "30000", null);
+
+            var report = removedReport.report(null, CarSource.AUTOWINI, com.premiumcars.autoimport.RemovedGroupBy.MODEL,
+                    make, null, autoImportSettings.removedStatsFrom());
+            assertThat(report.total()).isEqualTo(1);
+            assertThat(report.statsFrom()).isEqualTo(from);
+            assertThat(report.rows()).extracting(r -> r.model(), r -> r.count()).containsExactly(tuple("M1", 1));
+            assertThat(report.models()).containsExactly("M1");
+            assertThat(report.weeks().stream().mapToInt(w -> w.count()).sum()).isEqualTo(1);
+            assertThat(report.firstRemovedAt()).isBefore(from);
+
+            var all = removedReport.report(null, CarSource.AUTOWINI, com.premiumcars.autoimport.RemovedGroupBy.MAKE,
+                    make, null, null);
+            assertThat(all.total()).isEqualTo(3);
+            assertThat(all.statsFrom()).isNull();
+            assertThat(autoImportRuns.removed(runId)).hasSize(3);
+        } finally {
+            autoImportSettings.setRemovedStatsFrom(previous);
+            jdbcClient.sql("DELETE FROM auto_import_run WHERE id = :id").param("id", runId).update();
+            jdbcClient.sql("DELETE FROM auto_import_brand WHERE source = 'AUTOWINI' AND code = 'TR8X'").update();
+        }
+    }
+
+    @Test
+    void testReport_OutOfFiltersRows_LeftOut() {
+        String make = "Testmake F3W";
+        long runId = autoImportRuns.start(CarSource.AUTOWINI, false);
+        jdbcClient.sql("""
+                INSERT INTO auto_import_brand (source, code, name, year_from)
+                VALUES ('AUTOWINI', 'TF3W', :name, 2018)""").param("name", make).update();
+        try {
+            removedRow(runId, make, "M1", 2022, "10000", null);
+            autoImportRuns.addRemoved(runId, CarSource.AUTOWINI, null, "Out of filters", "out-of-filters",
+                    "https://www.autowini.com/out-of-filters", false, List.of(),
+                    new com.premiumcars.autoimport.AutoImportRunRepository.RemovedFacts(make, "M2", 2022, "PETROL",
+                            50_000, null, new BigDecimal("20000"), null), true);
+            autoImportRuns.addRemoved(runId, CarSource.AUTOWINI, null, "Out of filters unnamed", "out-of-filters-2",
+                    "https://www.autowini.com/out-of-filters-2", false, List.of(),
+                    com.premiumcars.autoimport.AutoImportRunRepository.RemovedFacts.NONE, true);
+            int unrecognizedBefore = jdbcClient.sql("""
+                    SELECT count(*) FROM auto_import_removed
+                    WHERE source = 'AUTOWINI' AND make IS NULL AND NOT out_of_filters""")
+                    .query(Integer.class).single();
+
+            var report = removedReport.report(null, CarSource.AUTOWINI, com.premiumcars.autoimport.RemovedGroupBy.MODEL,
+                    make, null, null);
+            assertThat(report.total()).isEqualTo(1);
+            assertThat(report.rows()).extracting(r -> r.model()).containsExactly("M1");
+            assertThat(report.models()).containsExactly("M1");
+            assertThat(report.unrecognized()).isEqualTo(unrecognizedBefore);
+            assertThat(autoImportRuns.removed(runId)).hasSize(3);
+        } finally {
+            jdbcClient.sql("DELETE FROM auto_import_run WHERE id = :id").param("id", runId).update();
+            jdbcClient.sql("DELETE FROM auto_import_brand WHERE source = 'AUTOWINI' AND code = 'TF3W'").update();
         }
     }
 

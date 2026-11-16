@@ -553,6 +553,8 @@ public class AutoImportRunner {
         Car c = car.get();
         List<PostedChannels.Post> posts = posted.of(carId);
         RemovedFacts facts = facts(source, c);
+        // a car checked on its own (by its listing id, or its make searched without filters) is really gone
+        boolean outOfFilters = !manual && outOfFilters(source, c, facts);
         try {
             listings.deleteOfCar(carId);
             carService.delete(carId);
@@ -560,8 +562,39 @@ public class AutoImportRunner {
             log.warn("Could not delete car {} gone from {}: {}", carId, source, e.toString());
             return false;
         }
-        runs.addRemoved(runId, source, null, c.specs().title(), c.slug(), c.sourceUrl(), manual, posts, facts);
+        runs.addRemoved(runId, source, null, c.specs().title(), c.slug(), c.sourceUrl(), manual, posts, facts,
+                outOfFilters);
         return true;
+    }
+
+    /**
+     * The car about to be deleted is outside the import's current filters ({@link RemovedFilterCheck}): its listing
+     * was not looked for, so it is not counted as sold. Read before its listing rows go; never keeps the car from
+     * being deleted (false when anything fails).
+     */
+    boolean outOfFilters(CarSource source, Car c, RemovedFacts facts) {
+        try {
+            List<CarListing> rows = listings.ofCar(c.id());
+            CarListing row = rows.stream().filter(r -> r.brandCode() != null).findFirst()
+                    .orElse(rows.isEmpty() ? null : rows.getFirst());
+            List<Brand> brands = settings.brands(source);
+            String brandCode = row == null ? null : row.brandCode();
+            String make = facts == null ? null : facts.make();
+            List<String> menu = RemovedCarNames.makes(settings.catalog(source), brands).stream()
+                    .filter(m -> brandCode != null ? brandCode.equals(m.code())
+                            : make != null && make.equalsIgnoreCase(m.name()))
+                    .findFirst().map(RemovedCarNames.Make::models).orElse(List.of());
+            var specs = c.specs();
+            RemovedFilterCheck.CarFacts car = new RemovedFilterCheck.CarFacts(brandCode, make,
+                    row == null ? null : row.model(), facts == null ? specs.model() : facts.model(),
+                    facts != null && facts.year() != null ? facts.year() : specs.year(), specs.fuelType(),
+                    specs.inspection() == null ? null : specs.inspection().grade());
+            SourceFilters filters = settings.source(source).map(SourceSettings::filters).orElse(null);
+            return RemovedFilterCheck.outOfFilters(source, brands, filters, menu, car);
+        } catch (RuntimeException e) {
+            log.warn("Could not tell whether car {} of {} was out of the filters: {}", c.id(), source, e.toString());
+            return false;
+        }
     }
 
     /**
