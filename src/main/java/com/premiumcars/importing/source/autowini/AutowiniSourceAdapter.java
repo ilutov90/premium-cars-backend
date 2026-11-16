@@ -142,9 +142,9 @@ public class AutowiniSourceAdapter implements SourceAdapter {
     }
 
     /**
-     * autowini refuses the desktop page to the backend's HTTP client (403: the server's IP; a headless browser on
-     * the server is refused too), and the mobile page has no price in its HTML: it reads it from autowini's API,
-     * as {@link AutowiniClient#itemPrices} does. Without an API price the page stays as it is (entered by hand).
+     * The listing with the price buyers see: autowini's API price ({@link AutowiniClient#itemPrices}), which its
+     * pages show. The mobile page has no price in its HTML at all; the desktop page's hidden field is not that price
+     * any more. Without an API price the page stays as it is (the page's figure, or entered by hand).
      */
     static ParsedPage withPrice(ParsedPage page, AutowiniClient.ApiPrices prices) {
         if (prices == null) {
@@ -193,10 +193,17 @@ public class AutowiniSourceAdapter implements SourceAdapter {
         String desktopUrl = AutowiniPageParser.desktopUrl(id);
         AutowiniClient.Listing listing = client.fetchListing(desktopUrl, AutowiniPageParser.mobileUrl(id));
         ParsedPage page = AutowiniPageParser.parse(listing.html(), id);
-        if (listing.mobile() && page.price() == null) {
-            page = withPrice(page, client.itemPrices(id));
-        }
         List<String> warnings = new ArrayList<>();
+        // The price buyers see is the API's (autowini's own pages and lists show it). Since Nov 2026 the desktop
+        // page's hidden i_iBisPrice is lower than it (USD 300 on the listing checked), so it is only the fallback.
+        BigDecimal pagePrice = page.price();
+        AutowiniClient.ApiPrices api = client.itemPrices(id);
+        page = withPrice(page, api);
+        if (api == null && pagePrice != null) {
+            warnings.add("autowini's price API gave no price: the page's own figure (" + page.currency() + " "
+                    + pagePrice.toPlainString() + ") is used, which may be lower than the price autowini shows."
+                    + " Check the price.");
+        }
         if (page.price() != null && "USD".equals(page.currency())) {
             BigDecimal usd = page.price();
             BigDecimal rate = client.usdToEurRate();

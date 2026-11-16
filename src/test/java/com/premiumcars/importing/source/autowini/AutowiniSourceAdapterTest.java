@@ -73,6 +73,19 @@ class AutowiniSourceAdapterTest {
     }
 
     @Test
+    void testWithPrice_DesktopPageWithLowerHiddenPrice_TakesTheApiPrice() {
+        ParsedPage desktop = new ParsedPage(MOBILE.itemId(), MOBILE.fields(), new java.math.BigDecimal("12443"), "USD",
+                null, MOBILE.images(), MOBILE.optionGroups());
+
+        ParsedPage page = AutowiniSourceAdapter.withPrice(desktop,
+                new AutowiniClient.ApiPrices(new java.math.BigDecimal("12743"), null));
+
+        assertThat(page.price()).isEqualByComparingTo("12743");
+        assertThat(page.currency()).isEqualTo("USD");
+        assertThat(AutowiniSourceAdapter.withPrice(desktop, null).price()).isEqualByComparingTo("12443");
+    }
+
+    @Test
     void usdPricesBecomeEuroAtAutowinisRate() {
         // IC5354760: autowini shows USD 19,531 as EUR 18,594
         ParsedPage usd = AutowiniSourceAdapter.withPrice(MOBILE,
