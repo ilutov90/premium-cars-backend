@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.premiumcars.catalog.service.CarService;
+import com.premiumcars.catalog.service.SitemapService;
+import com.premiumcars.catalog.web.dto.SitemapDtos.SitemapPage;
 import com.premiumcars.catalog.web.dto.CarDtos.CarDetail;
 import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.FilterOptions;
@@ -21,9 +23,11 @@ import com.premiumcars.common.PageResponse;
 public class PublicCarController {
 
     private final CarService carService;
+    private final SitemapService sitemap;
 
-    public PublicCarController(CarService carService) {
+    public PublicCarController(CarService carService, SitemapService sitemap) {
         this.carService = carService;
+        this.sitemap = sitemap;
     }
 
     /** Example: /api/public/cars?make=BMW&fuelType=ELECTRIC&priceTo=40000&sort=price_asc&page=0&size=12 */
@@ -48,6 +52,13 @@ public class PublicCarController {
     @GetMapping("/cars/{slug}/exists")
     public Map<String, Boolean> exists(@PathVariable String slug) {
         return Map.of("exists", carService.isPublic(slug));
+    }
+
+    /** The public cars for the site's sitemap, by id: {@code /api/public/sitemap/cars?page=0&size=5000}. */
+    @GetMapping("/sitemap/cars")
+    public SitemapPage sitemapCars(@RequestParam(defaultValue = "0") int page,
+                                   @RequestParam(defaultValue = "5000") int size) {
+        return sitemap.cars(page, size);
     }
 
     @GetMapping("/filters")
