@@ -52,6 +52,19 @@ class CarSearchSqlTest {
     }
 
     @Test
+    void testOf_RepeatedMakeAndModelNames_BecomeInLists() {
+        var filter = new CarFilter(null, "ignored", null, null, null, null, null, null, null, null, null)
+                .withNames(List.of("Kgm", "KGM (Ssangyong)"), List.of("Torres"));
+
+        var sql = CarSearchSql.of(filter, PUBLIC).count();
+
+        assertThat(sql.text()).contains("lower(c.make) IN (:makes)", "lower(c.model) IN (:models)")
+                .doesNotContain(":make)");
+        assertThat(sql.params()).containsEntry("makes", List.of("kgm", "kgm (ssangyong)"))
+                .containsEntry("models", List.of("torres"));
+    }
+
+    @Test
     void userWildcardsAreLiteral() {
         assertThat(CarSearchSql.escapeLike("50%_off\\")).isEqualTo("50\\%\\_off\\\\");
     }

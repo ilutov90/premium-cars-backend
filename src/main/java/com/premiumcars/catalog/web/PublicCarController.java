@@ -1,6 +1,9 @@
 package com.premiumcars.catalog.web;
 
+import java.util.List;
 import java.util.Map;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -32,11 +35,26 @@ public class PublicCarController {
 
     /** Example: /api/public/cars?make=BMW&fuelType=ELECTRIC&priceTo=40000&sort=price_asc&page=0&size=12 */
     @GetMapping("/cars")
-    public PageResponse<CarSummary> list(@ModelAttribute CarFilter filter,
+    public PageResponse<CarSummary> list(@ModelAttribute CarFilter filter, HttpServletRequest request,
                                          @RequestParam(required = false) String sort,
                                          @RequestParam(defaultValue = "0") int page,
                                          @RequestParam(defaultValue = "12") int size) {
-        return carService.searchPublic(filter, sort, page, size);
+        return carService.searchPublic(withRepeated(filter, request), sort, page, size);
+    }
+
+    /**
+     * A repeated {@code make} / {@code model} parameter ("?make=Kgm&make=KGM (Ssangyong)") selects the cars of any of
+     * these names (exact, case-insensitive); one value behaves as before.
+     */
+    private static CarFilter withRepeated(CarFilter filter, HttpServletRequest request) {
+        List<String> makes = repeated(request, "make");
+        List<String> models = repeated(request, "model");
+        return makes == null && models == null ? filter : filter.withNames(makes, models);
+    }
+
+    private static List<String> repeated(HttpServletRequest request, String name) {
+        String[] values = request.getParameterValues(name);
+        return values == null || values.length < 2 ? null : List.of(values);
     }
 
     @GetMapping("/cars/{slug}")

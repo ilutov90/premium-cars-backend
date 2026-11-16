@@ -83,3 +83,5 @@ databaseChangeLog:
       file: db/changelog/changes/041-price-recalc-position.sql
   - include:
       file: db/changelog/changes/042-public-car-id-index.sql
+  - include:
+      file: db/changelog/changes/043-seo-pages.sql
