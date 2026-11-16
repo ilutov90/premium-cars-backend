@@ -228,6 +228,20 @@ public class AutoImportListingRepository {
                 .update();
     }
 
+    /** A listing row of a car, as a deleted car's statistics need it. */
+    public record CarListing(String brandCode, String model, Instant firstSeen) {
+    }
+
+    /** The listing rows of a car, the first seen first (read before {@link #deleteOfCar}). */
+    public List<CarListing> ofCar(long carId) {
+        return jdbc.sql("SELECT brand_code, model, first_seen FROM auto_import_listing WHERE car_id = :id"
+                        + " ORDER BY first_seen, listing_id")
+                .param("id", carId)
+                .query((rs, n) -> new CarListing(rs.getString("brand_code"), rs.getString("model"),
+                        rs.getObject("first_seen", OffsetDateTime.class).toInstant()))
+                .list();
+    }
+
     /** The listing rows of a car (before it is deleted because its listing is gone). */
     public void deleteOfCar(long carId) {
         jdbc.sql("DELETE FROM auto_import_listing WHERE car_id = :id").param("id", carId).update();

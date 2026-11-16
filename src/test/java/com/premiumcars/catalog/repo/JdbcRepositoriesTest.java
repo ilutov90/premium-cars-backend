@@ -90,6 +90,15 @@ class JdbcRepositoriesTest {
     CarService carService;
 
     @Autowired
+    com.premiumcars.autoimport.AutoImportRunRepository autoImportRuns;
+
+    @Autowired
+    org.springframework.jdbc.core.simple.JdbcClient jdbcClient;
+
+    @Autowired
+    com.premiumcars.autoimport.RemovedReportRepository removedReport;
+
+    @Autowired
     CarRepository carRepository;
 
     @Autowired
@@ -849,5 +858,144 @@ class JdbcRepositoriesTest {
             carService.delete(posted.id());
             carService.delete(handPriced.id());
         }
+    }
+
+    @Test
+    void testAddRemoved_WithFacts_ReadsThemBack() {
+        long runId = autoImportRuns.start(CarSource.GUAZI, false);
+        try {
+            var firstSeen = java.time.Instant.parse("2026-10-01T08:30:00Z");
+            autoImportRuns.addRemoved(runId, CarSource.GUAZI, null, "BYD Seal 06 DM-i 2024", "byd-seal-06-dm-i-2024-9",
+                    "https://en.guazi.com/car-detail/removed-facts.html", false, List.of(),
+                    new com.premiumcars.autoimport.AutoImportRunRepository.RemovedFacts("BYD", "Seal 06 DM-i", 2024,
+                            "PLUGIN_HYBRID", 12_000, new BigDecimal("14250.50"), new BigDecimal("21990.00"),
+                            firstSeen));
+
+            var removed = autoImportRuns.removed(runId);
+            assertThat(removed).singleElement().satisfies(r -> assertThat(r.title()).isEqualTo("BYD Seal 06 DM-i 2024"));
+            assertThat(autoImportRuns.facts(removed.getFirst().id())).hasValueSatisfying(f -> {
+                assertThat(f.make()).isEqualTo("BYD");
+                assertThat(f.model()).isEqualTo("Seal 06 DM-i");
+                assertThat(f.year()).isEqualTo(2024);
+                assertThat(f.fuelType()).isEqualTo("PLUGIN_HYBRID");
+                assertThat(f.mileageKm()).isEqualTo(12_000);
+                assertThat(f.fobPriceEur()).isEqualByComparingTo("14250.50");
+                assertThat(f.priceEur()).isEqualByComparingTo("21990.00");
+                assertThat(f.firstSeen()).isEqualTo(firstSeen);
+            });
+        } finally {
+            jdbcClient.sql("DELETE FROM auto_import_run WHERE id = :id").param("id", runId).update();
+        }
+    }
+
+    @Test
+    void testNameRemoved_RowWithoutMake_NamesItOnce() {
+        long runId = autoImportRuns.start(CarSource.AUTOWINI, false);
+        try {
+            autoImportRuns.addRemoved(runId, CarSource.AUTOWINI, null, "Hyundai Grandeur IG 2.4 Modern",
+                    "hyundai-grandeur-2019-10", "https://www.autowini.com/removed-facts", true, List.of());
+            long id = autoImportRuns.removed(runId).getFirst().id();
+
+            assertThat(autoImportRuns.facts(id)).hasValueSatisfying(f -> assertThat(f.make()).isNull());
+            assertThat(autoImportRuns.unnamedRemoved(id - 1, 10)).extracting(r -> r.id()).contains(id);
+
+            assertThat(autoImportRuns.nameRemoved(id, "Hyundai", "Grandeur", 2019)).isTrue();
+            assertThat(autoImportRuns.nameRemoved(id, "Kia", "K5", 2020)).isFalse();
+
+            assertThat(autoImportRuns.facts(id)).hasValueSatisfying(f -> {
+                assertThat(f.make()).isEqualTo("Hyundai");
+                assertThat(f.model()).isEqualTo("Grandeur");
+                assertThat(f.year()).isEqualTo(2019);
+            });
+            assertThat(autoImportRuns.unnamedRemoved(id - 1, 10)).extracting(r -> r.id()).doesNotContain(id);
+        } finally {
+            jdbcClient.sql("DELETE FROM auto_import_run WHERE id = :id").param("id", runId).update();
+        }
+    }
+
+    private void removedRow(long runId, String make, String model, Integer year, String price,
+                            java.time.Instant firstSeen) {
+        autoImportRuns.addRemoved(runId, CarSource.AUTOWINI, null, "Removed report row", "removed-report-row",
+                "https://www.autowini.com/removed-report", false, List.of(),
+                new com.premiumcars.autoimport.AutoImportRunRepository.RemovedFacts(make, model, year, "GASOLINE",
+                        50_000, null, price == null ? null : new BigDecimal(price), firstSeen));
+    }
+
+    @Test
+    void testReport_RemovedRows_GroupsFiltersAndAverages() {
+        String make = "Testmake Q7Z";
+        long runId = autoImportRuns.start(CarSource.AUTOWINI, false);
+        jdbcClient.sql("""
+                INSERT INTO auto_import_brand (source, code, name, year_from)
+                VALUES ('AUTOWINI', 'TQ7Z', :name, 2018)""").param("name", make).update();
+        try {
+            var now = java.time.Instant.now();
+            removedRow(runId, make, "M1", 2022, "10000", now.minus(10, java.time.temporal.ChronoUnit.DAYS));
+            removedRow(runId, make, "M1", 2022, "20000", now.minus(20, java.time.temporal.ChronoUnit.DAYS));
+            removedRow(runId, make, "M2", 2023, "30000", null);
+            removedRow(runId, make, "M1", 2022, "40000", now.minus(300, java.time.temporal.ChronoUnit.DAYS));
+            removedRow(runId, "Nobrand Q7Z", "X", 2020, "5000", null);
+            removedRow(runId, null, null, null, null, null);
+            jdbcClient.sql("""
+                    UPDATE auto_import_removed SET removed_at = now() - interval '200 days'
+                    WHERE run_id = :run AND price_eur = 40000""").param("run", runId).update();
+
+            var src = CarSource.AUTOWINI;
+            var byMake = removedReport.report(30, src, com.premiumcars.autoimport.RemovedGroupBy.MAKE,
+                    "testmake q7z", null);
+            assertThat(byMake.total()).isEqualTo(3);
+            assertThat(byMake.rows()).singleElement().satisfies(r -> {
+                assertThat(r.make()).isEqualTo(make);
+                assertThat(r.model()).isNull();
+                assertThat(r.year()).isNull();
+                assertThat(r.count()).isEqualTo(3);
+                assertThat(r.sharePct()).isEqualTo(100.0);
+                assertThat(r.avgPriceEur()).isEqualTo(20_000L);
+                assertThat(r.avgDaysListed()).isBetween(14.9, 15.1);
+            });
+            assertThat(byMake.unrecognized()).isGreaterThanOrEqualTo(1);
+            assertThat(byMake.makes()).contains(make).doesNotContain("Nobrand Q7Z");
+            assertThat(byMake.models()).containsExactly("M1", "M2");
+            assertThat(byMake.weeks()).singleElement().satisfies(w -> assertThat(w.count()).isEqualTo(3));
+            assertThat(byMake.firstRemovedAt()).isNotNull();
+
+            var byModel = removedReport.report(30, src, com.premiumcars.autoimport.RemovedGroupBy.MODEL, make, null);
+            assertThat(byModel.rows()).extracting(r -> r.model(), r -> r.count(), r -> r.sharePct())
+                    .containsExactly(tuple("M1", 2, 66.7), tuple("M2", 1, 33.3));
+
+            var byModelYear = removedReport.report(null, src,
+                    com.premiumcars.autoimport.RemovedGroupBy.MODEL_YEAR, make, null);
+            assertThat(byModelYear.total()).isEqualTo(4);
+            assertThat(byModelYear.rows()).extracting(r -> r.model(), r -> r.year(), r -> r.count())
+                    .containsExactly(tuple("M1", 2022, 3), tuple("M2", 2023, 1));
+            assertThat(byModelYear.weeks()).hasSize(2);
+            assertThat(byModelYear.weeks().stream().mapToInt(w -> w.count()).sum()).isEqualTo(4);
+            assertThat(byModelYear.weeks().getFirst().weekStart()).matches("\\d{4}-\\d{2}-\\d{2}");
+
+            var byYear = removedReport.report(30, src, com.premiumcars.autoimport.RemovedGroupBy.YEAR, make, "M1");
+            assertThat(byYear.total()).isEqualTo(2);
+            assertThat(byYear.rows()).singleElement().satisfies(r -> {
+                assertThat(r.make()).isNull();
+                assertThat(r.year()).isEqualTo(2022);
+            });
+
+            var other = removedReport.report(30, CarSource.GUAZI, com.premiumcars.autoimport.RemovedGroupBy.MAKE,
+                    make, null);
+            assertThat(other.total()).isZero();
+            assertThat(other.rows()).isEmpty();
+        } finally {
+            jdbcClient.sql("DELETE FROM auto_import_run WHERE id = :id").param("id", runId).update();
+            jdbcClient.sql("DELETE FROM auto_import_brand WHERE source = 'AUTOWINI' AND code = 'TQ7Z'").update();
+        }
+    }
+
+    @Test
+    void testParse_UnknownGroupBy_ThrowsBadRequest() {
+        assertThatThrownBy(() -> com.premiumcars.autoimport.RemovedGroupBy.parse("color"))
+                .isInstanceOf(BadRequestException.class);
+        assertThat(com.premiumcars.autoimport.RemovedGroupBy.parse(null))
+                .isEqualTo(com.premiumcars.autoimport.RemovedGroupBy.MAKE);
+        assertThat(com.premiumcars.autoimport.RemovedGroupBy.parse("model_year"))
+                .isEqualTo(com.premiumcars.autoimport.RemovedGroupBy.MODEL_YEAR);
     }
 }

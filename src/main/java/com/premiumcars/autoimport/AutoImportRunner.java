@@ -1,5 +1,6 @@
 package com.premiumcars.autoimport;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -23,7 +24,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.premiumcars.autoimport.AutoImportListingRepository.CarListing;
 import com.premiumcars.autoimport.AutoImportListingRepository.Listing;
+import com.premiumcars.autoimport.AutoImportRunRepository.RemovedFacts;
 import com.premiumcars.autoimport.AutoImportRunRepository.Result;
 import com.premiumcars.autoimport.AutoImportSettingsRepository.SourceSettings;
 import com.premiumcars.autoimport.AutoImportTypes.Brand;
@@ -38,6 +41,7 @@ import com.premiumcars.catalog.domain.MakeNames;
 import com.premiumcars.catalog.repo.CarRepository;
 import com.premiumcars.catalog.repo.CarRepository.CheckedCar;
 import com.premiumcars.catalog.service.CarService;
+import com.premiumcars.pricing.PriceBreakdown;
 import com.premiumcars.social.PostedChannels;
 
 /**
@@ -548,6 +552,7 @@ public class AutoImportRunner {
         }
         Car c = car.get();
         List<PostedChannels.Post> posts = posted.of(carId);
+        RemovedFacts facts = facts(source, c);
         try {
             listings.deleteOfCar(carId);
             carService.delete(carId);
@@ -555,7 +560,35 @@ public class AutoImportRunner {
             log.warn("Could not delete car {} gone from {}: {}", carId, source, e.toString());
             return false;
         }
-        runs.addRemoved(runId, source, null, c.specs().title(), c.slug(), c.sourceUrl(), manual, posts);
+        runs.addRemoved(runId, source, null, c.specs().title(), c.slug(), c.sourceUrl(), manual, posts, facts);
         return true;
+    }
+
+    /**
+     * What a car about to be deleted was, for the statistics (read before its listing rows go): the make and model
+     * by the source's menus ({@link RemovedCarNames#fromCar}), its specs, FOB and final price, and when its listing
+     * was first found (else when the car was created). Never keeps the car from being deleted.
+     */
+    RemovedFacts facts(CarSource source, Car c) {
+        try {
+            List<CarListing> rows = listings.ofCar(c.id());
+            CarListing row = rows.stream().filter(r -> r.brandCode() != null).findFirst()
+                    .orElse(rows.isEmpty() ? null : rows.getFirst());
+            List<RemovedCarNames.Make> makes = RemovedCarNames.makes(settings.catalog(source),
+                    settings.brands(source));
+            var specs = c.specs();
+            RemovedCarNames.Names names = RemovedCarNames.fromCar(row == null ? null : row.brandCode(),
+                    row == null ? null : row.model(), specs.make(), specs.model(), specs.year(), specs.title(),
+                    c.slug(), makes);
+            BigDecimal fob = cars.findPriceBreakdown(c.id()).map(PriceBreakdown::carPriceEur).orElse(null);
+            Instant firstSeen = rows.stream().map(CarListing::firstSeen).min(Instant::compareTo)
+                    .orElse(c.createdAt());
+            return new RemovedFacts(names.make(), names.model(), names.year(),
+                    specs.fuelType() == null ? null : specs.fuelType().name(), specs.mileageKm(), fob,
+                    c.totalPriceEur(), firstSeen);
+        } catch (RuntimeException e) {
+            log.warn("Could not read what car {} of {} was: {}", c.id(), source, e.toString());
+            return new RemovedFacts(null, null, null, null, null, null, c.totalPriceEur(), c.createdAt());
+        }
     }
 }
