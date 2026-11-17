@@ -185,6 +185,20 @@ public class CarRepository {
                 .list();
     }
 
+    /** The largest id of the cars (of one site, or all when null) created up to {@code at}; 0 when none. */
+    public long maxIdCreatedBy(CarSource source, java.time.Instant at) {
+        Map<String, Object> params = new java.util.HashMap<>(Map.of("at", java.sql.Timestamp.from(at)));
+        if (source != null) {
+            params.put("source", source.name());
+        }
+        Long max = jdbc.sql("SELECT max(id) FROM car WHERE created_at <= :at"
+                        + (source == null ? "" : " AND source = :source"))
+                .params(params)
+                .query(Long.class)
+                .single();
+        return max == null ? 0 : max;
+    }
+
     /**
      * The ids of the cars (of one site, or all when null) after {@code afterId} up to {@code upToId}, in order: the
      * rest of a price recalculation that was cut.

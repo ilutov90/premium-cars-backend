@@ -142,14 +142,20 @@ public class PriceRecalcService {
         } catch (IllegalArgumentException e) {
             return false;
         }
+        // the run's cars are those that existed when it started: cars imported since then were priced at the import
+        long startEnd = cars.maxIdCreatedBy(source, r.startedAt());
         PriceRecalcRepository.Position pos = runs.position(r.id()).orElse(null);
         if (pos != null && !pos.resumable()) {
             // a run from before 041: it continues after the last car it noted (some cars are done twice, none skipped)
-            List<Long> all = cars.findIds(source);
-            pos = all.isEmpty() ? null : runs.adoptPosition(r.id(), all.getLast()).orElse(null);
+            pos = runs.adoptPosition(r.id(), startEnd).orElse(null);
         }
         if (pos == null || !pos.resumable()) {
             return false;
+        }
+        if (pos.endCarId() > startEnd) {
+            // a run adopted before this cap went up to the newest car at the restart, past the cars it started with
+            runs.capEnd(r.id(), startEnd);
+            pos = new PriceRecalcRepository.Position(pos.lastCarId(), startEnd);
         }
         long after = pos.lastCarId() == null ? 0 : pos.lastCarId();
         List<Long> ids = cars.findIds(source, after, pos.endCarId());

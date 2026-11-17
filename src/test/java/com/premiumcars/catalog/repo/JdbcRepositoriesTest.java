@@ -1063,6 +1063,31 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void testResumeRunning_EndPastTheCarsAtStart_StopsAtThoseCars() throws InterruptedException {
+        AdminCar before = recalcCar("Kia K5 Cap Before");
+        AdminCar after = recalcCar("Kia K5 Cap After");
+        jdbcClient.sql("UPDATE car SET created_at = now() + interval '1 hour' WHERE id = :id")
+                .param("id", after.id()).update();
+        long runId = priceRecalcRuns.start("AUTOWINI", "STORED", "admin", 1, after.id());
+        try {
+            priceRecalcRuns.progress(runId, 0, 0, 0, 0, before.id() - 1);
+
+            priceRecalc.resumeRunning();
+            var done = awaitRecalc(runId);
+
+            assertThat(done.status()).isEqualTo("DONE");
+            assertThat(priceRecalcRuns.position(runId).orElseThrow().endCarId()).isLessThan(after.id());
+            assertThat(carRepository.findById(before.id()).orElseThrow().totalPriceEur())
+                    .isGreaterThan(new BigDecimal("25000"));
+            assertThat(carRepository.findById(after.id()).orElseThrow().totalPriceEur()).isEqualByComparingTo("1");
+        } finally {
+            jdbcClient.sql("DELETE FROM price_recalc_run WHERE id = :id").param("id", runId).update();
+            carService.delete(before.id());
+            carService.delete(after.id());
+        }
+    }
+
+    @Test
     void testResumeRunning_OldRunWithNotedCar_ContinuesAfterThatCar() throws InterruptedException {
         AdminCar first = recalcCar("Kia K5 Old Resume 1");
         AdminCar second = recalcCar("Kia K5 Old Resume 2");

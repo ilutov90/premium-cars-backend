@@ -131,6 +131,14 @@ public class PriceRecalcRepository {
         return n == 0 ? Optional.empty() : position(id);
     }
 
+    /** Lowers a run's last car to {@code endCarId} (never raises it): the cars it started with, not later ones. */
+    public void capEnd(long id, long endCarId) {
+        jdbc.sql("UPDATE price_recalc_run SET end_car_id = :end WHERE id = :id AND end_car_id > :end")
+                .param("id", id)
+                .param("end", endCarId)
+                .update();
+    }
+
     /** The runs marked RUNNING (at startup: cut by the restart), the newest first. */
     public List<Run> findRunning() {
         return jdbc.sql("SELECT * FROM price_recalc_run WHERE status = 'RUNNING' ORDER BY id DESC").query(RUN).list();
