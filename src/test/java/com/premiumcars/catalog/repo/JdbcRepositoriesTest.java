@@ -1089,6 +1089,29 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void testItems_FixedKind_ListsTheScopesHandPricedCars() {
+        AdminCar fixed = recalcCar("Kia K5 Hand Priced");
+        AdminCar plain = recalcCar("Kia K5 Formula Priced");
+        jdbcClient.sql("UPDATE car SET fixed_total_eur = 12345 WHERE id = :id").param("id", fixed.id()).update();
+        long runId = priceRecalcRuns.start("AUTOWINI", "STORED", "admin", 2, plain.id());
+        try {
+            var page = priceRecalc.items(runId, "fixed", false, 0, 200);
+
+            assertThat(page.items()).extracting(i -> i.carId()).contains(fixed.id()).doesNotContain(plain.id());
+            var item = page.items().stream().filter(i -> i.carId().equals(fixed.id())).findFirst().orElseThrow();
+            assertThat(item.kind()).isEqualTo("FIXED");
+            assertThat(item.newPriceEur()).isEqualByComparingTo("12345");
+            assertThat(item.oldPriceEur()).isGreaterThan(new BigDecimal("25000"));
+            assertThatThrownBy(() -> priceRecalc.items(runId, "other", false, 0, 20))
+                    .isInstanceOf(BadRequestException.class);
+        } finally {
+            jdbcClient.sql("DELETE FROM price_recalc_run WHERE id = :id").param("id", runId).update();
+            carService.delete(fixed.id());
+            carService.delete(plain.id());
+        }
+    }
+
+    @Test
     void testResumeRunning_RunWithoutPosition_Abandoned() throws InterruptedException {
         AdminCar car = recalcCar("Kia K5 Old Run");
         long runId = jdbcClient.sql("""
