@@ -198,15 +198,54 @@ public class PriceRecalcService {
     }
 
     public PageResponse<Item> items(long runId, String kind, boolean onlyPosted, int page, int size) {
-        runs.find(runId).orElseThrow(() -> new NotFoundException("No recalculation " + runId));
+        Run run = runs.find(runId).orElseThrow(() -> new NotFoundException("No recalculation " + runId));
         int p = Math.max(page, 0);
         int s = Math.min(Math.max(size, 1), 200);
         String k = kind == null || kind.isBlank() ? null : kind.trim().toUpperCase(java.util.Locale.ROOT);
-        if (k != null && !k.equals("CHANGED") && !k.equals("FAILED")) {
+        if (k != null && !k.equals("CHANGED") && !k.equals("FAILED") && !k.equals("FIXED")) {
             throw new BadRequestException("Unknown kind: " + kind);
+        }
+        if ("FIXED".equals(k)) {
+            return fixedPriceItems(run, onlyPosted, p, s);
         }
         return PageResponse.of(runs.items(runId, k, onlyPosted, p, s), p, s,
                 runs.countItems(runId, k, onlyPosted), Function.identity());
+    }
+
+    /**
+     * The report's FIXED view: the cars of the run's scope whose final price is set by hand (a recalculation keeps
+     * it), as they are now, the posted ones first. {@code oldPriceEur} is what today's formula would give,
+     * {@code newPriceEur} the price set by hand. There are few such cars, so they are read whole and paged here.
+     */
+    private PageResponse<Item> fixedPriceItems(Run run, boolean onlyPosted, int page, int size) {
+        List<Long> ids = runs.fixedPriceCarIds(run.scope());
+        Map<Long, List<PostedChannels.Post>> posts = posted.of(ids);
+        Map<PriceProfile, PricingProfile> byId = profiles.findAll().stream()
+                .collect(Collectors.toMap(PricingProfile::id, Function.identity()));
+        List<Item> all = new ArrayList<>();
+        for (Long id : ids) {
+            Car c = cars.findById(id).orElse(null);
+            if (c == null) {
+                continue;
+            }
+            List<PostedChannels.Post> carPosts = posts.getOrDefault(id, List.of());
+            if (onlyPosted && carPosts.isEmpty()) {
+                continue;
+            }
+            PricingInputs p = c.pricing();
+            PricingInputs formula = new PricingInputs(p.sourcePrice(), p.sourceCurrency(), p.profile(), p.profitEur(),
+                    null);
+            PriceBreakdown b = formula.profile() == null ? null
+                    : mapper.breakdown(formula, byId.get(formula.profile()));
+            all.add(new Item(0, c.id(), "FIXED", c.specs().title(), c.slug(), c.status().name(),
+                    c.source() == null ? null : c.source().name(), c.sourceUrl(), b == null ? null : b.totalEur(),
+                    p.fixedTotalEur(), p.sourcePrice(), p.sourcePrice(), p.sourceCurrency(),
+                    "The final price is set by hand: recalculations keep it", new ArrayList<>(carPosts)));
+        }
+        all.sort(java.util.Comparator.comparing((Item i) -> i.posted().isEmpty()));
+        int from = Math.min(page * size, all.size());
+        return PageResponse.of(all.subList(from, Math.min(from + size, all.size())), page, size, all.size(),
+                Function.identity());
     }
 
     public void delete(long runId) {

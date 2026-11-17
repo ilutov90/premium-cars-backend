@@ -219,6 +219,20 @@ public class PriceRecalcRepository {
                 .single();
     }
 
+    /**
+     * The ids of the cars of a run's scope ("ALL" or a site) whose final price is set by hand now, by title: the
+     * cars a recalculation keeps as they are. Read from the cars themselves, so it also answers for runs started
+     * before such cars were noted.
+     */
+    public List<Long> fixedPriceCarIds(String scope) {
+        boolean all = "ALL".equals(scope);
+        return jdbc.sql("SELECT id FROM car WHERE fixed_total_eur IS NOT NULL" + (all ? "" : " AND source = :source")
+                        + " ORDER BY title, id")
+                .params(all ? java.util.Map.of() : java.util.Map.of("source", scope))
+                .query(Long.class)
+                .list();
+    }
+
     /** Fixed fragments only; the kind is a parameter. */
     private static String itemFilter(String kind, boolean posted) {
         return (kind == null ? "" : " AND kind = :kind") + (posted ? " AND posted <> '[]'::jsonb" : "");
