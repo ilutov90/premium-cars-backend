@@ -93,6 +93,10 @@ final class CarSearchSql {
         return m.matches() ? Long.valueOf(m.group(1)) : null;
     }
 
+    private static List<String> lowerNames(List<String> names) {
+        return names.stream().filter(CarSearchSql::notBlank).map(n -> n.trim().toLowerCase(Locale.ROOT)).toList();
+    }
+
     private static CarSearchSql build(CarFilter filter, Collection<CarStatus> statuses, boolean matchSource) {
         var b = new CarSearchSql(matchSource);
         b.where.append("WHERE c.status IN (:statuses)");
@@ -115,6 +119,12 @@ final class CarSearchSql {
         }
         if (notBlank(f.model())) {
             and("lower(c.model) = :model", "model", f.model().trim().toLowerCase(Locale.ROOT));
+        }
+        if (f.makes() != null && !lowerNames(f.makes()).isEmpty()) {
+            and("lower(c.make) IN (:makes)", "makes", lowerNames(f.makes()));
+        }
+        if (f.models() != null && !lowerNames(f.models()).isEmpty()) {
+            and("lower(c.model) IN (:models)", "models", lowerNames(f.models()));
         }
         if (f.fuelType() != null) {
             and("c.fuel_type = :fuelType", "fuelType", f.fuelType().name());

@@ -33,6 +33,7 @@ import com.premiumcars.catalog.domain.SpecGroup;
 import com.premiumcars.catalog.domain.Transmission;
 import com.premiumcars.catalog.service.CarService;
 import com.premiumcars.catalog.service.PriceRecalcService;
+import com.premiumcars.catalog.service.SitemapService;
 import com.premiumcars.catalog.web.dto.CarDtos.AdminCar;
 import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.CarUpdateRequest;
@@ -65,6 +66,9 @@ import com.premiumcars.social.PublicContactController;
 import com.premiumcars.social.ScheduledPost;
 import com.premiumcars.social.ScheduledPostRepository;
 import com.premiumcars.social.ScheduledPostService;
+import com.premiumcars.social.LogoStyle;
+import com.premiumcars.social.SiteLogo;
+import com.premiumcars.social.SiteLogoController;
 import com.premiumcars.social.SiteLogoRepository;
 import com.premiumcars.social.SiteShareImageRepository;
 import com.premiumcars.social.SocialNetwork;
@@ -149,6 +153,12 @@ class JdbcRepositoriesTest {
 
     @Autowired
     SiteLogoRepository siteLogo;
+
+    @Autowired
+    SiteLogoController siteLogoController;
+
+    @Autowired
+    SitemapService sitemapService;
 
     @Autowired
     SiteShareImageRepository siteShareImage;
@@ -684,6 +694,79 @@ class JdbcRepositoriesTest {
             siteLogo.delete();
             postSettings.save(before);
         }
+    }
+
+    @Test
+    void testSiteLogoStyle_SaveClearAndSettingsSave_ValuesFollowAndSettingsLeaveThem() {
+        PostSettings before = postSettings.find();
+        LogoStyle styleBefore = siteLogo.findStyle();
+        try {
+            siteLogoController.setStyle(LogoStyle.NONE);
+            assertThat(siteLogoController.get().height()).isNull();
+
+            SiteLogo saved = siteLogoController.setStyle(new LogoStyle(40, 8, 12));
+            assertThat(saved).extracting(SiteLogo::height, SiteLogo::radius, SiteLogo::feather)
+                    .containsExactly(40, 8, 12);
+            assertThat(siteLogoController.publicLogo()).extracting(SiteLogo::height, SiteLogo::radius,
+                    SiteLogo::feather).containsExactly(40, 8, 12);
+
+            postSettings.save(new PostSettings("0888123456", null, null, null));
+            assertThat(siteLogo.findStyle()).isEqualTo(new LogoStyle(40, 8, 12));
+
+            siteLogoController.setStyle(new LogoStyle(null, 0, null));
+            assertThat(siteLogo.findStyle()).isEqualTo(new LogoStyle(null, 0, null));
+
+            SiteLogo cleared = siteLogoController.setStyle(LogoStyle.NONE);
+            assertThat(cleared).extracting(SiteLogo::height, SiteLogo::radius, SiteLogo::feather)
+                    .containsExactly(null, null, null);
+        } finally {
+            siteLogo.saveStyle(styleBefore);
+            postSettings.save(before);
+        }
+    }
+
+    @Test
+    void testSitemapCars_PublicAndDraftCars_OnlyPublicListedWithSlugAndTime() {
+        String tag = UUID.randomUUID().toString().substring(0, 8);
+        var ids = new java.util.ArrayList<Long>();
+        try {
+            AdminCar published = sitemapCar(tag, "A", ids);
+            AdminCar reserved = sitemapCar(tag, "B", ids);
+            AdminCar draft = sitemapCar(tag, "C", ids);
+            carService.attachImages(published.id(), List.of(new NewCarImage(null, "https://cdn.example.com/" + tag + ".jpg")));
+            carService.changeStatus(published.id(), CarStatus.PUBLISHED);
+            carService.changeStatus(reserved.id(), CarStatus.RESERVED);
+
+            var page = sitemapService.cars(0, SitemapService.MAX_SIZE);
+            assertThat(page.total()).isGreaterThanOrEqualTo(2);
+            var mine = page.items().stream()
+                    .filter(i -> i.slug().equals(published.slug()) || i.slug().equals(reserved.slug())
+                            || i.slug().equals(draft.slug()))
+                    .toList();
+            assertThat(mine).extracting(i -> i.slug()).containsExactlyInAnyOrder(published.slug(), reserved.slug());
+            assertThat(mine).allSatisfy(i -> assertThat(i.updatedAt()).isNotNull());
+            assertThat(mine.stream().filter(i -> i.slug().equals(published.slug())).findFirst().orElseThrow().imageUrl())
+                    .isEqualTo("https://cdn.example.com/" + tag + ".jpg");
+            assertThat(mine.stream().filter(i -> i.slug().equals(reserved.slug())).findFirst().orElseThrow().imageUrl())
+                    .isNull();
+
+            assertThat(sitemapService.cars(0, 1).items()).hasSize(1);
+            assertThatThrownBy(() -> sitemapService.cars(0, 0)).isInstanceOf(BadRequestException.class);
+            assertThatThrownBy(() -> sitemapService.cars(-1, 10)).isInstanceOf(BadRequestException.class);
+        } finally {
+            ids.forEach(carService::delete);
+        }
+    }
+
+    private AdminCar sitemapCar(String tag, String suffix, java.util.List<Long> ids) {
+        CarSpecs specs = CarSpecs.builder().title("Sitemap Test " + tag + suffix).make("Sitemapmake").model("T")
+                .year(2022).build();
+        var imported = new ImportedCar("sm-" + tag + suffix, null, specs, new BigDecimal("10000"), "USD",
+                List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOHOME,
+                "https://global.autohome.com.cn/en/test/sitemap-" + tag + suffix);
+        ids.add(car.id());
+        return car;
     }
 
     @Test

@@ -1,6 +1,9 @@
 package com.premiumcars.catalog.web;
 
+import java.util.List;
 import java.util.Map;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -10,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.premiumcars.catalog.service.CarService;
+import com.premiumcars.catalog.service.SitemapService;
+import com.premiumcars.catalog.web.dto.SitemapDtos.SitemapPage;
 import com.premiumcars.catalog.web.dto.CarDtos.CarDetail;
 import com.premiumcars.catalog.web.dto.CarDtos.CarSummary;
 import com.premiumcars.catalog.web.dto.CarDtos.FilterOptions;
@@ -21,18 +26,35 @@ import com.premiumcars.common.PageResponse;
 public class PublicCarController {
 
     private final CarService carService;
+    private final SitemapService sitemap;
 
-    public PublicCarController(CarService carService) {
+    public PublicCarController(CarService carService, SitemapService sitemap) {
         this.carService = carService;
+        this.sitemap = sitemap;
     }
 
     /** Example: /api/public/cars?make=BMW&fuelType=ELECTRIC&priceTo=40000&sort=price_asc&page=0&size=12 */
     @GetMapping("/cars")
-    public PageResponse<CarSummary> list(@ModelAttribute CarFilter filter,
+    public PageResponse<CarSummary> list(@ModelAttribute CarFilter filter, HttpServletRequest request,
                                          @RequestParam(required = false) String sort,
                                          @RequestParam(defaultValue = "0") int page,
                                          @RequestParam(defaultValue = "12") int size) {
-        return carService.searchPublic(filter, sort, page, size);
+        return carService.searchPublic(withRepeated(filter, request), sort, page, size);
+    }
+
+    /**
+     * A repeated {@code make} / {@code model} parameter ("?make=Kgm&make=KGM (Ssangyong)") selects the cars of any of
+     * these names (exact, case-insensitive); one value behaves as before.
+     */
+    private static CarFilter withRepeated(CarFilter filter, HttpServletRequest request) {
+        List<String> makes = repeated(request, "make");
+        List<String> models = repeated(request, "model");
+        return makes == null && models == null ? filter : filter.withNames(makes, models);
+    }
+
+    private static List<String> repeated(HttpServletRequest request, String name) {
+        String[] values = request.getParameterValues(name);
+        return values == null || values.length < 2 ? null : List.of(values);
     }
 
     @GetMapping("/cars/{slug}")
@@ -48,6 +70,13 @@ public class PublicCarController {
     @GetMapping("/cars/{slug}/exists")
     public Map<String, Boolean> exists(@PathVariable String slug) {
         return Map.of("exists", carService.isPublic(slug));
+    }
+
+    /** The public cars for the site's sitemap, by id: {@code /api/public/sitemap/cars?page=0&size=5000}. */
+    @GetMapping("/sitemap/cars")
+    public SitemapPage sitemapCars(@RequestParam(defaultValue = "0") int page,
+                                   @RequestParam(defaultValue = "5000") int size) {
+        return sitemap.cars(page, size);
     }
 
     @GetMapping("/filters")
