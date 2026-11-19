@@ -27,8 +27,12 @@ import jakarta.validation.constraints.Size;
 @RequestMapping("/api/admin")
 public class AdminSocialController {
 
-    /** @param text the post text of the network, as confirmed (and possibly edited) in the admin panel */
-    public record PostText(@NotNull SocialNetwork network, @NotBlank @Size(max = 7000) String text) {
+    /**
+     * @param text     the post text of the network, as confirmed (and possibly edited) in the admin panel
+     * @param linkOnly Viber only (null = false): post just the text, no photos
+     */
+    public record PostText(@NotNull SocialNetwork network, @NotBlank @Size(max = 7000) String text,
+                           Boolean linkOnly) {
     }
 
     /**
@@ -125,7 +129,7 @@ public class AdminSocialController {
     public ResponseEntity<List<ScheduledPost>> publish(@PathVariable long id, @Valid @RequestBody PublishRequest request,
                                                        Principal principal) {
         List<ScheduledPostService.Draft> drafts = request.posts().stream()
-                .map(p -> new ScheduledPostService.Draft(p.network(), p.text()))
+                .map(p -> new ScheduledPostService.Draft(p.network(), p.text(), Boolean.TRUE.equals(p.linkOnly())))
                 .toList();
         List<ScheduledPost> posts = background.publish(id, drafts, request.imageIds(), request.publishAt(),
                 principal.getName());

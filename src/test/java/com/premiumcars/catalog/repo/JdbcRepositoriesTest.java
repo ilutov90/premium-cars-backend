@@ -469,6 +469,22 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void testScheduledPostInsert_LinkOnlyFlag_RoundTrips() {
+        var imported = new ImportedCar("IC3L", null, CarSpecs.builder().title("Kia Link").build(),
+                new BigDecimal("15526"), "EUR", List.of(), List.of());
+        AdminCar car = carService.createDraft(imported, CarSource.AUTOWINI,
+                "https://www.autowini.com/test/" + UUID.randomUUID());
+        var at = java.time.Instant.now().plusSeconds(3600);
+
+        ScheduledPost link = scheduledPosts.insert(car.id(), SocialNetwork.VIBER, "link", List.of(), at, "admin", true);
+        ScheduledPost plain = scheduledPosts.insert(car.id(), SocialNetwork.VIBER, "text", List.of(), at, "admin");
+
+        assertThat(link.linkOnly()).isTrue();
+        assertThat(scheduledPosts.findById(link.id()).orElseThrow().linkOnly()).isTrue();
+        assertThat(plain.linkOnly()).isFalse();
+    }
+
+    @Test
     void scheduledPostsAreClaimedOnceAndGoWithTheCar() {
         String url = "https://www.autowini.com/test/" + UUID.randomUUID();
         var imported = new ImportedCar("IC3", null, CarSpecs.builder().title("Hyundai Santa Fe 2021").build(),

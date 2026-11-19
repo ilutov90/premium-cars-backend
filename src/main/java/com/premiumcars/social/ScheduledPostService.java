@@ -69,8 +69,12 @@ public class ScheduledPostService {
         this.executor = executor;
     }
 
-    /** The text of one network in a publication. */
-    public record Draft(SocialNetwork network, String text) {
+    /** The text of one network in a publication; {@code linkOnly} (Viber only): no photos, just the text. */
+    public record Draft(SocialNetwork network, String text, boolean linkOnly) {
+
+        public Draft(SocialNetwork network, String text) {
+            this(network, text, false);
+        }
     }
 
     /**
@@ -100,7 +104,14 @@ public class ScheduledPostService {
             }
         }
         for (Draft d : drafts) {
-            publisher.validate(carId, d.network(), d.text(), imageIds);
+            if (d.linkOnly() && d.network() != SocialNetwork.VIBER) {
+                throw new BadRequestException("linkOnly is only for Viber");
+            }
+            if (d.linkOnly()) {
+                publisher.validateLinkOnly(carId, d.network(), d.text());
+            } else {
+                publisher.validate(carId, d.network(), d.text(), imageIds);
+            }
         }
         List<ScheduledPost> posts = scheduled.insertAll(carId, drafts, imageIds, publishAt == null ? now : publishAt,
                 createdBy);
@@ -188,7 +199,9 @@ public class ScheduledPostService {
                 return;
             }
             List<Long> imageIds = post.imageIds().isEmpty() ? null : post.imageIds();
-            SocialPost published = publisher.publish(post.carId(), post.network(), post.body(), imageIds);
+            SocialPost published = post.linkOnly()
+                    ? publisher.publishLinkOnly(post.carId(), post.network(), post.body())
+                    : publisher.publish(post.carId(), post.network(), post.body(), imageIds);
             scheduled.markPublished(post.id(), published.id());
             log.info("Scheduled post {} published (car {}, {})", post.id(), post.carId(), post.network());
         } catch (RuntimeException e) {

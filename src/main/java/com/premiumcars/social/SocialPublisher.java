@@ -143,6 +143,20 @@ public class SocialPublisher {
         }
     }
 
+    /** The checks of a Viber link-only post: no photos are needed. */
+    public void validateLinkOnly(long carId, SocialNetwork network, String text) {
+        requireViberOnly(network);
+        requireCar(carId);
+        requireConfigured(network);
+        requireTextFits(network, text);
+    }
+
+    private static void requireViberOnly(SocialNetwork network) {
+        if (network != SocialNetwork.VIBER) {
+            throw new BadRequestException("linkOnly is only for Viber");
+        }
+    }
+
     private void requireConfigured(SocialNetwork network) {
         switch (network) {
             case FACEBOOK -> {
@@ -204,6 +218,19 @@ public class SocialPublisher {
             case INSTAGRAM -> publishToInstagram(carId, text, photos);
             case VIBER -> publishToViber(carId, text, photos);
         };
+    }
+
+    /** A Viber post of the text only (the car's link, which Viber previews itself): no photos, no imgbb. */
+    public SocialPost publishLinkOnly(long carId, SocialNetwork network, String text) {
+        requireViberOnly(network);
+        requireCar(carId);
+        if (!cfg.viberConfigured()) {
+            throw new BadRequestException("Viber is not configured: set VIBER_CHANNEL_TOKEN and IMGBB_API_KEY");
+        }
+        requireTextFits(network, text);
+        String messageToken = viber.postText(viber.superadminId(), text);
+        log.info("Published car {} to Viber (link only)", carId);
+        return posts.insert(carId, SocialNetwork.VIBER, messageToken, null, 0);
     }
 
     private SocialPost publishToFacebook(long carId, String text, List<Photo> photos) {

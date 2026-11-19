@@ -10,10 +10,11 @@ import java.util.List;
  * @param error        why the last attempt failed (FAILED), or why it was skipped (CANCELLED: "Skipped: already posted to ...")
  * @param socialPostId the {@code social_post} row once PUBLISHED
  * @param carTitle     the car's title, for lists over all cars
+ * @param linkOnly     a Viber post without photos: only the text (the car's link) is sent
  */
 public record ScheduledPost(long id, long carId, String carTitle, SocialNetwork network, String body,
                             List<Long> imageIds, Instant publishAt, Status status, int attempts, String error,
-                            Long socialPostId, String createdBy, Instant createdAt, Instant updatedAt) {
+                            Long socialPostId, String createdBy, Instant createdAt, Instant updatedAt, boolean linkOnly) {
 
     public enum Status {
         /** waiting for publishAt */
