@@ -557,4 +557,19 @@ class AutoImportRunnerTest {
                 .satisfies(b -> assertThat(b.name()).isEqualTo("KIA"))
                 .satisfies(b -> assertThat(b.models()).hasSize(1));
     }
+
+    @Test
+    void testSave_AutotraderFilters_StoredWithDefaultsAndRead() {
+        assertThat(settings.source(CarSource.AUTOTRADER_CA).orElseThrow().filters().autotrader())
+                .isEqualTo(AutoImportTypes.AutotraderFilters.DEFAULTS);
+        var filters = new SourceFilters(false, false, List.of(),
+                new AutoImportTypes.AutotraderFilters("m5v 2t6", 150, null, null, false, null, null, null));
+        service.save(CarSource.AUTOTRADER_CA, new SourceUpdate(false, filters, List.of(
+                new BrandUpdate("13", "BMW", true, 2018, List.of(), List.of("Electric")))));
+        var saved = settings.source(CarSource.AUTOTRADER_CA).orElseThrow().filters().autotrader();
+        assertThat(saved).isEqualTo(
+                new AutoImportTypes.AutotraderFilters("M5V2T6", 150, null, null, false, true, true, true));
+        assertThat(settings.brands(CarSource.AUTOTRADER_CA)).singleElement()
+                .satisfies(b -> assertThat(b.excludedFuels()).containsExactly("Electric"));
+    }
 }

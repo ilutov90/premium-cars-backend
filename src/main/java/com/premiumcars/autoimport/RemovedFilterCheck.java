@@ -27,9 +27,12 @@ import com.premiumcars.marketplace.ModelNames;
  *   <li>autowini: its fuel type is one the chosen model (or, without chosen models, the make) leaves out; only fuel
  *       types autowini names one way (petrol, diesel, electric, plug-in hybrid, range extender: "Gasoline Hybrid"
  *       and "LPG Hybrid" are both our HYBRID);</li>
+ *   <li>autotrader.ca: likewise its fuel type left out, for the fuel types it names one way (gasoline, diesel,
+ *       electric, gas/electric hybrid, propane; a plug-in hybrid may be either "Electric" or the hybrid);</li>
  *   <li>guazi: the source's grades are chosen and the car's inspection grade is none of them.</li>
  * </ul>
- * autowini's "Inspected" and "Actual mileage" filters cannot be told from the car: such cars stay counted.
+ * autowini's "Inspected" and "Actual mileage" filters, and autotrader.ca's location, seller type, damage, price and
+ * condition filters, cannot be told from the car: such cars stay counted.
  */
 public final class RemovedFilterCheck {
 
@@ -41,6 +44,10 @@ public final class RemovedFilterCheck {
     /** Fuel types autowini's menu has one name for, so a left-out name maps back to the car's own fuel type. */
     private static final Set<FuelType> FUELS_DECIDED = EnumSet.of(FuelType.PETROL, FuelType.DIESEL,
             FuelType.ELECTRIC, FuelType.PLUGIN_HYBRID, FuelType.RANGE_EXTENDER);
+
+    /** The same for autotrader.ca's fuel types (Gasoline, Diesel, Electric, Gas/Electric Hybrid, Propane (LPG)). */
+    private static final Set<FuelType> AUTOTRADER_FUELS_DECIDED = EnumSet.of(FuelType.PETROL, FuelType.DIESEL,
+            FuelType.ELECTRIC, FuelType.HYBRID, FuelType.LPG);
 
     private RemovedFilterCheck() {
     }
@@ -82,7 +89,9 @@ public final class RemovedFilterCheck {
                 }
             }
         }
-        if (source == CarSource.AUTOWINI && car.fuel() != null && FUELS_DECIDED.contains(car.fuel())) {
+        Set<FuelType> decided = source == CarSource.AUTOWINI ? FUELS_DECIDED
+                : source == CarSource.AUTOTRADER_CA ? AUTOTRADER_FUELS_DECIDED : Set.of();
+        if (car.fuel() != null && decided.contains(car.fuel())) {
             List<String> leftOut = brand.models().isEmpty() ? brand.excludedFuels()
                     : chosen != null ? chosen.excludedFuels() : List.of();
             if (leftOut.stream().anyMatch(f -> FuelType.detect(f) == car.fuel())) {

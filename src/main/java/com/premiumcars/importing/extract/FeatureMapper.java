@@ -31,16 +31,16 @@ public final class FeatureMapper {
         rule(CarFeature.ADAPTIVE_HEADLIGHTS, "adaptive (front )?(lighting|headlight)|\\bafs\\b|cornering (light|lamp)"
                 + "|steering assist(ed)? light");
         rule(CarFeature.ABS, "\\babs\\b|anti-lock");
-        rule(CarFeature.AIRBAGS_FRONT, "driver/passenger airbags|(driver|passenger|front)( seat)? airbag"
+        rule(CarFeature.AIRBAGS_FRONT, "driver/passenger airbags|(driver|passenger|front)(-side| seat)? airbag"
                 + "|airbag ?\\((driver|passenger|front)");
-        rule(CarFeature.AIRBAGS_SIDE, "side airbags: front|curtain airbags: front|side airbag|curtain airbag"
+        rule(CarFeature.AIRBAGS_SIDE, "side airbags: front|curtain airbags: front|side airbag|curtain airbag|head airbag"
                 + "|airbag ?\\((side|curtain)");
         rule(CarFeature.AIRBAGS_REAR, "(side|curtain) airbags: rear|(?<!/)rear( seat)?( side| curtain)? airbag"
                 + "|airbag ?\\(rear");
         rule(CarFeature.EBD, "brake force distribution|\\bebd\\b");
         rule(CarFeature.ESP, "electronic stability|\\besc\\b|\\besp\\b|\\bvdc\\b|\\bdsc\\b");
         rule(CarFeature.TIRE_PRESSURE_MONITORING, "tire pressure|tyre pressure|\\btpms\\b");
-        rule(CarFeature.PARKING_SENSORS, "parking sensors?|park(ing)? assist sensor|parking distance"
+        rule(CarFeature.PARKING_SENSORS, "parking sensors?|park(ing)? assist sensor|parking distance|park distance|parking assist (front|rear) sensor"
                 + "|(front|rear|parking) radar");
         rule(CarFeature.ISOFIX, "isofix");
         rule(CarFeature.TRACTION_CONTROL, "traction control|\\btcs\\b|\\basr\\b");
@@ -49,13 +49,14 @@ public final class FeatureMapper {
 
         // Комфорт
         rule(CarFeature.CAMERA, "driving assistance camera: (360|panoramic|rear|reversing)|rear ?view camera"
-                + "|rear camera|reversing camera|backup camera|around ?view|360.degree|360 camera|panoramic camera");
+                + "|rear camera|reversing camera|back-?up camera|around ?view|360.degree|360° ?camera|360 camera"
+                + "|panoramic camera");
         rule(CarFeature.CARPLAY_ANDROID_AUTO, "carplay|android auto");
         rule(CarFeature.START_STOP, "start/stop|start-stop|stop ?& ?go|\\bisg\\b");
         rule(CarFeature.BLUETOOTH, "bluetooth|hands-?free");
-        rule(CarFeature.DVD_TV, "\\bdvd\\b|\\btv\\b|rear (seat )?(entertainment|lcd|screen)");
-        rule(CarFeature.HEAD_UP_DISPLAY, "head[- ]?up|\\bhud\\b");
-        rule(CarFeature.MANUAL_SHIFT_MODE, "paddle shift|manual shift mode|steptronic|tiptronic");
+        rule(CarFeature.DVD_TV, "\\bdvd\\b|\\btv\\b|television|rear (seat )?(entertainment|lcd|screen)");
+        rule(CarFeature.HEAD_UP_DISPLAY, "heads?[- ]?up|\\bhud\\b");
+        rule(CarFeature.MANUAL_SHIFT_MODE, "paddle shift|shift paddle|manual shift mode|steptronic|tiptronic");
         rule(CarFeature.USB_AUX, "\\busb\\b|type-c|\\baux\\b");
         rule(CarFeature.POWER_TAILGATE, "power (tailgate|trunk|liftgate)|electric (tailgate|trunk)|smart trunk"
                 + "|auto(matic)? trunk");
@@ -75,28 +76,28 @@ public final class FeatureMapper {
         rule(CarFeature.ELECTRIC_POWER_STEERING, "electric power steering|\\bmdps\\b|\\beps\\b");
         rule(CarFeature.CLIMATE_CONTROL, "automatic air conditioning|auto(matic)? air ?con|full auto air"
                 + "|climate control|dual-zone");
-        rule(CarFeature.AIR_CONDITIONING, "manual air conditioning|air ?conditioner|\\ba/c\\b"
+        rule(CarFeature.AIR_CONDITIONING, "manual air conditioning|^air conditioning$|air ?conditioner|\\ba/c\\b"
                 + "|(rear|independent) air conditioning");
-        rule(CarFeature.MULTIFUNCTION_STEERING_WHEEL, "multi-?function steering|steering (wheel )?remote");
+        rule(CarFeature.MULTIFUNCTION_STEERING_WHEEL, "multi-?function steering|steering (wheel )?(remote|(audio )?controls)");
         rule(CarFeature.NAVIGATION, "navigation system|^navigation$|^navigation \\(|gps navigation");
         rule(CarFeature.HEATED_STEERING_WHEEL, "heated steering|steering wheel heat");
         rule(CarFeature.HEATED_WINDSHIELD, "heated (front )?windshield|windshield heat|front windshield.*heat");
-        rule(CarFeature.HEATED_SEATS, "seat features: heating|heat(ed|ing) seat|seat heat");
+        rule(CarFeature.HEATED_SEATS, "seat features: heating|heat(ed|ing) (rear )?seat|seat heat");
         rule(CarFeature.STEERING_WHEEL_ADJUSTMENT, "steering wheel adjustment|tilt steering|telescopic steering");
         rule(CarFeature.RAIN_SENSOR, "rain.sens");
-        rule(CarFeature.POWER_STEERING, "(hydraulic|electro-hydraulic) power steering|^power steering$");
+        rule(CarFeature.POWER_STEERING, "(hydraulic|electro-hydraulic) power steering|^power ?steering$");
         rule(CarFeature.HEADLIGHT_WASHERS, "headlight (washer|cleaning)|headlamp (washer|cleaning)");
         rule(CarFeature.CRUISE_CONTROL, "cruise");
         rule(CarFeature.HEAT_PUMP, "heat pump");
         rule(CarFeature.COOLED_GLOVEBOX, "refrigerator|cool(ed|ing) glove");
 
         // Екстериор
-        rule(CarFeature.LED_HEADLIGHTS, "beam light source: (led|matrix)|led head|full led");
+        rule(CarFeature.LED_HEADLIGHTS, "beam light source: (led|matrix)|led head|full-? ?led");
         rule(CarFeature.XENON_HEADLIGHTS, "xenon|\\bhid\\b");
         rule(CarFeature.HALOGEN_HEADLIGHTS, "halogen");
         rule(CarFeature.ALLOY_WHEELS, "rim material: alumin|alloy (wheel|rim)|alumin(i)?um (wheel|rim)");
         rule(CarFeature.PANORAMIC_ROOF, "panoram(a|ic) ?(sun)?roof|sunroof type: split");
-        rule(CarFeature.SUNROOF, "sunroof");
+        rule(CarFeature.SUNROOF, "sunroof|sun/moon ?roof");
         rule(CarFeature.ROOF_RAILS, "roof (rack|rail)");
         rule(CarFeature.SPOILERS, "spoiler");
         rule(CarFeature.TOW_BAR, "tow ?(hitch|bar)|trailer hitch");

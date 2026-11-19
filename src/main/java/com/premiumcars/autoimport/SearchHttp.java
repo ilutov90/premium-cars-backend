@@ -66,12 +66,20 @@ final class SearchHttp {
     }
 
     JsonNode get(URI uri) {
-        return send("GET", uri, null);
+        return send("GET", uri, null, false);
+    }
+
+    /**
+     * A Next.js page's data: the JSON of its {@code <script id="__NEXT_DATA__">} (autotrader.ca serves its search
+     * results and listings in it). A page without it (a bot check) is a refusal.
+     */
+    JsonNode getNextData(URI uri) {
+        return send("GET", uri, null, true);
     }
 
     JsonNode post(URI uri, Object body) {
         try {
-            return send("POST", uri, json.writeValueAsString(body));
+            return send("POST", uri, json.writeValueAsString(body), false);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
@@ -87,21 +95,21 @@ final class SearchHttp {
         return lastRefused;
     }
 
-    private JsonNode send(String method, URI uri, String body) {
+    private JsonNode send(String method, URI uri, String body, boolean page) {
         try {
-            return sendOnce(method, uri, body);
+            return sendOnce(method, uri, body, page);
         } catch (Refused e) {
             lastRefused = Instant.now();
             throw e;
         }
     }
 
-    private JsonNode sendOnce(String method, URI uri, String body) {
+    private JsonNode sendOnce(String method, URI uri, String body, boolean page) {
         if (viaBrowser()) {
-            return sendFromBrowser(method, uri, body);
+            return sendFromBrowser(method, uri, body, page);
         }
         try {
-            return sendDirect(method, uri, body);
+            return sendDirect(method, uri, body, page);
         } catch (Refused e) {
             if (browser == null || !browser.enabled()) {
                 throw e;
@@ -110,11 +118,11 @@ final class SearchHttp {
                     e.getMessage().length() > 120 ? e.getMessage().substring(0, 120) : e.getMessage(),
                     BROWSER_FOR.toHours());
             browserUntil = System.currentTimeMillis() + BROWSER_FOR.toMillis();
-            return sendFromBrowser(method, uri, body);
+            return sendFromBrowser(method, uri, body, page);
         }
     }
 
-    private JsonNode sendDirect(String method, URI uri, String body) {
+    private JsonNode sendDirect(String method, URI uri, String body, boolean page) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri);
         if ("POST".equals(method)) {
             builder.header("Content-Type", "application/json")
@@ -123,7 +131,7 @@ final class SearchHttp {
             builder.GET();
         }
         headers.forEach(builder::header);
-        HttpRequest request = builder.header("Accept", "application/json").timeout(Duration.ofSeconds(30)).build();
+        HttpRequest request = builder.header("Accept", page ? "text/html" : "application/json").timeout(Duration.ofSeconds(30)).build();
         String problem = null;
         for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {
             pace();
@@ -135,7 +143,7 @@ final class SearchHttp {
                     sleep(2000L * attempt);
                     continue;
                 }
-                return parse(uri.getHost(), status, r.body());
+                return page ? parsePage(uri.getHost(), status, r.body()) : parse(uri.getHost(), status, r.body());
             } catch (IOException e) {
                 problem = e.toString();
                 sleep(2000L * attempt);
@@ -147,10 +155,10 @@ final class SearchHttp {
         throw new SearchException(uri.getHost() + " did not answer: " + problem);
     }
 
-    private JsonNode sendFromBrowser(String method, URI uri, String body) {
+    private JsonNode sendFromBrowser(String method, URI uri, String body, boolean page) {
         Map<String, String> h = "POST".equals(method)
                 ? Map.of("Accept", "application/json", "Content-Type", "application/json")
-                : Map.of("Accept", "application/json");
+                : Map.of("Accept", page ? "text/html" : "application/json");
         String problem = null;
         for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {
             pace();
@@ -161,7 +169,8 @@ final class SearchHttp {
                     sleep(2000L * attempt);
                     continue;
                 }
-                return parse(uri.getHost() + " (browser)", a.status(), a.body());
+                return page ? parsePage(uri.getHost() + " (browser)", a.status(), a.body())
+                        : parse(uri.getHost() + " (browser)", a.status(), a.body());
             } catch (IllegalStateException e) {
                 problem = e.getMessage();
                 sleep(2000L * attempt);
@@ -183,6 +192,28 @@ final class SearchHttp {
             String start = body.strip();
             throw new Refused(host + " answered HTTP " + status + " with a page instead of data (a bot check?): "
                     + refusalDetail(start));
+        }
+    }
+
+    private static final Pattern NEXT_DATA = Pattern.compile(
+            "<script[^>]*\\bid=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    /** The page's {@code __NEXT_DATA__} JSON; a page without it (or HTTP 403) is a refusal. */
+    JsonNode parsePage(String host, int status, String text) {
+        String page = text == null ? "" : text;
+        Matcher m = NEXT_DATA.matcher(page);
+        if (status == 403 || !m.find()) {
+            throw new Refused(host + " answered HTTP " + status + " with a page without its data (a bot check?): "
+                    + refusalDetail(page.strip()));
+        }
+        try {
+            JsonNode node = json.readTree(m.group(1));
+            if (node == null || !node.isObject()) {
+                throw new SearchException(host + " answered HTTP " + status + " with empty page data");
+            }
+            return node;
+        } catch (JsonProcessingException e) {
+            throw new SearchException(host + " answered HTTP " + status + " with unreadable page data", e);
         }
     }
 

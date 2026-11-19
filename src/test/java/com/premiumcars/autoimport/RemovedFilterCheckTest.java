@@ -154,4 +154,38 @@ class RemovedFilterCheckTest {
     void testOutOfFilters_NoFacts_Counted() {
         assertThat(autowini(List.of(KIA_ALL), null)).isFalse();
     }
+
+    private static final Brand BMW_AT = new Brand("13", "BMW", true, 2018,
+            List.of(new CatalogModel("100038", "3 Series", List.of("Gasoline", "Gas/Electric Hybrid")),
+                    new CatalogModel("18387", "X3")));
+
+    private static boolean autotrader(CarFacts car) {
+        SourceFilters f = new SourceFilters(false, false, List.of(), AutoImportTypes.AutotraderFilters.DEFAULTS);
+        return RemovedFilterCheck.outOfFilters(CarSource.AUTOTRADER_CA, List.of(BMW_AT), f,
+                List.of("3 Series", "X3", "X5"), car);
+    }
+
+    private static CarFacts bmw(String menuModel, Integer year, FuelType fuel) {
+        return new CarFacts("13", "BMW", menuModel, menuModel, year, fuel, null);
+    }
+
+    @Test
+    void testOutOfFilters_AutotraderFuelLeftOut_Out() {
+        assertThat(autotrader(bmw("3 Series", 2020, FuelType.PETROL))).isTrue();
+        assertThat(autotrader(bmw("3 Series", 2020, FuelType.HYBRID))).isTrue();
+    }
+
+    @Test
+    void testOutOfFilters_AutotraderPluginHybridOrKeptFuel_Counted() {
+        assertThat(autotrader(bmw("3 Series", 2020, FuelType.PLUGIN_HYBRID))).isFalse();
+        assertThat(autotrader(bmw("3 Series", 2020, FuelType.ELECTRIC))).isFalse();
+        assertThat(autotrader(bmw("X3", 2020, FuelType.PETROL))).isFalse();
+    }
+
+    @Test
+    void testOutOfFilters_AutotraderModelNotChosenOrYearBelow_Out() {
+        assertThat(autotrader(bmw("X5", 2020, FuelType.PETROL))).isTrue();
+        assertThat(autotrader(bmw("X3", 2017, FuelType.PETROL))).isTrue();
+        assertThat(autotrader(bmw("X3", 2018, FuelType.PETROL))).isFalse();
+    }
 }

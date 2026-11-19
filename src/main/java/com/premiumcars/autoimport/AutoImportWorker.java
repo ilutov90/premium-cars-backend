@@ -148,7 +148,7 @@ public class AutoImportWorker {
             return;
         }
         Integer maxEur = priceLimit.maxEur();
-        if (priceLimit.over(l.price(), "USD", maxEur)) {
+        if (priceLimit.over(l.price(), PriceLimit.currency(l.source()), maxEur)) {
             listings.priceSkipped(l.source(), l.listingId(), "Over " + maxEur + " EUR FOB: skipped");
             return;
         }

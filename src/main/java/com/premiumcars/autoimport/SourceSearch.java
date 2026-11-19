@@ -22,9 +22,9 @@ public interface SourceSearch {
 
     CarSource source();
 
-    /** The currency of the prices in the search results (both sites: FOB in USD). */
+    /** The currency of the prices in the search results (FOB in USD; autotrader.ca: CAD). */
     default String currency() {
-        return "USD";
+        return PriceLimit.currency(source());
     }
 
     /**

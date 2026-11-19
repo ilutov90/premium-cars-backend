@@ -13,12 +13,66 @@ public final class AutoImportTypes {
 
     /**
      * A source's own filters: autowini's "Inspected" and "Actual" (verified mileage); guazi's condition grades
-     * (S, A, B, C, D). The other site ignores what is not its own.
+     * (S, A, B, C, D); autotrader.ca's {@link AutotraderFilters} (null for the other sites). Each site ignores what
+     * is not its own.
      */
-    public record SourceFilters(boolean inspected, boolean actualMileage, List<String> grades) {
+    public record SourceFilters(boolean inspected, boolean actualMileage, List<String> grades,
+                                @JsonInclude(JsonInclude.Include.NON_NULL) AutotraderFilters autotrader) {
 
         public SourceFilters {
             grades = grades == null ? List.of() : List.copyOf(grades);
+        }
+
+        public SourceFilters(boolean inspected, boolean actualMileage, List<String> grades) {
+            this(inspected, actualMileage, grades, null);
+        }
+
+        /** autotrader.ca's filters, its defaults where none are saved. */
+        public AutotraderFilters autotraderOrDefaults() {
+            return autotrader == null ? AutotraderFilters.DEFAULTS : autotrader;
+        }
+
+        public SourceFilters withAutotrader(AutotraderFilters filters) {
+            return new SourceFilters(inspected, actualMileage, grades, filters);
+        }
+    }
+
+    /**
+     * autotrader.ca's search filters (each null = its default).
+     *
+     * @param postalCode     the search's centre, a Canadian postal code ("N5P1C5"; stored upper case without spaces)
+     * @param radiusKm       the distance from it, 10..400 km
+     * @param latitude       the postal code's latitude, when the site needs it with the code (both or none)
+     * @param longitude      its longitude
+     * @param excludePrivate dealers only (private sellers left out)
+     * @param excludeDamaged damaged listings left out (the site's own default)
+     * @param excludeNoPrice listings without a price ("call for price") left out of the search
+     * @param usedOnly       used cars only; otherwise also demo, employee's, classic and pre-registered cars (never new)
+     */
+    public record AutotraderFilters(String postalCode, Integer radiusKm, Double latitude, Double longitude,
+                                    Boolean excludePrivate, Boolean excludeDamaged, Boolean excludeNoPrice,
+                                    Boolean usedOnly) {
+
+        public static final String DEFAULT_POSTAL_CODE = "N5P1C5";
+        public static final int DEFAULT_RADIUS_KM = 400;
+        /** The coordinates autotrader.ca itself resolved N5P1C5 to (St Thomas, ON): its search URLs carry them. */
+        static final double DEFAULT_LATITUDE = 42.779213;
+        static final double DEFAULT_LONGITUDE = -81.192156;
+        public static final AutotraderFilters DEFAULTS =
+                new AutotraderFilters(null, null, null, null, null, null, null, null);
+
+        public AutotraderFilters {
+            postalCode = postalCode == null || postalCode.isBlank() ? DEFAULT_POSTAL_CODE
+                    : postalCode.replaceAll("\\s+", "").toUpperCase(java.util.Locale.ROOT);
+            radiusKm = radiusKm == null ? DEFAULT_RADIUS_KM : radiusKm;
+            if (DEFAULT_POSTAL_CODE.equals(postalCode) && latitude == null && longitude == null) {
+                latitude = DEFAULT_LATITUDE;
+                longitude = DEFAULT_LONGITUDE;
+            }
+            excludePrivate = excludePrivate == null || excludePrivate;
+            excludeDamaged = excludeDamaged == null || excludeDamaged;
+            excludeNoPrice = excludeNoPrice == null || excludeNoPrice;
+            usedOnly = usedOnly == null || usedOnly;
         }
     }
 
