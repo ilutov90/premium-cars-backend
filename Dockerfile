@@ -6,9 +6,10 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
 COPY pom.xml .
-RUN mvn -q -B dependency:go-offline
+# -U: a download that failed once (a Maven Central hiccup) is recorded in the cached layer and never retried otherwise
+RUN mvn -q -B -U dependency:go-offline
 COPY src ./src
-RUN mvn -q -B package -DskipTests \
+RUN mvn -q -B -U package -DskipTests \
  && mvn -q -B dependency:copy-dependencies -DincludeGroupIds=com.microsoft.playwright -DoutputDirectory=/playwright
 
 # ---- runtime: Java 21 on Ubuntu 24.04 with headless Chromium (same Playwright version as the pom)
