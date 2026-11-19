@@ -375,6 +375,7 @@ public class CarService {
         return switch (source) {
             case AUTOHOME, GUAZI -> PriceProfile.AUTOHOME; // both sell cars in China, priced in USD
             case AUTOWINI -> PriceProfile.AUTOWINI;
+            case AUTOTRADER_CA -> PriceProfile.AUTOTRADER_CA;
             case OTHER, MANUAL -> null;
         };
     }

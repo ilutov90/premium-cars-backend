@@ -16,6 +16,9 @@ import jakarta.validation.constraints.Size;
  * @param googleLeadLabel   Google Ads conversion label of a sent inquiry; null = none
  * @param googlePhoneLabel  Google Ads conversion label of a click on the phone; null = none
  * @param googleViberLabel  Google Ads conversion label of a click on Viber; null = none
+ * @param locationKr        the location line of a car from Korea in the post templates; null = the frontend's default
+ * @param locationCn        the same for a car from China
+ * @param locationCa        the same for a car from Canada
  */
 public record PostSettings(
         @Size(max = 50) String phone,
@@ -26,13 +29,23 @@ public record PostSettings(
         @Pattern(regexp = "G-[A-Z0-9]{6,15}", message = "must look like G-XXXXXXXXXX") String googleAnalyticsId,
         @Pattern(regexp = LABEL, message = "must be the conversion label from Google Ads") String googleLeadLabel,
         @Pattern(regexp = LABEL, message = "must be the conversion label from Google Ads") String googlePhoneLabel,
-        @Pattern(regexp = LABEL, message = "must be the conversion label from Google Ads") String googleViberLabel
+        @Pattern(regexp = LABEL, message = "must be the conversion label from Google Ads") String googleViberLabel,
+        @Size(max = 300) String locationKr,
+        @Size(max = 300) String locationCn,
+        @Size(max = 300) String locationCa
 ) {
 
     private static final String LABEL = "[A-Za-z0-9_-]{5,60}";
 
     public PostSettings(String phone, String viberLink, String office, String metaPixelId) {
-        this(phone, viberLink, office, metaPixelId, null, null, null, null, null);
+        this(phone, viberLink, office, metaPixelId, null, null, null, null, null, null, null, null);
+    }
+
+    public PostSettings(String phone, String viberLink, String office, String metaPixelId, String googleAdsId,
+                        String googleAnalyticsId, String googleLeadLabel, String googlePhoneLabel,
+                        String googleViberLabel) {
+        this(phone, viberLink, office, metaPixelId, googleAdsId, googleAnalyticsId, googleLeadLabel, googlePhoneLabel,
+                googleViberLabel, null, null, null);
     }
 
     public PostSettings {
@@ -45,6 +58,9 @@ public record PostSettings(
         googleLeadLabel = blankToNull(googleLeadLabel);
         googlePhoneLabel = blankToNull(googlePhoneLabel);
         googleViberLabel = blankToNull(googleViberLabel);
+        locationKr = blankToNull(locationKr);
+        locationCn = blankToNull(locationCn);
+        locationCa = blankToNull(locationCa);
     }
 
     private static String blankToNull(String s) {

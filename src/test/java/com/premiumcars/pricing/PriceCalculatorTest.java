@@ -175,4 +175,19 @@ class PriceCalculatorTest {
         assertThat(calculator.calculate(null, "USD", KOREA)).isNull();
         assertThat(calculator.calculate(BigDecimal.TEN, "USD", null)).isNull();
     }
+
+    @Test
+    void testCalculate_CanadianDollarsOnCanadaProfile_ConvertedAtTheRate() {
+        var canada = new PriceCalculator(currency -> "CAD".equals(currency) ? new BigDecimal("0.66") : BigDecimal.ONE);
+        var profile = new PricingProfile(PriceProfile.AUTOTRADER_CA, new BigDecimal("1500"), new BigDecimal("1600"),
+                new BigDecimal("500"), new BigDecimal("20"), List.of(), new BigDecimal("1000"),
+                new BigDecimal("1500"), new BigDecimal("25000"), null);
+
+        PriceBreakdown b = canada.calculate(new BigDecimal("20000"), "CAD", profile);
+
+        assertThat(b.profile()).isEqualTo(PriceProfile.AUTOTRADER_CA);
+        assertThat(b.carPriceEur()).isEqualByComparingTo("13200");
+        assertThat(b.dutyVatEur()).isEqualByComparingTo("2940");
+        assertThat(b.totalEur()).isEqualByComparingTo("20740");
+    }
 }
