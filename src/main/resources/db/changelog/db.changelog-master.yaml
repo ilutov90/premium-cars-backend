@@ -85,3 +85,5 @@ databaseChangeLog:
       file: db/changelog/changes/042-public-car-id-index.sql
   - include:
       file: db/changelog/changes/043-seo-pages.sql
+  - include:
+      file: db/changelog/changes/044-scheduled-post-link-only.sql

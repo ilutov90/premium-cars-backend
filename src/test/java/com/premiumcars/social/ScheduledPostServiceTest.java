@@ -49,7 +49,7 @@ class ScheduledPostServiceTest {
 
     private static ScheduledPost due(List<Long> imageIds) {
         return new ScheduledPost(1, 7, "Kia", SocialNetwork.FACEBOOK, "text", imageIds, NOW,
-                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW);
+                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW, false);
     }
 
     private static final List<ScheduledPostService.Draft> ALL = List.of(
@@ -59,7 +59,7 @@ class ScheduledPostServiceTest {
 
     private static ScheduledPost recorded(long id, SocialNetwork network, String text, ScheduledPost.Status status) {
         return new ScheduledPost(id, 7, "Kia", network, text, List.of(3L), NOW, status, 0, null, null, "admin", NOW,
-                NOW);
+                NOW, false);
     }
 
     @Test
@@ -173,7 +173,7 @@ class ScheduledPostServiceTest {
 
     private static ScheduledPost scheduledAt(Instant createdAt, SocialNetwork network) {
         return new ScheduledPost(1, 7, "Kia", network, "text", List.of(1L), NOW, ScheduledPost.Status.PUBLISHING, 1,
-                null, null, "admin", createdAt, createdAt);
+                null, null, "admin", createdAt, createdAt, false);
     }
 
     @Test
@@ -219,5 +219,41 @@ class ScheduledPostServiceTest {
 
         verify(repo).markPublished(1, 62);
         verify(repo, never()).markSkipped(anyLong(), any());
+    }
+
+    @Test
+    void testPublish_LinkOnlyViber_ValidatedWithoutPhotosAndRecorded() {
+        var drafts = List.of(new ScheduledPostService.Draft(SocialNetwork.VIBER, "link", true));
+        when(repo.insertAll(7, drafts, null, NOW, "admin")).thenReturn(List.of());
+
+        service.publish(7, drafts, null, null, "admin");
+
+        verify(publisher).validateLinkOnly(7, SocialNetwork.VIBER, "link");
+        verify(publisher, never()).validate(anyLong(), any(), any(), any());
+        verify(repo).insertAll(7, drafts, null, NOW, "admin");
+    }
+
+    @Test
+    void testPublish_LinkOnlyFacebook_Rejected() {
+        var drafts = List.of(new ScheduledPostService.Draft(SocialNetwork.FACEBOOK, "text", true));
+
+        assertThatThrownBy(() -> service.publish(7, drafts, null, null, "admin"))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("only for Viber");
+        verify(repo, never()).insertAll(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void testPublish_LinkOnlyDuePost_PublishedWithoutPhotos() {
+        var post = new ScheduledPost(1, 7, "Kia", SocialNetwork.VIBER, "link", List.of(), NOW,
+                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW, true);
+        when(cars.findById(7L)).thenReturn(Optional.of(car(CarStatus.PUBLISHED)));
+        when(socialPosts.findPostedAfter(anyLong(), any(), any())).thenReturn(Optional.empty());
+        when(publisher.publishLinkOnly(7, SocialNetwork.VIBER, "link")).thenReturn(new SocialPost(
+                9, 7, SocialNetwork.VIBER, "t", null, 0, NOW));
+
+        service.publish(post);
+
+        verify(repo).markPublished(1, 9);
+        verify(publisher, never()).publish(anyLong(), any(), any(), any());
     }
 }
