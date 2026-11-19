@@ -42,6 +42,8 @@ public class AutoImportWorker {
 
     static final int MAX_PHOTOS = 20;
     private static final Duration MAX_REFUSAL_PAUSE = Duration.ofHours(4);
+    /** A listing taking longer than this is reported in the log with where its thread is (the queue once hung). */
+    static final Duration STUCK_AFTER = Duration.ofMinutes(10);
 
     private final AutoImportSettingsRepository settings;
     private final AutoImportListingRepository listings;
@@ -56,6 +58,13 @@ public class AutoImportWorker {
     private final Set<CarSource> busy = ConcurrentHashMap.newKeySet();
     /** A source that refused us (HTTP 403/429): its queue waits until then. */
     private final Map<CarSource, Instant> pausedUntil = new ConcurrentHashMap<>();
+    /** The listing each source's queue is importing now, for the stuck-listing report. */
+    private final Map<CarSource, Current> current = new ConcurrentHashMap<>();
+    /** Why each source's queue was last left alone, logged when it changes (so a silent queue says why). */
+    private final Map<CarSource, String> idleReason = new ConcurrentHashMap<>();
+
+    private record Current(String listingId, Instant since, Thread thread, boolean[] reported) {
+    }
     private final Map<CarSource, Integer> refusals = new ConcurrentHashMap<>();
     private final PriceLimit priceLimit;
     private final AutoImportRunner runner;
@@ -81,9 +90,19 @@ public class AutoImportWorker {
         }
         for (SourceSettings s : settings.sources()) {
             CarSource source = s.source();
-            if (!s.enabled() || paused(source) || runner.running(source) || !busy.add(source)) {
-                continue; // off, refused us lately, its run is reading the site, or still importing
+            String reason = !s.enabled() ? "switched off"
+                    : paused(source) ? "paused until " + pausedUntil(source) + " (the site refused us)"
+                    : runner.running(source) ? "waiting while its run reads the site"
+                    : null;
+            if (reason != null) { // off, refused us lately, or its run is reading the site
+                noteIdle(source, reason);
+                continue;
             }
+            if (!busy.add(source)) { // still importing
+                reportIfStuck(source);
+                continue;
+            }
+            noteIdle(source, null);
             try {
                 executors.computeIfAbsent(source, x -> Executors.newSingleThreadExecutor(r -> {
                     Thread t = new Thread(r, "auto-import-worker-" + x.name().toLowerCase(java.util.Locale.ROOT));
@@ -107,7 +126,13 @@ public class AutoImportWorker {
                 if (next.isEmpty()) {
                     break;
                 }
-                importOne(next.get());
+                current.put(source, new Current(next.get().listingId(), Instant.now(), Thread.currentThread(),
+                        new boolean[1]));
+                try {
+                    importOne(next.get());
+                } finally {
+                    current.remove(source);
+                }
                 Thread.sleep(instance.queuePause().toMillis()); // between two listings of one site
             }
         } catch (InterruptedException e) {
@@ -117,6 +142,30 @@ public class AutoImportWorker {
         } finally {
             busy.remove(source);
         }
+    }
+
+    private void noteIdle(CarSource source, String reason) {
+        String before = reason == null ? idleReason.remove(source) : idleReason.put(source, reason);
+        if (reason != null && !reason.equals(before)) {
+            log.info("Auto-import {} queue waits: {}", source, reason);
+        } else if (reason == null && before != null) {
+            log.info("Auto-import {} queue goes on", source);
+        }
+    }
+
+    /** Logs once per listing, with its thread's stack, a listing imported for longer than {@link #STUCK_AFTER}. */
+    void reportIfStuck(CarSource source) {
+        Current c = current.get(source);
+        if (c == null || c.reported()[0] || Duration.between(c.since(), Instant.now()).compareTo(STUCK_AFTER) < 0) {
+            return;
+        }
+        c.reported()[0] = true;
+        StringBuilder where = new StringBuilder();
+        for (StackTraceElement e : c.thread().getStackTrace()) {
+            where.append("\n    at ").append(e);
+        }
+        log.warn("Auto-import {} {}: still importing after {} min, the queue waits for it; its thread:{}", source,
+                c.listingId(), Duration.between(c.since(), Instant.now()).toMinutes(), where);
     }
 
     /** When the source's queue goes on again after the site refused us; null when it is not paused. */

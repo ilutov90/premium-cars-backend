@@ -1,5 +1,6 @@
 package com.premiumcars.importing.source.autowini;
 
+import com.premiumcars.common.HttpCalls;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -435,7 +436,8 @@ public class AutowiniClient {
 
     private Page send(HttpRequest request) {
         try {
-            HttpResponse<byte[]> r = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> r = HttpCalls.send(http, request, HttpResponse.BodyHandlers.ofByteArray(),
+                    Duration.ofSeconds(3L * props.importer().timeoutSeconds()));
             String encoding = r.headers().firstValue("Content-Encoding").orElse("");
             return new Page(r.statusCode(), r.uri().toString(),
                     new String(decode(r.body(), encoding), StandardCharsets.UTF_8));

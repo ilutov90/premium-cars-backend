@@ -1,5 +1,6 @@
 package com.premiumcars.media;
 
+import com.premiumcars.common.HttpCalls;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -32,6 +33,8 @@ import com.premiumcars.config.AppProperties;
 public class R2ImageStorage implements ImageStorage {
 
     private static final Logger log = LoggerFactory.getLogger(R2ImageStorage.class);
+    /** The whole exchange (upload included) of one request; the request timeout covers only the headers. */
+    private static final Duration DEADLINE = Duration.ofSeconds(120);
     private static final DateTimeFormatter AMZ_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
     private static final int ATTEMPTS = 3;
 
@@ -99,8 +102,8 @@ public class R2ImageStorage implements ImageStorage {
         IOException last = null;
         for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {
             try {
-                HttpResponse<byte[]> response = http.send(request(method, uri, path, body, contentType),
-                        HttpResponse.BodyHandlers.ofByteArray());
+                HttpResponse<byte[]> response = HttpCalls.send(http, request(method, uri, path, body, contentType),
+                        HttpResponse.BodyHandlers.ofByteArray(), DEADLINE);
                 if (response.statusCode() < 500 || attempt == ATTEMPTS) {
                     return response;
                 }

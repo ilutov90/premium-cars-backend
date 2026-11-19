@@ -1,5 +1,6 @@
 package com.premiumcars.autoimport;
 
+import com.premiumcars.common.HttpCalls;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -136,7 +137,8 @@ final class SearchHttp {
         for (int attempt = 1; attempt <= ATTEMPTS; attempt++) {
             pace();
             try {
-                HttpResponse<String> r = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                HttpResponse<String> r = HttpCalls.send(http, request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8),
+                        Duration.ofSeconds(90));
                 int status = r.statusCode();
                 if (status == 429 || status >= 500) {
                     problem = "HTTP " + status;
