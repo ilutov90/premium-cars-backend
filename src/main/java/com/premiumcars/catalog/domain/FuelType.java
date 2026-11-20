@@ -18,6 +18,21 @@ public enum FuelType {
         return this == ELECTRIC || this == PLUGIN_HYBRID || this == RANGE_EXTENDER;
     }
 
+    /** A plug-in model in a title: "PHEV", "plug-in", BMW/Mercedes "330e", "E300e", "GLC 300 e", Jeep "4xe". */
+    private static final java.util.regex.Pattern PLUG_IN_TITLE = java.util.regex.Pattern.compile(
+            "\\bphev\\b|plug[- ]?in|\\b[a-z]{0,3}\\d{2,3} ?e\\b|\\b4xe\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * A hybrid whose title names a plug-in model is a plug-in hybrid: autowini's "Gasoline+Electric" covers full, mild
+     * and plug-in hybrids alike. Any other fuel is returned as it is.
+     */
+    public static FuelType refineByTitle(FuelType fuel, String title) {
+        if (fuel == HYBRID && title != null && PLUG_IN_TITLE.matcher(title).find()) {
+            return PLUGIN_HYBRID;
+        }
+        return fuel;
+    }
+
     /** Best-effort mapping from free text found on source pages (English, Chinese, Korean). */
     public static FuelType detect(String text) {
         if (text == null || text.isBlank()) {

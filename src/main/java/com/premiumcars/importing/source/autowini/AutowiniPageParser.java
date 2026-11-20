@@ -251,7 +251,7 @@ public final class AutowiniPageParser {
                 .trim(trim)
                 .year(ValueParsers.parseYear(f.get("year")))
                 .mileageKm(ValueParsers.parseMileageKm(f.get("km")))
-                .fuelType(FuelType.detect(f.get("fuel")))
+                .fuelType(FuelType.refineByTitle(FuelType.detect(f.get("fuel")), title))
                 .transmission(Transmission.detect(f.get("transmission")))
                 .engineCc(cc != null && cc.intValue() > 100 ? cc.intValue() : null)
                 .bodyType(bodyType)
