@@ -5,7 +5,8 @@ import java.util.List;
 /** Country of origin shown to customers. Derived from the source, so the source site itself stays hidden. */
 public enum Origin {
     KR(CarSource.AUTOWINI),
-    CN(CarSource.AUTOHOME, CarSource.GUAZI);
+    CN(CarSource.AUTOHOME, CarSource.GUAZI),
+    CA(CarSource.AUTOTRADER_CA);
 
     private final List<CarSource> sources;
 

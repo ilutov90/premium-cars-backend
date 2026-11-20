@@ -865,6 +865,38 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void testPostSettings_LocationFields_SavedReadBackAndBlankRemoves() {
+        PostSettings before = postSettings.find();
+        try {
+            var full = new PostSettings("0888123456", null, null, null, null, null, null, null, null,
+                    " Korea line ", "China line", " ");
+            PostSettings saved = postSettings.save(full);
+            assertThat(saved.locationKr()).isEqualTo("Korea line");
+            assertThat(saved.locationCn()).isEqualTo("China line");
+            assertThat(saved.locationCa()).isNull();
+            assertThat(saved.phone()).isEqualTo("0888123456");
+            assertThat(postSettings.find()).isEqualTo(saved);
+            assertThat(publicContact.contact()).isEqualTo(saved);
+
+            PostSettings changed = postSettings.save(new PostSettings(null, null, null, null, null, null, null, null,
+                    null, null, null, "Canada line"));
+            assertThat(changed.locationKr()).isNull();
+            assertThat(changed.locationCn()).isNull();
+            assertThat(changed.locationCa()).isEqualTo("Canada line");
+        } finally {
+            postSettings.save(before);
+        }
+    }
+
+    @Test
+    void testPricingProfiles_AutotraderCa_SeededWithoutTable() {
+        PricingProfile ca = carService.pricingProfiles().stream()
+                .filter(p -> p.id() == PriceProfile.AUTOTRADER_CA).findFirst().orElseThrow();
+        assertThat(ca.dutyBrackets()).isEmpty();
+        assertThat(ca.seaFreight()).isPositive();
+    }
+
+    @Test
     void inquiriesKeepWhereTheyCameFromAndTheReportCountsThem() {
         String campaign = "test-" + UUID.randomUUID();
         var withLink = new Attribution(" facebook ", "social", campaign, "reel-1", "/cars/x?utm_source=facebook",

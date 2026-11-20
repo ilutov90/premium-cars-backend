@@ -7,8 +7,8 @@ import org.springframework.stereotype.Component;
 import com.premiumcars.pricing.ExchangeRateProvider;
 
 /**
- * The automatic import's highest FOB price ({@code auto_import_state.max_price_eur}, both sources): the sources'
- * search prices are FOB in USD and are compared in EUR at today's rate.
+ * The automatic import's highest FOB price ({@code auto_import_state.max_price_eur}, every source): the sources'
+ * search prices (FOB in USD; autotrader.ca's in CAD) are compared in EUR at today's rate.
  */
 @Component
 public class PriceLimit {
@@ -19,6 +19,11 @@ public class PriceLimit {
     public PriceLimit(AutoImportSettingsRepository settings, ExchangeRateProvider rates) {
         this.settings = settings;
         this.rates = rates;
+    }
+
+    /** The currency of a source's search prices (and so of {@code auto_import_listing.price}). */
+    public static String currency(com.premiumcars.catalog.domain.CarSource source) {
+        return source == com.premiumcars.catalog.domain.CarSource.AUTOTRADER_CA ? "CAD" : "USD";
     }
 
     /** The limit now; null = none. */

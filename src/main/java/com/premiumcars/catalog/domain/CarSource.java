@@ -6,6 +6,8 @@ public enum CarSource {
     AUTOWINI,
     /** en.guazi.com (China); priced with the autohome formula. */
     GUAZI,
+    /** www.autotrader.ca (Canada, used cars, prices in CAD); read with Trader Corporation's permission (Nov 2026). */
+    AUTOTRADER_CA,
     OTHER,
     MANUAL
 }

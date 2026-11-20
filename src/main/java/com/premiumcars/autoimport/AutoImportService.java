@@ -222,7 +222,7 @@ public class AutoImportService {
     @Transactional
     public Overview save(CarSource source, SourceUpdate u) {
         settingsOf(source);
-        SourceFilters filters = check(u.filters());
+        SourceFilters filters = check(source, u.filters());
         settings.updateSource(source, u.enabled(), filters);
         settings.replaceBrands(source, brands(u));
         return overview();
@@ -268,7 +268,7 @@ public class AutoImportService {
     public Preview preview(CarSource source, SourceUpdate u) {
         settingsOf(source);
         SourceSearch search = search(source);
-        SourceFilters filters = check(u.filters());
+        SourceFilters filters = check(source, u.filters());
         List<BrandCount> counts = new ArrayList<>();
         Map<String, Integer> leftOut = listings.leftOutByBrand(source);
         int total = 0;
@@ -347,13 +347,38 @@ public class AutoImportService {
         }
     }
 
-    private static SourceFilters check(SourceFilters f) {
+    /** Canada's postal code format (letters D, F, I, O, Q, U never used; W, Z never first). */
+    private static final java.util.regex.Pattern POSTAL_CODE =
+            java.util.regex.Pattern.compile("[ABCEGHJ-NPRSTVXY]\\d[ABCEGHJ-NPRSTV-Z]\\d[ABCEGHJ-NPRSTV-Z]\\d");
+
+    /**
+     * The source's filters checked; autotrader.ca's with their defaults where not given, the other sources without
+     * autotrader.ca's.
+     */
+    static SourceFilters check(CarSource source, SourceFilters f) {
         for (String g : f.grades()) {
             if (!GRADES.contains(g)) {
                 throw new BadRequestException("Unknown grade: " + g);
             }
         }
-        return f;
+        if (source != CarSource.AUTOTRADER_CA) {
+            return f.withAutotrader(null);
+        }
+        AutoImportTypes.AutotraderFilters a = f.autotraderOrDefaults();
+        if (!POSTAL_CODE.matcher(a.postalCode()).matches()) {
+            throw new BadRequestException("Not a Canadian postal code: " + a.postalCode());
+        }
+        if (a.radiusKm() < 10 || a.radiusKm() > 400) {
+            throw new BadRequestException("The radius must be 10 to 400 km");
+        }
+        if ((a.latitude() == null) != (a.longitude() == null)) {
+            throw new BadRequestException("Give both latitude and longitude, or neither");
+        }
+        if (a.latitude() != null && (a.latitude() < 41 || a.latitude() > 84 || a.longitude() < -142
+                || a.longitude() > -52)) {
+            throw new BadRequestException("The latitude and longitude are not in Canada");
+        }
+        return f.withAutotrader(a);
     }
 
     private static List<Brand> brands(SourceUpdate u) {

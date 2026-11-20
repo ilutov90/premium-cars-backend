@@ -105,9 +105,15 @@ public class AutoImportSettingsRepository {
     public List<SourceSettings> sources() {
         return jdbc.sql("SELECT source, enabled, filters::text AS filters, updated_at FROM auto_import_source"
                         + " ORDER BY CASE source WHEN 'GUAZI' THEN 0 ELSE 1 END, source")
-                .query((rs, n) -> new SourceSettings(CarSource.valueOf(rs.getString("source")),
-                        rs.getBoolean("enabled"), read(rs.getString("filters"), SourceFilters.class),
-                        rs.getObject("updated_at", OffsetDateTime.class).toInstant()))
+                .query((rs, n) -> {
+                    CarSource source = CarSource.valueOf(rs.getString("source"));
+                    SourceFilters filters = read(rs.getString("filters"), SourceFilters.class);
+                    // autotrader.ca's filters with their defaults where none are saved
+                    return new SourceSettings(source, rs.getBoolean("enabled"),
+                            source == CarSource.AUTOTRADER_CA ? filters.withAutotrader(filters.autotraderOrDefaults())
+                                    : filters,
+                            rs.getObject("updated_at", OffsetDateTime.class).toInstant());
+                })
                 .list();
     }
 

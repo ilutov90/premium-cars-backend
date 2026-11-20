@@ -21,6 +21,9 @@ public class PostSettingsRepository {
     static final String GOOGLE_LEAD_LABEL = "GOOGLE_LEAD_LABEL";
     static final String GOOGLE_PHONE_LABEL = "GOOGLE_PHONE_LABEL";
     static final String GOOGLE_VIBER_LABEL = "GOOGLE_VIBER_LABEL";
+    static final String LOCATION_KR = "LOCATION_KR";
+    static final String LOCATION_CN = "LOCATION_CN";
+    static final String LOCATION_CA = "LOCATION_CA";
 
     private final JdbcClient jdbc;
 
@@ -35,7 +38,8 @@ public class PostSettingsRepository {
                 .list();
         return new PostSettings(values.get(PHONE), values.get(VIBER_LINK), values.get(OFFICE), values.get(META_PIXEL_ID),
                 values.get(GOOGLE_ADS_ID), values.get(GOOGLE_ANALYTICS_ID), values.get(GOOGLE_LEAD_LABEL),
-                values.get(GOOGLE_PHONE_LABEL), values.get(GOOGLE_VIBER_LABEL));
+                values.get(GOOGLE_PHONE_LABEL), values.get(GOOGLE_VIBER_LABEL),
+                values.get(LOCATION_KR), values.get(LOCATION_CN), values.get(LOCATION_CA));
     }
 
     /** Replaces all details; an empty one goes back to the default. */
@@ -51,6 +55,9 @@ public class PostSettingsRepository {
         values.put(GOOGLE_LEAD_LABEL, settings.googleLeadLabel());
         values.put(GOOGLE_PHONE_LABEL, settings.googlePhoneLabel());
         values.put(GOOGLE_VIBER_LABEL, settings.googleViberLabel());
+        values.put(LOCATION_KR, settings.locationKr());
+        values.put(LOCATION_CN, settings.locationCn());
+        values.put(LOCATION_CA, settings.locationCa());
         values.forEach((name, value) -> {
             if (value == null) {
                 jdbc.sql("DELETE FROM post_setting WHERE name = :name").param("name", name).update();

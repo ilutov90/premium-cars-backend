@@ -66,7 +66,8 @@ public class PriceRecalcService {
     public enum Mode { STORED, SOURCE }
 
     /** Sites whose listings can be read again. */
-    static final Set<CarSource> READABLE = EnumSet.of(CarSource.AUTOWINI, CarSource.GUAZI, CarSource.AUTOHOME);
+    static final Set<CarSource> READABLE = EnumSet.of(CarSource.AUTOWINI, CarSource.GUAZI, CarSource.AUTOHOME,
+            CarSource.AUTOTRADER_CA);
     private static final long SOURCE_PAUSE_MS = 1_000;
     private static final int PROGRESS_EVERY = 20;
 

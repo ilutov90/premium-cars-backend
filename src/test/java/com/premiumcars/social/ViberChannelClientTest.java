@@ -104,4 +104,26 @@ class ViberChannelClientTest {
                 .hasMessageContaining("Viber post failed: webhookNotSet")
                 .hasMessageContaining("Connect Viber channel");
     }
+
+    @Test
+    void testPostUrl_Link_SendsAUrlMessageWithTheLinkAsMedia() {
+        viber.setWebhook("https://cars.example/api/public/viber/webhook");
+        String from = viber.superadminId();
+
+        String token = viber.postUrl(from, "https://cars.example/cars/kia-k5-2022-1?utm_source=viber");
+
+        Call post = calls.get(calls.size() - 1);
+        assertThat(post.path()).isEqualTo("/pa/post");
+        assertThat(post.body().path("type").asText()).isEqualTo("url");
+        assertThat(post.body().path("media").asText()).isEqualTo("https://cars.example/cars/kia-k5-2022-1?utm_source=viber");
+        assertThat(post.body().path("from").asText()).isEqualTo("owner-7");
+        assertThat(token).isNotBlank();
+    }
+
+    @Test
+    void testIsLink_LinkOrText_TellsThemApart() {
+        assertThat(SocialPublisher.isLink("https://premiumcarsimport.bg/cars/x?utm_source=viber")).isTrue();
+        assertThat(SocialPublisher.isLink("Виж колата: https://premiumcarsimport.bg/cars/x")).isFalse();
+        assertThat(SocialPublisher.isLink("premiumcarsimport.bg/cars/x")).isFalse();
+    }
 }

@@ -1,5 +1,6 @@
 package com.premiumcars.media;
 
+import com.premiumcars.common.HttpCalls;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -62,7 +63,9 @@ public class ImageDownloader {
                         .header("Accept-Encoding", "identity")
                         .GET()
                         .build();
-                HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                // the request timeout covers only the headers: a photo whose bytes stop coming must not hold the import
+                HttpResponse<byte[]> response = HttpCalls.send(http, request, HttpResponse.BodyHandlers.ofByteArray(),
+                        Duration.ofSeconds(3L * props.importer().timeoutSeconds()));
                 int status = response.statusCode();
                 if (status == 429 || status == 503) {
                     Thread.sleep(2000L * attempt);
