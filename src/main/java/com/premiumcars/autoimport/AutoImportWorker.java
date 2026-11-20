@@ -206,7 +206,7 @@ public class AutoImportWorker {
             AdminCar car = r.car();
             if (car.price() == null && !r.alreadyImported()) {
                 // no FOB price on the listing page: skipped, not put on the site with a wrong or missing price
-                carService.delete(car.id());
+                carService.deleteUnlessOrdered(car.id());
                 listings.noPrice(l.source(), l.listingId(), "No FOB price on the listing: skipped");
                 log.info("Auto-import {} {}: no FOB price, skipped", l.source(), l.listingId());
                 return;

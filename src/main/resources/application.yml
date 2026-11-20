@@ -3,6 +3,9 @@
 
 server:
   port: 8080
+  tomcat:
+    # one scan = up to 40 photos in one request (the default is 10 parts)
+    max-part-count: 60
   # Behind the frontend / a reverse proxy: take the client IP from X-Forwarded-For of trusted (private) proxies
   forward-headers-strategy: native
   servlet:
@@ -17,6 +20,11 @@ server:
 spring:
   application:
     name: premium-cars-backend
+  servlet:
+    multipart:
+      # the orders' documents: a file up to 25 MB, a request (a scan of many photos) up to 60 MB
+      max-file-size: 25MB
+      max-request-size: 60MB
   task:
     scheduling:
       # more than one: a slow job (a run, a post) must not hold the others (the nightly run at 03:00 waited for the
@@ -96,6 +104,17 @@ app:
       public-url: ${R2_PUBLIC_URL:}              # the bucket's custom domain, e.g. https://img.premiumcarsimport.bg/
       access-key-id: ${R2_ACCESS_KEY_ID:}        # secret: from Vault
       secret-access-key: ${R2_SECRET_ACCESS_KEY:} # secret: from Vault
+    # The orders' documents (contracts, invoices, scans): a PRIVATE bucket, never public. Used when the endpoint and both
+    # keys are set; otherwise they are kept in a local folder that /media never serves.
+    r2-docs:
+      endpoint: ${R2_ENDPOINT:}
+      bucket: ${R2_DOCS_BUCKET:premium-cars-documents}
+      access-key-id: ${R2_DOCS_ACCESS_KEY_ID:}         # secret: from Vault
+      secret-access-key: ${R2_DOCS_SECRET_ACCESS_KEY:} # secret: from Vault
+    # Only for development and tests: a private local folder for order documents when the R2 bucket is not
+    # configured. Empty (production): uploads are refused until R2_DOCS_* are set, so no document is ever kept inside
+    # a container, where the next deploy would lose it.
+    local-docs-dir: ${APP_LOCAL_DOCS_DIR:}
   importer:
     # Exactly the posting script's user agent. autowini answered 403 (pages and photos) to the same requests
     # sent with "Chrome/141.0" while the script's requests went through.

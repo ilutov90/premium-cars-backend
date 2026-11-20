@@ -74,6 +74,12 @@ class AutoImportRunnerTest {
     @Autowired
     com.premiumcars.mobilebg.MobileBgRepository mobileBg;
 
+    @Autowired
+    com.premiumcars.order.OrderService orders;
+
+    @Autowired
+    com.premiumcars.catalog.repo.CarRepository carRepository;
+
     /** Answers per make code; a make not in the map has no listings (read whole). */
     static class FakeSearch implements SourceSearch {
         final Map<String, List<FoundListing>> results = new HashMap<>();
@@ -571,5 +577,59 @@ class AutoImportRunnerTest {
                 new AutoImportTypes.AutotraderFilters("M5V2T6", 150, null, null, false, true, true, true));
         assertThat(settings.brands(CarSource.AUTOTRADER_CA)).singleElement()
                 .satisfies(b -> assertThat(b.excludedFuels()).containsExactly("Electric"));
+    }
+
+    private long orderFor(long carId) {
+        return orders.create(new com.premiumcars.order.OrderDtos.OrderRequest(carId, null, null, null, null, null,
+                null, null, null), "admin").id();
+    }
+
+    @Test
+    void testDeleteGone_CarWithOrderPublishedAgain_KeepsCar() {
+        var car = carService.createDraft(new ImportedCar("ord1", null, CarSpecs.builder().title("BYD Ordered")
+                .make("Ordmake").year(2023).build(), new BigDecimal("15000"), "USD", List.of(), List.of()),
+                CarSource.GUAZI, listing("ord1").url());
+        long orderId = orderFor(car.id());
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.SOLD);
+        carService.changeStatus(car.id(), CarStatus.PUBLISHED);
+
+        long runId = runs.start(CarSource.GUAZI, false);
+        assertThat(runner.deleteGone(runId, CarSource.GUAZI, car.id(), false)).isFalse();
+        assertThat(runs.removed(runId)).isEmpty();
+
+        FakeSearch search = new FakeSearch();
+        search.byListingId = true;
+        search.listed.put("ord1", false);
+        List<String> notes = new ArrayList<>();
+        java.util.Set<Long> others = new java.util.HashSet<>(carRepository.findIds(CarSource.GUAZI));
+        others.remove(car.id());
+        runner.checkOtherCars(search, CarSource.GUAZI, others, false, runId, notes);
+        assertThat(carService.getAdmin(car.id()).orderId()).isEqualTo(orderId);
+        assertThat(runs.removed(runId)).isEmpty();
+
+        orders.delete(orderId);
+        carService.delete(car.id());
+    }
+
+    @Test
+    void testDeleteDuplicates_OlderCarWithOrder_KeepsOrderedCar() {
+        var first = carService.createDraft(new ImportedCar("dupord1", null, CarSpecs.builder().title("BYD Dup Ord")
+                .build(), new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI,
+                "https://en.guazi.com/products/byd-dup-ord-2023-gray-10000km-dupord1.html");
+        var second = carService.createDraft(new ImportedCar("DUPORD1", null, CarSpecs.builder().title("BYD Dup Ord")
+                .build(), new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI,
+                "https://en.guazi.com/products/byd-dup-ord-2023-gray-12000km-dupord1.html");
+        long orderId = orderFor(first.id());
+
+        assertThat(service.duplicates(CarSource.GUAZI).sample()).anySatisfy(g -> {
+            assertThat(g.keep()).isEqualTo(first.id());
+            assertThat(g.delete()).containsExactly(second.id());
+        });
+        service.deleteDuplicates(CarSource.GUAZI);
+        assertThat(carService.getAdmin(first.id()).orderId()).isEqualTo(orderId);
+        assertThatThrownBy(() -> carService.getAdmin(second.id())).isInstanceOf(NotFoundException.class);
+
+        orders.delete(orderId);
+        carService.delete(first.id());
     }
 }

@@ -60,6 +60,11 @@ public class CarMapper {
         return image.linked() ? image.sourceUrl() : storage.publicUrl(image.storagePath());
     }
 
+    /** Where browsers load one of our stored photos from, by its storage path. */
+    public String storedUrl(String storagePath) {
+        return storage.publicUrl(storagePath);
+    }
+
     /**
      * The photo's bytes from our own origin, stored or linked alike: for the admin panel and its mobile.bg extension,
      * which cannot read other sites' photos (see PhotoFileController).
@@ -81,15 +86,18 @@ public class CarMapper {
                 c.totalPriceEur());
     }
 
-    /** @param price the breakdown the car's price was calculated from */
-    public AdminCar toAdmin(Car c, List<CarImage> images, PriceBreakdown price) {
+    /**
+     * @param price   the breakdown the car's price was calculated from
+     * @param orderId the car's customer order (the one not cancelled, else the newest), or null
+     */
+    public AdminCar toAdmin(Car c, List<CarImage> images, PriceBreakdown price, Long orderId) {
         return new AdminCar(c.id(), c.slug(), c.status(), c.source(), c.sourceUrl(), c.sourceRef(),
                 c.sourceLocation(), c.specs(), c.pricing(), price,
                 images.stream()
                         .map(i -> new AdminImage(i.id(), url(i), i.sourceUrl(), i.position(), i.linked(),
                                 fileUrl(i.id())))
                         .toList(),
-                c.createdAt(), c.updatedAt(), c.publishedAt());
+                c.createdAt(), c.updatedAt(), c.publishedAt(), orderId);
     }
 
     /**

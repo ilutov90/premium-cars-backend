@@ -44,12 +44,16 @@ public class CarImageRepository {
                 .optional();
     }
 
-    /** Stored photos of cars from these sources (to turn them into linked photos), oldest first. */
+    /**
+     * Stored photos of cars from these sources (to turn them into linked photos), oldest first. Cars with a customer
+     * order are left out: their photos were copied to our storage on purpose, to outlive the listing.
+     */
     public List<CarImage> findStored(Collection<String> sources) {
         return jdbc.sql("""
                         SELECT i.id, i.car_id, i.storage_path, i.source_url, i.position
                         FROM car_image i JOIN car c ON c.id = i.car_id
                         WHERE i.storage_path IS NOT NULL AND i.source_url IS NOT NULL AND c.source IN (:sources)
+                          AND NOT EXISTS (SELECT 1 FROM customer_order o WHERE o.car_id = c.id)
                         ORDER BY i.id""")
                 .param("sources", sources)
                 .query(MAPPER)
@@ -76,12 +80,32 @@ public class CarImageRepository {
                 .update() == 1;
     }
 
+    /**
+     * Keeps a linked photo in our storage: the site then shows the stored copy; {@code source_url} stays.
+     *
+     * @return false when the photo changed meanwhile (deleted or stored already)
+     */
+    public boolean storeLinked(long imageId, String storagePath) {
+        return jdbc.sql("UPDATE car_image SET storage_path = :path WHERE id = :imageId AND storage_path IS NULL")
+                .param("path", storagePath)
+                .param("imageId", imageId)
+                .update() == 1;
+    }
+
     /** Turns a stored photo into a linked one, shown from {@code url}. */
     public void link(long imageId, String url) {
         jdbc.sql("UPDATE car_image SET storage_path = NULL, source_url = :url WHERE id = :imageId")
                 .param("url", url)
                 .param("imageId", imageId)
                 .update();
+    }
+
+    /** Some car still shows this stored photo. */
+    public boolean existsByStoragePath(String storagePath) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM car_image WHERE storage_path = :path)")
+                .param("path", storagePath)
+                .query(Boolean.class)
+                .single();
     }
 
     public Optional<CarImage> find(long carId, long imageId) {

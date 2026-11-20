@@ -126,8 +126,9 @@ public class AutoImportService {
      * One listing imported as several cars (the same listing id in {@code car.source_ref}: guazi's link changes with
      * the km, so a changed link was taken for a new listing before): which car stays and which go.
      *
-     * @param keep   the car that stays: the one the automatic import follows, else one already posted, else the newest
-     * @param delete the others
+     * @param keep   the car that stays: one with a customer order, else the one the automatic import follows, else one
+     *               already posted, else the newest
+     * @param delete the others, never a car with a customer order
      */
     /** @param cars the group's cars (all of them, the kept one too), to open them on the site */
     public record DuplicateGroup(String title, long keep, List<Long> delete, List<Long> posted,
@@ -157,8 +158,9 @@ public class AutoImportService {
             listings.relinkCars(g.delete(), g.keep());
             for (Long id : g.delete()) {
                 try {
-                    carService.delete(id);
-                    deleted++;
+                    if (carService.deleteUnlessOrdered(id)) {
+                        deleted++;
+                    }
                 } catch (RuntimeException e) {
                     org.slf4j.LoggerFactory.getLogger(AutoImportService.class)
                             .warn("Could not delete duplicate car {}: {}", id, e.toString());
@@ -176,12 +178,18 @@ public class AutoImportService {
         Set<Long> all = new HashSet<>();
         same.forEach(all::addAll);
         Map<Long, List<com.premiumcars.social.PostedChannels.Post>> posts = posted.of(all);
+        Set<Long> ordered = carService.orderedCarIds();
         List<DuplicateGroup> out = new ArrayList<>();
         for (List<Long> ids : same) {
-            long keep = ids.stream().filter(followed::contains).reduce((a, b) -> b)
+            // a car with a customer order is kept, and never deleted as a duplicate
+            long keep = ids.stream().filter(ordered::contains).reduce((a, b) -> b)
+                    .or(() -> ids.stream().filter(followed::contains).reduce((a, b) -> b))
                     .or(() -> ids.stream().filter(posts::containsKey).reduce((a, b) -> b))
                     .orElse(ids.getLast());
-            List<Long> delete = ids.stream().filter(id -> id != keep).toList();
+            List<Long> delete = ids.stream().filter(id -> id != keep && !ordered.contains(id)).toList();
+            if (delete.isEmpty()) {
+                continue;
+            }
             String title = cars.findById(keep).map(c -> c.specs().title()).orElse(null);
             List<DuplicateCar> groupCars = ids.stream().map(cars::findById).flatMap(java.util.Optional::stream)
                     .map(c -> new DuplicateCar(c.id(), c.slug(), c.status())).toList();

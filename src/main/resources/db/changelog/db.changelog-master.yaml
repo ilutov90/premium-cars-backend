@@ -89,3 +89,7 @@ databaseChangeLog:
       file: db/changelog/changes/044-scheduled-post-link-only.sql
   - include:
       file: db/changelog/changes/045-autotrader-ca.sql
+  - include:
+      file: db/changelog/changes/046-customer-orders.sql
+  - include:
+      file: db/changelog/changes/047-order-car-photos.sql
