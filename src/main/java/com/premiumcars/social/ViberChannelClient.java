@@ -72,6 +72,18 @@ public class ViberChannelClient {
         return call("post", body, "Viber photo").path("message_token").asText();
     }
 
+    /**
+     * A link message (Viber's "url" type, the media is the address): Viber shows it with the page's preview (photo and
+     * title), as when a link is pasted in the app; a text message with the same address shows no preview.
+     */
+    public String postUrl(String from, String url) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("from", from);
+        body.put("type", "url");
+        body.put("media", url);
+        return call("post", body, "Viber link").path("message_token").asText();
+    }
+
     /** A text message; returns the message token. */
     public String postText(String from, String text) {
         Map<String, Object> body = new LinkedHashMap<>();

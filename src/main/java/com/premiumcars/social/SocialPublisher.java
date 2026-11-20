@@ -228,9 +228,26 @@ public class SocialPublisher {
             throw new BadRequestException("Viber is not configured: set VIBER_CHANNEL_TOKEN and IMGBB_API_KEY");
         }
         requireTextFits(network, text);
-        String messageToken = viber.postText(viber.superadminId(), text);
+        String from = viber.superadminId();
+        String link = text.strip();
+        String messageToken;
+        if (isLink(link)) {
+            try {
+                messageToken = viber.postUrl(from, link); // shown with the page's preview, unlike a text message
+            } catch (BadRequestException e) {
+                log.warn("Viber refused the link message for car {} ({}); sent as text", carId, e.getMessage());
+                messageToken = viber.postText(from, text);
+            }
+        } else {
+            messageToken = viber.postText(from, text);
+        }
         log.info("Published car {} to Viber (link only)", carId);
         return posts.insert(carId, SocialNetwork.VIBER, messageToken, null, 0);
+    }
+
+    /** One web address and nothing else: Viber's "url" message takes up to 2000 characters. */
+    static boolean isLink(String text) {
+        return text.length() <= 2000 && text.matches("https?://\\S+");
     }
 
     private SocialPost publishToFacebook(long carId, String text, List<Photo> photos) {
