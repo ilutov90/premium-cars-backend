@@ -43,6 +43,7 @@ import com.premiumcars.common.NotFoundException;
 import com.premiumcars.common.PageResponse;
 import com.premiumcars.importing.ImportedCar;
 import com.premiumcars.media.ImageStorage;
+import com.premiumcars.order.OrderRepository;
 import com.premiumcars.pricing.PriceBreakdown;
 import com.premiumcars.pricing.PriceProfile;
 import com.premiumcars.pricing.PricingProfile;
@@ -71,10 +72,12 @@ public class CarService {
     private final ImageStorage storage;
     private final PricingProfileRepository profiles;
     private final PostedChannels postedChannels;
+    private final OrderRepository orders;
 
     public CarService(CarRepository cars, CarImageRepository images, CarMapper mapper, ImageStorage storage,
-                      PricingProfileRepository profiles, PostedChannels postedChannels) {
+                      PricingProfileRepository profiles, PostedChannels postedChannels, OrderRepository orders) {
         this.postedChannels = postedChannels;
+        this.orders = orders;
         this.cars = cars;
         this.images = images;
         this.mapper = mapper;
@@ -289,12 +292,44 @@ public class CarService {
         return loadAdmin(id);
     }
 
+    /**
+     * Deletes the car and its photos: the admin's own delete. A customer order of the car keeps its snapshot (its
+     * car becomes null). Automatic deletes use {@link #deleteUnlessOrdered}.
+     */
     @Transactional
     public void delete(long id) {
         find(id);
         List<CarImage> photos = images.findByCarId(id);
         cars.delete(id);
         photos.stream().filter(i -> !i.linked()).forEach(i -> storage.delete(i.storagePath()));
+    }
+
+    /**
+     * The delete of the automatic paths (a listing gone, duplicates, a car without a price): a car with a customer
+     * order, in any status, is never deleted by them.
+     *
+     * @return false when the car has an order and was kept
+     */
+    @Transactional
+    public boolean deleteUnlessOrdered(long id) {
+        if (orders.hasOrder(id)) {
+            log.info("Car {} has a customer order: not deleted", id);
+            return false;
+        }
+        delete(id);
+        return true;
+    }
+
+    /** The car has a customer order, in any status (such a car is never deleted automatically). */
+    @Transactional(readOnly = true)
+    public boolean hasOrder(long id) {
+        return orders.hasOrder(id);
+    }
+
+    /** Every car with a customer order, in any status. */
+    @Transactional(readOnly = true)
+    public Set<Long> orderedCarIds() {
+        return orders.findOrderedCarIds();
     }
 
     @Transactional
@@ -341,7 +376,7 @@ public class CarService {
     /** With the breakdown the price was calculated from (today's calculation only for a car without one). */
     private AdminCar toAdmin(Car c) {
         PriceBreakdown kept = cars.findPriceBreakdown(c.id()).orElseGet(() -> mapper.breakdown(c.pricing()));
-        return mapper.toAdmin(c, images.findByCarId(c.id()), kept);
+        return mapper.toAdmin(c, images.findByCarId(c.id()), kept, orders.findOrderIdOfCar(c.id()).orElse(null));
     }
 
     /** Same values (amounts compared by value: 25000 equals 25000.00 from the database). */

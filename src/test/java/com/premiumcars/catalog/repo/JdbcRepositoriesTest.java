@@ -169,6 +169,18 @@ class JdbcRepositoriesTest {
     @Autowired
     DeliveredCarService deliveredCars;
 
+    @Autowired
+    com.premiumcars.order.OrderService orderService;
+
+    @Autowired
+    com.premiumcars.order.OrderRepository orderRepository;
+
+    @Autowired
+    com.premiumcars.order.OrderDocumentRepository orderDocuments;
+
+    @Autowired
+    com.premiumcars.order.OrderPhotoKeeper orderPhotoKeeper;
+
     @Test
     void publicCatalogSortsWithNullsLast() {
         // The original bug: sorting crashed with "Null Precedence ... not yet supported" under JPA.
@@ -1438,5 +1450,178 @@ class JdbcRepositoriesTest {
                 .isEqualTo(com.premiumcars.autoimport.RemovedGroupBy.MAKE);
         assertThat(com.premiumcars.autoimport.RemovedGroupBy.parse("model_year"))
                 .isEqualTo(com.premiumcars.autoimport.RemovedGroupBy.MODEL_YEAR);
+    }
+
+    private AdminCar orderTestCar(String title) {
+        String ref = "IC" + UUID.randomUUID().toString().substring(0, 8);
+        AdminCar car = carService.createDraft(new ImportedCar(ref, null,
+                CarSpecs.builder().title(title).make("Kia").model("K5").year(2022).mileageKm(31000).build(),
+                new BigDecimal("15000"), "EUR", List.of(), List.of()), CarSource.AUTOWINI,
+                "https://www.autowini.com/goods/detail?listingId=" + ref);
+        carService.changeStatus(car.id(), CarStatus.PUBLISHED);
+        return carService.getAdmin(car.id());
+    }
+
+    private static com.premiumcars.order.OrderDtos.OrderRequest orderRequest(Long carId, String name, String vin,
+            com.premiumcars.order.OrderStatus status) {
+        return new com.premiumcars.order.OrderDtos.OrderRequest(carId,
+                new com.premiumcars.order.Customer(" " + name + " ", "+359 888 123 456", "buyer@example.com",
+                        "Sofia", "", "Firma OOD", null),
+                vin, new BigDecimal("21000.50"), new BigDecimal("2000"), status, "MSKU1234567",
+                LocalDate.of(2026, 11, 2), "first notes");
+    }
+
+    @Test
+    void testCreate_OrderForCar_TakesSnapshotMarksCarSoldAndReadsBack() {
+        AdminCar car = orderTestCar("Kia K5 Order Snapshot");
+        var order = orderService.create(orderRequest(car.id(), "Ivan Petrov", " knadg81gbkt000001 ", null), "admin");
+
+        assertThat(order.carId()).isEqualTo(car.id());
+        assertThat(order.status()).isEqualTo(com.premiumcars.order.OrderStatus.CONTRACT_SIGNED);
+        assertThat(order.car().title()).isEqualTo("Kia K5 Order Snapshot");
+        assertThat(order.car().slug()).isEqualTo(car.slug());
+        assertThat(order.car().make()).isEqualTo("Kia");
+        assertThat(order.car().year()).isEqualTo(2022);
+        assertThat(order.car().mileageKm()).isEqualTo(31000);
+        assertThat(order.car().source()).isEqualTo(CarSource.AUTOWINI);
+        assertThat(order.car().sourceUrl()).isEqualTo(car.sourceUrl());
+        assertThat(order.car().priceEur()).isEqualTo(carRepository.findById(car.id()).orElseThrow().totalPriceEur());
+        assertThat(order.carStatus()).isEqualTo(CarStatus.SOLD);
+        assertThat(order.customer().name()).isEqualTo("Ivan Petrov");
+        assertThat(order.customer().idNumber()).isNull();
+        assertThat(order.vin()).isEqualTo("KNADG81GBKT000001");
+        assertThat(order.agreedPriceEur()).isEqualByComparingTo("21000.50");
+        assertThat(order.contractDate()).isEqualTo(LocalDate.of(2026, 11, 2));
+        assertThat(order.createdBy()).isEqualTo("admin");
+        assertThat(order.documents()).isEmpty();
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.SOLD);
+        assertThat(carService.getAdmin(car.id()).orderId()).isEqualTo(order.id());
+
+        var changed = orderService.update(order.id(), new com.premiumcars.order.OrderDtos.OrderRequest(car.id(),
+                null, null, null, null, com.premiumcars.order.OrderStatus.SHIPPED, null, null, "  "));
+        assertThat(changed.status()).isEqualTo(com.premiumcars.order.OrderStatus.SHIPPED);
+        assertThat(changed.customer().name()).isNull();
+        assertThat(changed.notes()).isNull();
+        assertThat(changed.car().title()).isEqualTo("Kia K5 Order Snapshot");
+
+        orderService.delete(order.id());
+        assertThatThrownBy(() -> orderService.get(order.id())).isInstanceOf(NotFoundException.class);
+        assertThat(carService.getAdmin(car.id()).orderId()).isNull();
+        carService.delete(car.id());
+    }
+
+    @Test
+    void testCreate_CarWithActiveOrder_ThrowsBadRequestUntilCancelled() {
+        AdminCar car = orderTestCar("Kia K5 One Order");
+        var first = orderService.create(orderRequest(car.id(), "First Buyer", null, null), "admin");
+
+        assertThatThrownBy(() -> orderService.create(orderRequest(car.id(), "Second Buyer", null, null), "admin"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("already has an order");
+        assertThatThrownBy(() -> orderService.create(orderRequest(null, "No Car", null, null), "admin"))
+                .isInstanceOf(BadRequestException.class);
+
+        orderService.update(first.id(), orderRequest(car.id(), "First Buyer", null,
+                com.premiumcars.order.OrderStatus.CANCELLED));
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.SOLD);
+        var second = orderService.create(orderRequest(car.id(), "Second Buyer", null, null), "admin");
+        assertThat(carService.getAdmin(car.id()).orderId()).isEqualTo(second.id());
+        assertThat(orderService.lookupCar("№ " + car.id()).activeOrderId()).isEqualTo(second.id());
+
+        assertThatThrownBy(() -> orderService.update(first.id(), orderRequest(car.id(), "First Buyer", null,
+                com.premiumcars.order.OrderStatus.PAID))).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> jdbcClient.sql("""
+                        INSERT INTO customer_order (car_id, status) VALUES (:carId, 'PAID')""")
+                .param("carId", car.id()).update())
+                .isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
+
+        orderService.delete(first.id());
+        orderService.delete(second.id());
+        carService.delete(car.id());
+    }
+
+    @Test
+    void testList_SearchText_FindsByCustomerPhoneVinCarNumberAndLink() {
+        AdminCar car = orderTestCar("Kia K5 Searchable");
+        String name = "Searchable " + UUID.randomUUID().toString().substring(0, 6);
+        var order = orderService.create(orderRequest(car.id(), name, "KNASEARCH0000001", null), "admin");
+
+        for (String q : new String[]{name, "searchable", "0888123456".substring(1), "knasearch", "MSKU1234567",
+                String.valueOf(car.id()), "Обява № " + car.id(), "https://premiumcarsimport.bg/cars/" + car.slug(),
+                "buyer@example", "firma ood"}) {
+            assertThat(orderService.list(null, q, 0, 100).items())
+                    .as(q).extracting(com.premiumcars.order.OrderDtos.OrderSummary::id).contains(order.id());
+        }
+        assertThat(orderService.list(com.premiumcars.order.OrderStatus.DELIVERED, name, 0, 20).items()).isEmpty();
+        assertThat(orderService.list(com.premiumcars.order.OrderStatus.CONTRACT_SIGNED, name, 0, 20).totalItems())
+                .isEqualTo(1);
+        assertThat(orderService.list(null, "no-such-customer-50%_", 0, 20).items()).isEmpty();
+        assertThat(orderService.list(null, null, 0, 20).items().getFirst().id()).isEqualTo(order.id());
+
+        orderService.delete(order.id());
+        carService.delete(car.id());
+    }
+
+    @Test
+    void testDelete_CarWithOrderByAdmin_OrderKeepsSnapshotAndDocumentsGoWithOrder() {
+        AdminCar car = orderTestCar("Kia K5 Deleted Later");
+        var order = orderService.create(orderRequest(car.id(), "Kept Buyer", null, null), "admin");
+        long docId = orderDocuments.insert(order.id(), com.premiumcars.order.DocumentKind.OTHER, "Power of attorney",
+                "poa.pdf", "application/pdf", 1234L, null, "admin");
+        assertThat(orderService.get(order.id()).documents()).singleElement()
+                .satisfies(d -> assertThat(d.id()).isEqualTo(docId))
+                .satisfies(d -> assertThat(d.kind()).isEqualTo(com.premiumcars.order.DocumentKind.OTHER))
+                .satisfies(d -> assertThat(d.fileName()).isEqualTo("poa.pdf"));
+        assertThat(orderService.list(null, "Kept Buyer", 0, 20).items().getFirst().documentCount()).isEqualTo(1);
+
+        assertThat(carService.deleteUnlessOrdered(car.id())).isFalse();
+        assertThat(carService.getAdmin(car.id()).id()).isEqualTo(car.id());
+
+        carService.delete(car.id());
+        var kept = orderService.get(order.id());
+        assertThat(kept.carId()).isNull();
+        assertThat(kept.carStatus()).isNull();
+        assertThat(kept.car().title()).isEqualTo("Kia K5 Deleted Later");
+        assertThat(kept.car().slug()).isEqualTo(car.slug());
+
+        assertThat(orderDocuments.delete(order.id(), docId)).isTrue();
+        orderDocuments.insert(order.id(), com.premiumcars.order.DocumentKind.CONTRACT, null, "contract.pdf",
+                "application/pdf", 99L, null, "admin");
+        orderService.delete(order.id());
+        assertThat(orderDocuments.findByOrder(order.id())).isEmpty();
+    }
+
+    @Test
+    void testLookupCar_NumberOrSiteLink_FindsCar() {
+        AdminCar car = orderTestCar("Kia K5 Lookup");
+        assertThat(orderService.lookupCar(String.valueOf(car.id())).slug()).isEqualTo(car.slug());
+        assertThat(orderService.lookupCar("https://premiumcarsimport.bg/cars/" + car.slug() + "?utm_source=fb")
+                .id()).isEqualTo(car.id());
+        assertThat(orderService.lookupCar("#" + car.id()).activeOrderId()).isNull();
+        assertThatThrownBy(() -> orderService.lookupCar("Kia K5")).isInstanceOf(NotFoundException.class);
+        carService.delete(car.id());
+    }
+
+    @Test
+    void testFindStored_CarWithOrder_LeftOutAndLinkedPhotoStoredOnce() {
+        String ref = "ord" + UUID.randomUUID().toString().substring(0, 8);
+        AdminCar car = carService.createDraft(new ImportedCar(ref, null, CarSpecs.builder().title("BYD Kept Photos")
+                .build(), new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI,
+                "https://en.guazi.com/products/byd-kept-photos-" + ref + ".html");
+        long stored = carImages.append(car.id(), "cars/" + car.id() + "/kept.jpg", "http://127.0.0.1:1/kept.jpg");
+        long linked = carImages.append(car.id(), null, "http://127.0.0.1:1/linked.jpg");
+        assertThat(carImages.findStored(List.of("GUAZI"))).extracting(CarImage::id).contains(stored);
+
+        var order = orderService.create(orderRequest(car.id(), "Photo Buyer", null, null), "admin");
+        assertThat(carImages.findStored(List.of("GUAZI"))).extracting(CarImage::id).doesNotContain(stored);
+        assertThat(orderPhotoKeeper.keep(car.id())).isZero();
+
+        assertThat(carImages.storeLinked(linked, "cars/" + car.id() + "/linked.jpg")).isTrue();
+        assertThat(carImages.storeLinked(linked, "cars/" + car.id() + "/again.jpg")).isFalse();
+        assertThat(carImages.findById(linked).orElseThrow().storagePath()).isEqualTo("cars/" + car.id() + "/linked.jpg");
+
+        orderService.delete(order.id());
+        jdbcClient.sql("UPDATE car_image SET storage_path = NULL WHERE car_id = :id").param("id", car.id()).update();
+        carService.delete(car.id());
     }
 }

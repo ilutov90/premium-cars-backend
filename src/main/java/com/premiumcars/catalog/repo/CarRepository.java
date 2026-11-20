@@ -64,6 +64,26 @@ public class CarRepository {
 
     // ---------------------------------------------------------------- queries
 
+    /** The car's number when the text is only that ("29538", "№ 29538", "#29538"); null otherwise. */
+    public static Long carNumber(String q) {
+        return q == null ? null : CarSearchSql.carNumber(q);
+    }
+
+    /** The slug in a pasted link to a car's page on our site (".../cars/{slug}"); null when it is not such a link. */
+    public static String siteSlug(String q) {
+        return q == null ? null : CarSearchSql.siteSlug(q);
+    }
+
+    /** The car an admin means by its number ("Обява № {id}") or a link to its page on our site. */
+    public Optional<Car> findByNumberOrLink(String q) {
+        Long number = carNumber(q);
+        if (number != null) {
+            return findById(number);
+        }
+        String slug = siteSlug(q);
+        return slug == null ? Optional.empty() : findBySlug(slug);
+    }
+
     public Optional<Car> findById(long id) {
         return jdbc.sql(SELECT_CAR + "WHERE c.id = :id")
                 .param("id", id)

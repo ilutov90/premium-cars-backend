@@ -381,7 +381,7 @@ public class AutoImportRunner {
                 gone++;
             }
             if (kept > 0) {
-                notes.add(kept + " gone from the source but kept (reserved, sold or archived)");
+                notes.add(kept + " gone from the source but kept (reserved, sold, archived or with an order)");
             }
         }
         if (missing.size() > toRemove.size()) {
@@ -417,9 +417,11 @@ public class AutoImportRunner {
      */
     ManualCheck checkOtherCars(SourceSearch search, CarSource source, Set<Long> covered, boolean dryRun, Long runId,
                                List<String> notes) {
+        Set<Long> ordered = carService.orderedCarIds();
         List<CheckedCar> others = cars.findForSourceCheck(source).stream()
                 .filter(c -> !covered.contains(c.id()))
                 .filter(c -> DELETED_WHEN_GONE.contains(c.status()))
+                .filter(c -> !ordered.contains(c.id()))
                 .toList();
         if (others.isEmpty()) {
             return new ManualCheck(0, 0, 0, false);
@@ -537,7 +539,7 @@ public class AutoImportRunner {
     /**
      * Deletes a car whose listing is gone (its photos too) and notes it in the run's report with where it was
      * posted, taken before the delete (the posts go with the car), to take those posts down. A reserved, sold or
-     * archived car is kept.
+     * archived car is kept, and so is a car with a customer order (in any status).
      *
      * @param runId the run, or null (deleted by hand)
      * @return false when the car was kept or could not be deleted
@@ -550,6 +552,10 @@ public class AutoImportRunner {
         if (!DELETED_WHEN_GONE.contains(car.get().status())) {
             return false;
         }
+        if (carService.hasOrder(carId)) {
+            log.info("Car {} gone from {} has a customer order: kept", carId, source);
+            return false;
+        }
         Car c = car.get();
         List<PostedChannels.Post> posts = posted.of(carId);
         RemovedFacts facts = facts(source, c);
@@ -557,7 +563,9 @@ public class AutoImportRunner {
         boolean outOfFilters = !manual && outOfFilters(source, c, facts);
         try {
             listings.deleteOfCar(carId);
-            carService.delete(carId);
+            if (!carService.deleteUnlessOrdered(carId)) {
+                return false;
+            }
         } catch (RuntimeException e) {
             log.warn("Could not delete car {} gone from {}: {}", carId, source, e.toString());
             return false;
