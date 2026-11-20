@@ -24,4 +24,14 @@ class FuelTypeTest {
     void testDetect_PlugInHybrid_StaysPlugIn() {
         assertThat(FuelType.detect("Plug-in Hybrid")).isEqualTo(FuelType.PLUGIN_HYBRID);
     }
+
+    @Test
+    void testDetect_AutowiniOtherFuelTypes_MapToOursOrOther() {
+        assertThat(FuelType.detect("Gasoline+LPG")).isEqualTo(FuelType.LPG);
+        assertThat(FuelType.detect("LPG")).isEqualTo(FuelType.LPG);
+        assertThat(FuelType.detect("CNG")).isEqualTo(FuelType.OTHER);
+        assertThat(FuelType.detect("Others")).isEqualTo(FuelType.OTHER);
+        assertThat(FuelType.detect("Gasoline")).isEqualTo(FuelType.PETROL);
+        assertThat(FuelType.detect("Diesel")).isEqualTo(FuelType.DIESEL);
+    }
 }

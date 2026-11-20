@@ -52,6 +52,10 @@ public enum FuelType {
         if (t.contains("petrol") || t.contains("gasoline") || t.contains("汽油") || t.contains("가솔린")) {
             return PETROL;
         }
+        // autowini's "CNG" and "Others"
+        if (t.contains("cng") || t.equals("others") || t.equals("other")) {
+            return OTHER;
+        }
         return null;
     }
 }

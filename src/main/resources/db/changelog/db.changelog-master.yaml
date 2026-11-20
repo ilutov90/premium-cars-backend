@@ -95,3 +95,5 @@ databaseChangeLog:
       file: db/changelog/changes/047-order-car-photos.sql
   - include:
       file: db/changelog/changes/048-autowini-hybrids.sql
+  - include:
+      file: db/changelog/changes/049-autowini-hybrids-by-title.sql
