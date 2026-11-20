@@ -30,6 +30,10 @@ public enum FuelType {
         if (t.contains("plug-in") || t.contains("plug in") || t.contains("phev") || t.contains("插电")) {
             return PLUGIN_HYBRID;
         }
+        // autowini: "Gasoline+Electric", "Diesel+Electric", "LPG+Electric" are hybrids (checked before "electric")
+        if (t.matches(".*(gasoline|petrol|diesel|lpg|lpi)\\s*\\+\\s*electric.*")) {
+            return HYBRID;
+        }
         if (t.contains("hybrid") || t.contains("hev") || t.contains("混动") || t.contains("油电")
                 || t.contains("하이브리드")) {
             return HYBRID;
