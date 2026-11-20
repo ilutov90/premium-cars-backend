@@ -171,6 +171,8 @@ class JdbcRepositoriesTest {
 
     @Autowired
     com.premiumcars.order.OrderService orderService;
+    @Autowired
+    com.premiumcars.media.ImageStorage photoStorage;
 
     @Autowired
     com.premiumcars.order.OrderRepository orderRepository;
@@ -1623,5 +1625,35 @@ class JdbcRepositoriesTest {
         orderService.delete(order.id());
         jdbcClient.sql("UPDATE car_image SET storage_path = NULL WHERE car_id = :id").param("id", car.id()).update();
         carService.delete(car.id());
+    }
+
+    @Test
+    void testDelete_CarWithOrderByAdmin_PhotoFilesStayUntilOrderDeleted() {
+        AdminCar car = orderTestCar("Kia K5 Kept Files");
+        String first = photoStorage.store("cars/" + car.id(), new byte[] {1, 2, 3}, "jpg");
+        String second = photoStorage.store("cars/" + car.id(), new byte[] {4, 5, 6}, "jpg");
+        carImages.append(car.id(), first, "http://127.0.0.1:1/1.jpg");
+        carImages.append(car.id(), second, "http://127.0.0.1:1/2.jpg");
+        var order = orderService.create(orderRequest(car.id(), "Photo Keeper", null, null), "admin");
+        assertThat(orderService.get(order.id()).carPhotos()).hasSize(2);
+
+        carService.delete(car.id());
+        assertThat(photoStorage.read(first)).containsExactly(1, 2, 3);
+        var kept = orderService.get(order.id());
+        assertThat(kept.carId()).isNull();
+        assertThat(kept.carPhotos()).containsExactly(photoStorage.publicUrl(first), photoStorage.publicUrl(second));
+
+        orderService.delete(order.id());
+        assertThatThrownBy(() -> photoStorage.read(first)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> photoStorage.read(second)).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void testDelete_CarWithoutOrder_PhotoFilesDeleted() {
+        AdminCar car = orderTestCar("Kia K5 No Order");
+        String path = photoStorage.store("cars/" + car.id(), new byte[] {7}, "jpg");
+        carImages.append(car.id(), path, "http://127.0.0.1:1/1.jpg");
+        carService.delete(car.id());
+        assertThatThrownBy(() -> photoStorage.read(path)).isInstanceOf(RuntimeException.class);
     }
 }

@@ -19,6 +19,7 @@ import com.premiumcars.catalog.service.CarMapper;
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.common.NotFoundException;
 import com.premiumcars.common.PageResponse;
+import com.premiumcars.media.ImageStorage;
 import com.premiumcars.order.OrderDtos.AdminOrder;
 import com.premiumcars.order.OrderDtos.CarLookup;
 import com.premiumcars.order.OrderDtos.DocumentView;
@@ -44,10 +45,12 @@ public class OrderService {
     private final CarImageRepository images;
     private final CarMapper carMapper;
     private final ApplicationEventPublisher events;
+    private final ImageStorage photoStorage;
 
     public OrderService(OrderRepository orders, OrderDocumentRepository documents,
                         OrderDocumentStorage documentStorage, CarRepository cars, CarImageRepository images,
-                        CarMapper carMapper, ApplicationEventPublisher events) {
+                        CarMapper carMapper, ApplicationEventPublisher events, ImageStorage photoStorage) {
+        this.photoStorage = photoStorage;
         this.orders = orders;
         this.documents = documents;
         this.documentStorage = documentStorage;
@@ -122,12 +125,27 @@ public class OrderService {
         return get(id);
     }
 
-    /** The order and its documents' rows; then the documents' stored files. The car stays as it is. */
-    @Transactional
+    /**
+     * The order and its documents' rows; then the documents' stored files and, when the car is already gone, the
+     * photo files the order kept (not those another order of that car keeps too, or a car still shows). The car
+     * stays as it is. Not one transaction: the files are removed over the network after the rows are.
+     */
     public void delete(long id) {
-        find(id);
+        CustomerOrder order = find(id).order();
         List<OrderDocument> docs = documents.findByOrder(id);
         orders.delete(id);
+        if (order.carId() == null) {
+            for (String path : order.carPhotos()) {
+                if (orders.photoKeptByOtherOrder(path, id) || images.existsByStoragePath(path)) {
+                    continue;
+                }
+                try {
+                    photoStorage.delete(path);
+                } catch (RuntimeException e) {
+                    log.warn("Could not delete the kept photo {} of order {}: {}", path, id, e.toString());
+                }
+            }
+        }
         for (OrderDocument d : docs) {
             if (d.storageKey() == null) {
                 continue;
@@ -220,6 +238,13 @@ public class OrderService {
         return new AdminOrder(o.id(), o.carId(), o.car(), row.carStatus(), coverUrl(row), o.customer(), f.vin(),
                 f.agreedPriceEur(), f.depositEur(), f.status(), f.containerNumber(), f.contractDate(), f.notes(),
                 o.createdAt(), o.updatedAt(), o.createdBy(),
-                documents.findByOrder(o.id()).stream().map(DocumentView::of).toList());
+                documents.findByOrder(o.id()).stream().map(DocumentView::of).toList(), carPhotos(o));
+    }
+
+    private List<String> carPhotos(CustomerOrder o) {
+        if (o.carId() != null) {
+            return images.findByCarId(o.carId()).stream().map(carMapper::url).toList();
+        }
+        return o.carPhotos().stream().map(carMapper::storedUrl).toList();
     }
 }

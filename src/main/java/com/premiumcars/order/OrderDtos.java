@@ -51,12 +51,22 @@ public final class OrderDtos {
                                int documentCount, Instant createdAt, Instant updatedAt) {
     }
 
-    /** One order with its documents (their details; the files come from their own endpoints). */
+    /**
+     * One order with its documents (their details; the files come from their own endpoints).
+     *
+     * @param carPhotos displayable URLs of the car's photos in gallery order: the car's photos now, or, once the car
+     *                  was deleted, the stored photos the order kept
+     */
     public record AdminOrder(long id, Long carId, CarSnapshot car, CarStatus carStatus, String coverUrl,
                              Customer customer, String vin, BigDecimal agreedPriceEur, BigDecimal depositEur,
                              OrderStatus status, String containerNumber, LocalDate contractDate, String notes,
                              Instant createdAt, Instant updatedAt, String createdBy,
-                             List<DocumentView> documents) {
+                             List<DocumentView> documents, List<String> carPhotos) {
+    }
+
+    /** What the admin may change of a document. */
+    public record DocumentUpdate(@jakarta.validation.constraints.NotNull DocumentKind kind,
+                                 @Size(max = 200) String title) {
     }
 
     public record DocumentView(long id, DocumentKind kind, String title, String fileName, String contentType,

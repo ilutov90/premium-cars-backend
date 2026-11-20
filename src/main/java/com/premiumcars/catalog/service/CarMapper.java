@@ -60,6 +60,11 @@ public class CarMapper {
         return image.linked() ? image.sourceUrl() : storage.publicUrl(image.storagePath());
     }
 
+    /** Where browsers load one of our stored photos from, by its storage path. */
+    public String storedUrl(String storagePath) {
+        return storage.publicUrl(storagePath);
+    }
+
     /**
      * The photo's bytes from our own origin, stored or linked alike: for the admin panel and its mobile.bg extension,
      * which cannot read other sites' photos (see PhotoFileController).

@@ -41,10 +41,30 @@ public record AppProperties(
      * @param baseUrl URL prefix of the local photos
      * @param r2      Cloudflare R2 for new photos; off until configured
      */
-    public record Media(String dir, String baseUrl, R2 r2) {
+    public record Media(String dir, String baseUrl, R2 r2, R2Docs r2Docs, String localDocsDir) {
 
         public Media {
             r2 = r2 == null ? new R2(null, null, null, null, null) : r2;
+            r2Docs = r2Docs == null ? new R2Docs(null, null, null, null) : r2Docs;
+            // blank = no local folder: uploads are refused until the private R2 bucket is set (OrderDocumentStorageConfig)
+            localDocsDir = localDocsDir == null || localDocsDir.isBlank() ? null : localDocsDir;
+        }
+    }
+
+    /**
+     * The private Cloudflare R2 bucket of the orders' documents (same account and endpoint as {@link R2}, its own
+     * keys). It has no public URL: the files are only read back by the backend for the admin panel.
+     *
+     * @param endpoint        the account's S3 endpoint (R2_ENDPOINT)
+     * @param bucket          bucket name
+     * @param accessKeyId     secret: from Vault (R2_DOCS_ACCESS_KEY_ID)
+     * @param secretAccessKey secret: from Vault (R2_DOCS_SECRET_ACCESS_KEY)
+     */
+    public record R2Docs(String endpoint, String bucket, String accessKeyId, String secretAccessKey) {
+
+        public boolean configured() {
+            return R2.notBlank(endpoint) && R2.notBlank(bucket) && R2.notBlank(accessKeyId)
+                    && R2.notBlank(secretAccessKey);
         }
     }
 
@@ -65,7 +85,7 @@ public record AppProperties(
                     && notBlank(secretAccessKey);
         }
 
-        private static boolean notBlank(String s) {
+        static boolean notBlank(String s) {
             return s != null && !s.isBlank();
         }
     }
@@ -123,7 +143,7 @@ public record AppProperties(
             return notBlank(viberChannelToken) && notBlank(imgbbApiKey);
         }
 
-        private static boolean notBlank(String s) {
+        static boolean notBlank(String s) {
             return s != null && !s.isBlank();
         }
     }

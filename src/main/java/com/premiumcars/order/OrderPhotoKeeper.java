@@ -1,5 +1,6 @@
 package com.premiumcars.order;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -29,8 +30,11 @@ public class OrderPhotoKeeper {
     private final CarImageRepository images;
     private final CarPhotoFiles photoFiles;
     private final ImageStorage storage;
+    private final OrderRepository orders;
 
-    public OrderPhotoKeeper(CarImageRepository images, CarPhotoFiles photoFiles, ImageStorage storage) {
+    public OrderPhotoKeeper(CarImageRepository images, CarPhotoFiles photoFiles, ImageStorage storage,
+                            OrderRepository orders) {
+        this.orders = orders;
         this.images = images;
         this.photoFiles = photoFiles;
         this.storage = storage;
@@ -39,7 +43,19 @@ public class OrderPhotoKeeper {
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCarAssigned(OrderCarAssigned e) {
-        keep(e.carId());
+        int kept = keep(e.carId());
+        try {
+            listPhotos(e.orderId(), e.carId());
+        } catch (RuntimeException ex) {
+            log.warn("Order {}: could not note the photos of car {}: {}", e.orderId(), e.carId(), ex.toString());
+        }
+    }
+
+    /** The order keeps the storage paths of all the car's stored photos, in gallery order. */
+    void listPhotos(long orderId, long carId) {
+        List<String> paths = images.findByCarId(carId).stream().filter(i -> !i.linked())
+                .map(CarImage::storagePath).toList();
+        orders.saveCarPhotos(orderId, paths);
     }
 
     /** @return how many photos were copied */

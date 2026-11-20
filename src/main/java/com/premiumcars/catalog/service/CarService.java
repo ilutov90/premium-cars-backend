@@ -294,14 +294,22 @@ public class CarService {
 
     /**
      * Deletes the car and its photos: the admin's own delete. A customer order of the car keeps its snapshot (its
-     * car becomes null). Automatic deletes use {@link #deleteUnlessOrdered}.
+     * car becomes null) and its stored photos: the files stay, listed in the order ({@code car_photos}), and go with
+     * the order. Automatic deletes use {@link #deleteUnlessOrdered}.
      */
     @Transactional
     public void delete(long id) {
         find(id);
         List<CarImage> photos = images.findByCarId(id);
+        List<String> stored = photos.stream().filter(i -> !i.linked()).map(CarImage::storagePath).toList();
+        boolean ordered = orders.hasOrder(id);
+        if (ordered) {
+            orders.saveCarPhotosOfCar(id, stored);
+        }
         cars.delete(id);
-        photos.stream().filter(i -> !i.linked()).forEach(i -> storage.delete(i.storagePath()));
+        if (!ordered) {
+            stored.forEach(storage::delete);
+        }
     }
 
     /**

@@ -77,6 +77,17 @@ public class OrderDocumentRepository {
     }
 
     /** @return false when the order has no such document */
+    public boolean update(long orderId, long documentId, DocumentKind kind, String title) {
+        return jdbc.sql("UPDATE order_document SET kind = :kind, title = :title "
+                        + "WHERE id = :id AND order_id = :orderId")
+                .param("kind", kind.name())
+                .param("title", title)
+                .param("id", documentId)
+                .param("orderId", orderId)
+                .update() == 1;
+    }
+
+    /** @return false when the order has no such document */
     public boolean delete(long orderId, long documentId) {
         return jdbc.sql("DELETE FROM order_document WHERE id = :id AND order_id = :orderId")
                 .param("id", documentId)

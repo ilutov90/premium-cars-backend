@@ -17,7 +17,7 @@ class RoutingImageStorageTest {
     Path dir;
 
     private RoutingImageStorage storage(AppProperties.R2 r2) {
-        var props = new AppProperties(null, null, new AppProperties.Media(dir.toString(), "/media/", r2), null, null,
+        var props = new AppProperties(null, null, new AppProperties.Media(dir.toString(), "/media/", r2, null, null), null, null,
                 null);
         return new RoutingImageStorage(new LocalImageStorage(props), props);
     }

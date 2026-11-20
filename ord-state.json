@@ -1,0 +1,35 @@
+{
+  "cookies": [
+    {
+      "name": "PC_SESSION",
+      "value": "0A4DF149203294FCD3BD8C4A850C2C1E",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "XSRF-TOKEN",
+      "value": "1c653f26-60db-4efc-ac1a-759405038788",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Strict"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "pc-admin",
+          "value": "1"
+        }
+      ]
+    }
+  ]
+}

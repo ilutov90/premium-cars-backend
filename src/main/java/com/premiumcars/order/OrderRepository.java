@@ -16,6 +16,7 @@ import org.springframework.stereotype.Repository;
 import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.repo.CarRepository;
+import com.premiumcars.catalog.repo.JsonColumns;
 
 /** All SQL for the {@code customer_order} table. */
 @Repository
@@ -37,7 +38,7 @@ public class OrderRepository {
                    o.car_source, o.car_source_url, o.car_source_ref, o.car_price_eur,
                    o.customer_name, o.customer_phone, o.customer_email, o.customer_address, o.customer_id_number,
                    o.company_name, o.company_eik, o.vin, o.agreed_price_eur, o.deposit_eur, o.status,
-                   o.container_number, o.contract_date, o.notes, o.created_at, o.updated_at, o.created_by,
+                   o.container_number, o.contract_date, o.notes, o.created_at, o.updated_at, o.created_by, o.car_photos,
                    c.status AS car_status, p.storage_path AS cover_path, p.source_url AS cover_source_url,
                    (SELECT count(*) FROM order_document d WHERE d.order_id = o.id) AS document_count
             FROM customer_order o
@@ -46,36 +47,43 @@ public class OrderRepository {
                                ORDER BY i.position, i.id LIMIT 1) p ON true
             """;
 
-    private static final RowMapper<OrderRow> MAPPER = (rs, n) -> {
-        String source = rs.getString("car_source");
-        String carStatus = rs.getString("car_status");
-        CustomerOrder order = new CustomerOrder(
-                rs.getLong("id"),
-                rs.getObject("car_id", Long.class),
-                new CarSnapshot(rs.getString("car_title"), rs.getString("car_slug"), rs.getString("car_make"),
-                        rs.getString("car_model"), rs.getObject("car_year", Integer.class),
-                        rs.getObject("car_mileage_km", Integer.class),
-                        source == null ? null : CarSource.valueOf(source), rs.getString("car_source_url"),
-                        rs.getString("car_source_ref"), rs.getBigDecimal("car_price_eur")),
-                new Customer(rs.getString("customer_name"), rs.getString("customer_phone"),
-                        rs.getString("customer_email"), rs.getString("customer_address"),
-                        rs.getString("customer_id_number"), rs.getString("company_name"),
-                        rs.getString("company_eik")),
-                new OrderFields(rs.getString("vin"), rs.getBigDecimal("agreed_price_eur"),
-                        rs.getBigDecimal("deposit_eur"), OrderStatus.valueOf(rs.getString("status")),
-                        rs.getString("container_number"),
-                        rs.getObject("contract_date", java.time.LocalDate.class), rs.getString("notes")),
-                rs.getObject("created_at", OffsetDateTime.class).toInstant(),
-                rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
-                rs.getString("created_by"));
-        return new OrderRow(order, carStatus == null ? null : CarStatus.valueOf(carStatus),
-                rs.getString("cover_path"), rs.getString("cover_source_url"), rs.getInt("document_count"));
-    };
-
     private final JdbcClient jdbc;
+    private final JsonColumns photos;
+    private final RowMapper<OrderRow> mapper;
 
-    public OrderRepository(JdbcClient jdbc) {
+    public OrderRepository(JdbcClient jdbc, JsonColumns photos) {
         this.jdbc = jdbc;
+        this.photos = photos;
+        this.mapper = rowMapper();
+    }
+
+    private RowMapper<OrderRow> rowMapper() {
+        return (rs, n) -> {
+            String source = rs.getString("car_source");
+            String carStatus = rs.getString("car_status");
+            CustomerOrder order = new CustomerOrder(
+                    rs.getLong("id"),
+                    rs.getObject("car_id", Long.class),
+                    new CarSnapshot(rs.getString("car_title"), rs.getString("car_slug"), rs.getString("car_make"),
+                            rs.getString("car_model"), rs.getObject("car_year", Integer.class),
+                            rs.getObject("car_mileage_km", Integer.class),
+                            source == null ? null : CarSource.valueOf(source), rs.getString("car_source_url"),
+                            rs.getString("car_source_ref"), rs.getBigDecimal("car_price_eur")),
+                    new Customer(rs.getString("customer_name"), rs.getString("customer_phone"),
+                            rs.getString("customer_email"), rs.getString("customer_address"),
+                            rs.getString("customer_id_number"), rs.getString("company_name"),
+                            rs.getString("company_eik")),
+                    new OrderFields(rs.getString("vin"), rs.getBigDecimal("agreed_price_eur"),
+                            rs.getBigDecimal("deposit_eur"), OrderStatus.valueOf(rs.getString("status")),
+                            rs.getString("container_number"),
+                            rs.getObject("contract_date", java.time.LocalDate.class), rs.getString("notes")),
+                    rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                    rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
+                    rs.getString("created_by"),
+                    photos.readStringList(rs.getString("car_photos")));
+            return new OrderRow(order, carStatus == null ? null : CarStatus.valueOf(carStatus),
+                    rs.getString("cover_path"), rs.getString("cover_source_url"), rs.getInt("document_count"));
+        };
     }
 
     public long insert(Long carId, CarSnapshot car, Customer customer, OrderFields fields, String createdBy) {
@@ -123,8 +131,34 @@ public class OrderRepository {
         return jdbc.sql("DELETE FROM customer_order WHERE id = :id").param("id", id).update() == 1;
     }
 
+    /** Sets the stored photo paths (gallery order) of one order. */
+    public void saveCarPhotos(long id, List<String> paths) {
+        jdbc.sql("UPDATE customer_order SET car_photos = CAST(:paths AS jsonb) WHERE id = :id")
+                .param("paths", photos.write(paths))
+                .param("id", id)
+                .update();
+    }
+
+    /** Sets the stored photo paths of every order of the car (the car is about to be deleted). */
+    public void saveCarPhotosOfCar(long carId, List<String> paths) {
+        jdbc.sql("UPDATE customer_order SET car_photos = CAST(:paths AS jsonb) WHERE car_id = :carId")
+                .param("paths", photos.write(paths))
+                .param("carId", carId)
+                .update();
+    }
+
+    /** Another order keeps this photo file in its list. */
+    public boolean photoKeptByOtherOrder(String path, long exceptOrderId) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM customer_order WHERE id <> :id "
+                        + "AND car_photos @> CAST(:path AS jsonb))")
+                .param("id", exceptOrderId)
+                .param("path", photos.write(List.of(path)))
+                .query(Boolean.class)
+                .single();
+    }
+
     public Optional<OrderRow> findById(long id) {
-        return jdbc.sql(SELECT + "WHERE o.id = :id").param("id", id).query(MAPPER).optional();
+        return jdbc.sql(SELECT + "WHERE o.id = :id").param("id", id).query(mapper).optional();
     }
 
     /** The car's order that is not cancelled, other than {@code exceptOrderId} (null = any). */
@@ -174,7 +208,7 @@ public class OrderRepository {
         p.put("limit", limit);
         return jdbc.sql(SELECT + w.sql() + " ORDER BY o.created_at DESC, o.id DESC LIMIT :limit OFFSET :offset")
                 .params(p)
-                .query(MAPPER)
+                .query(mapper)
                 .list();
     }
 

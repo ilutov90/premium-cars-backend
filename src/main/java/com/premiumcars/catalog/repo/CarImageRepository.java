@@ -100,6 +100,14 @@ public class CarImageRepository {
                 .update();
     }
 
+    /** Some car still shows this stored photo. */
+    public boolean existsByStoragePath(String storagePath) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM car_image WHERE storage_path = :path)")
+                .param("path", storagePath)
+                .query(Boolean.class)
+                .single();
+    }
+
     public Optional<CarImage> find(long carId, long imageId) {
         return jdbc.sql("""
                         SELECT id, car_id, storage_path, source_url, position
