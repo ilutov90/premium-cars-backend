@@ -21,7 +21,7 @@ public class ScheduledPostRepository {
     private static final String SELECT = """
             SELECT p.id, p.car_id, c.title AS car_title, p.network, p.body, p.image_ids, p.publish_at, p.status,
                    p.attempts, p.error, p.social_post_id, p.created_by, p.created_at, p.updated_at,
-                   p.link_only
+                   p.link_only, p.link_url
             FROM scheduled_post p JOIN car c ON c.id = p.car_id""";
 
     private final JdbcClient jdbc;
@@ -34,14 +34,16 @@ public class ScheduledPostRepository {
 
     public ScheduledPost insert(long carId, SocialNetwork network, String body, List<Long> imageIds,
                                 Instant publishAt, String createdBy) {
-        return insert(carId, network, body, imageIds, publishAt, createdBy, false);
+        return insert(carId, network, body, imageIds, publishAt, createdBy, false, null);
     }
 
     public ScheduledPost insert(long carId, SocialNetwork network, String body, List<Long> imageIds,
-                                Instant publishAt, String createdBy, boolean linkOnly) {
+                                Instant publishAt, String createdBy, boolean linkOnly, String linkUrl) {
         long id = jdbc.sql("""
-                        INSERT INTO scheduled_post (car_id, network, body, image_ids, publish_at, created_by, link_only)
-                        VALUES (:carId, :network, :body, CAST(:imageIds AS jsonb), :publishAt, :createdBy, :linkOnly)
+                        INSERT INTO scheduled_post (car_id, network, body, image_ids, publish_at, created_by, link_only,
+                                                    link_url)
+                        VALUES (:carId, :network, :body, CAST(:imageIds AS jsonb), :publishAt, :createdBy, :linkOnly,
+                                :linkUrl)
                         RETURNING id""")
                 .param("carId", carId)
                 .param("network", network.name())
@@ -50,6 +52,7 @@ public class ScheduledPostRepository {
                 .param("publishAt", utc(publishAt))
                 .param("createdBy", createdBy)
                 .param("linkOnly", linkOnly)
+                .param("linkUrl", linkUrl)
                 .query(Long.class)
                 .single();
         return findById(id).orElseThrow();
@@ -60,7 +63,8 @@ public class ScheduledPostRepository {
     public List<ScheduledPost> insertAll(long carId, List<ScheduledPostService.Draft> drafts, List<Long> imageIds,
                                          Instant publishAt, String createdBy) {
         return drafts.stream()
-                .map(d -> insert(carId, d.network(), d.text(), imageIds, publishAt, createdBy, d.linkOnly()))
+                .map(d -> insert(carId, d.network(), d.text(), imageIds, publishAt, createdBy, d.linkOnly(),
+                        d.link()))
                 .toList();
     }
 
@@ -181,7 +185,8 @@ public class ScheduledPostRepository {
                 rs.getString("created_by"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"),
-                rs.getBoolean("link_only"));
+                rs.getBoolean("link_only"),
+                rs.getString("link_url"));
     }
 
     private static OffsetDateTime utc(Instant instant) {

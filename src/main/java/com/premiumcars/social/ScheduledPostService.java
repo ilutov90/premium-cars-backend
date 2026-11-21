@@ -69,11 +69,18 @@ public class ScheduledPostService {
         this.executor = executor;
     }
 
-    /** The text of one network in a publication; {@code linkOnly} (Viber only): no photos, just the text. */
-    public record Draft(SocialNetwork network, String text, boolean linkOnly) {
+    /**
+     * The text of one network in a publication; {@code linkOnly} (Viber only): no photos, just the text, or with
+     * {@code link} the car's link first (Viber shows the page's preview) and the text under it.
+     */
+    public record Draft(SocialNetwork network, String text, boolean linkOnly, String link) {
+
+        public Draft(SocialNetwork network, String text, boolean linkOnly) {
+            this(network, text, linkOnly, null);
+        }
 
         public Draft(SocialNetwork network, String text) {
-            this(network, text, false);
+            this(network, text, false, null);
         }
     }
 
@@ -107,8 +114,11 @@ public class ScheduledPostService {
             if (d.linkOnly() && d.network() != SocialNetwork.VIBER) {
                 throw new BadRequestException("linkOnly is only for Viber");
             }
+            if (d.link() != null && !d.linkOnly()) {
+                throw new BadRequestException("A link with the text is only for a Viber post without photos");
+            }
             if (d.linkOnly()) {
-                publisher.validateLinkOnly(carId, d.network(), d.text());
+                publisher.validateLinkOnly(carId, d.network(), d.text(), d.link());
             } else {
                 publisher.validate(carId, d.network(), d.text(), imageIds);
             }
@@ -200,7 +210,7 @@ public class ScheduledPostService {
             }
             List<Long> imageIds = post.imageIds().isEmpty() ? null : post.imageIds();
             SocialPost published = post.linkOnly()
-                    ? publisher.publishLinkOnly(post.carId(), post.network(), post.body())
+                    ? publisher.publishLinkOnly(post.carId(), post.network(), post.body(), post.linkUrl())
                     : publisher.publish(post.carId(), post.network(), post.body(), imageIds);
             scheduled.markPublished(post.id(), published.id());
             log.info("Scheduled post {} published (car {}, {})", post.id(), post.carId(), post.network());

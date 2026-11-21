@@ -30,9 +30,11 @@ public class AdminSocialController {
     /**
      * @param text     the post text of the network, as confirmed (and possibly edited) in the admin panel
      * @param linkOnly Viber only (null = false): post just the text, no photos
+     * @param link     with {@code linkOnly}: the car's link, sent before the text as Viber's link message (with the
+     *                 page's preview); null = the text alone
      */
     public record PostText(@NotNull SocialNetwork network, @NotBlank @Size(max = 7000) String text,
-                           Boolean linkOnly) {
+                           Boolean linkOnly, @Size(max = 2000) String link) {
     }
 
     /**
@@ -129,7 +131,8 @@ public class AdminSocialController {
     public ResponseEntity<List<ScheduledPost>> publish(@PathVariable long id, @Valid @RequestBody PublishRequest request,
                                                        Principal principal) {
         List<ScheduledPostService.Draft> drafts = request.posts().stream()
-                .map(p -> new ScheduledPostService.Draft(p.network(), p.text(), Boolean.TRUE.equals(p.linkOnly())))
+                .map(p -> new ScheduledPostService.Draft(p.network(), p.text(), Boolean.TRUE.equals(p.linkOnly()),
+                        p.link() == null || p.link().isBlank() ? null : p.link().strip()))
                 .toList();
         List<ScheduledPost> posts = background.publish(id, drafts, request.imageIds(), request.publishAt(),
                 principal.getName());

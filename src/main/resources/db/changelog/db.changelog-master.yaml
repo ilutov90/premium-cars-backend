@@ -97,3 +97,5 @@ databaseChangeLog:
       file: db/changelog/changes/048-autowini-hybrids.sql
   - include:
       file: db/changelog/changes/049-autowini-hybrids-by-title.sql
+  - include:
+      file: db/changelog/changes/050-scheduled-post-link-url.sql
