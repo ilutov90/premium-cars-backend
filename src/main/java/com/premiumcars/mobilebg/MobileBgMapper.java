@@ -10,8 +10,10 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 import com.premiumcars.catalog.domain.Car;
+import com.premiumcars.catalog.domain.CarSource;
 import com.premiumcars.catalog.domain.CarSpecs;
 import com.premiumcars.catalog.domain.FuelType;
+import com.premiumcars.catalog.domain.Origin;
 import com.premiumcars.marketplace.ModelMatch;
 import com.premiumcars.marketplace.ModelMatcher;
 
@@ -177,12 +179,38 @@ public final class MobileBgMapper {
                 month,
                 year,
                 color,
-                "София",
-                "гр. София",
+                region(car.source()),
+                place(car.source()),
                 range,
                 battery ? s.batteryKwh() : null,
                 s.features());
         return new Result(draft, warnings);
+    }
+
+    /** mobile.bg's "Намира се в" for a car abroad: then the form asks for the country in place of the town. */
+    static final String ABROAD = "Извън страната";
+
+    /** Cars from a known country are "abroad" in that country; others in Sofia. */
+    static String region(CarSource source) {
+        return country(source) == null ? "София" : ABROAD;
+    }
+
+    /** The town, or the country (as mobile.bg's "Държава" list writes it) of a car abroad. */
+    static String place(CarSource source) {
+        String country = country(source);
+        return country == null ? "гр. София" : country;
+    }
+
+    private static String country(CarSource source) {
+        Origin origin = source == null ? null : Origin.of(source);
+        if (origin == null) {
+            return null;
+        }
+        return switch (origin) {
+            case KR -> "Южна Корея";
+            case CN -> "Китай";
+            case CA -> "Канада";
+        };
     }
 
     static String engineType(FuelType fuel) {

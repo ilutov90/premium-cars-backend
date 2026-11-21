@@ -13,7 +13,9 @@ import com.premiumcars.catalog.domain.CarFeature;
  *
  * @param condition  mobile.bg's code: "0" used (always: imported cars are used)
  * @param vat        mobile.bg's code: "2" = price with VAT (the final price includes it)
- * @param region     the "Намира се в" region as mobile.bg stores it ("София"), city as its option text
+ * @param region     the "Намира се в" region as mobile.bg stores it ("София", or "Извън страната" for a car from
+ *                   Korea, China or Canada); city = the town as its option text, or for a car abroad the country
+ *                   ("Южна Корея", "Китай", "Канада") of the "Държава" list mobile.bg shows then
  * @param rangeKm    electric range (mobile.bg asks for WLTP) and battery: electric and plug-in cars only
  * @param extras     the car's extras; the admin panel turns them into mobile.bg's checkbox values
  */
