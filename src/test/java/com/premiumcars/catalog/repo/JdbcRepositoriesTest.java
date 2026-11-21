@@ -490,12 +490,17 @@ class JdbcRepositoriesTest {
                 "https://www.autowini.com/test/" + UUID.randomUUID());
         var at = java.time.Instant.now().plusSeconds(3600);
 
-        ScheduledPost link = scheduledPosts.insert(car.id(), SocialNetwork.VIBER, "link", List.of(), at, "admin", true);
+        ScheduledPost link = scheduledPosts.insert(car.id(), SocialNetwork.VIBER, "link", List.of(), at, "admin", true,
+                null);
+        ScheduledPost withLink = scheduledPosts.insert(car.id(), SocialNetwork.VIBER, "price", List.of(), at, "admin",
+                true, "https://x.bg/cars/a");
         ScheduledPost plain = scheduledPosts.insert(car.id(), SocialNetwork.VIBER, "text", List.of(), at, "admin");
 
         assertThat(link.linkOnly()).isTrue();
         assertThat(scheduledPosts.findById(link.id()).orElseThrow().linkOnly()).isTrue();
         assertThat(plain.linkOnly()).isFalse();
+        assertThat(link.linkUrl()).isNull();
+        assertThat(scheduledPosts.findById(withLink.id()).orElseThrow().linkUrl()).isEqualTo("https://x.bg/cars/a");
     }
 
     @Test

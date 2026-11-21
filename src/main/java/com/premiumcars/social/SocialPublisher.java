@@ -145,10 +145,22 @@ public class SocialPublisher {
 
     /** The checks of a Viber link-only post: no photos are needed. */
     public void validateLinkOnly(long carId, SocialNetwork network, String text) {
+        validateLinkOnly(carId, network, text, null);
+    }
+
+    /** @param link the link sent before the text ("link + text" post), null = the text alone */
+    public void validateLinkOnly(long carId, SocialNetwork network, String text, String link) {
         requireViberOnly(network);
         requireCar(carId);
         requireConfigured(network);
         requireTextFits(network, text);
+        requireLink(link);
+    }
+
+    private static void requireLink(String link) {
+        if (link != null && !isLink(link)) {
+            throw new BadRequestException("The link must be one web address (https://...)");
+        }
     }
 
     private static void requireViberOnly(SocialNetwork network) {
@@ -222,27 +234,45 @@ public class SocialPublisher {
 
     /** A Viber post of the text only (the car's link, which Viber previews itself): no photos, no imgbb. */
     public SocialPost publishLinkOnly(long carId, SocialNetwork network, String text) {
+        return publishLinkOnly(carId, network, text, null);
+    }
+
+    /**
+     * A Viber post without photos: the text alone (a link in it is sent as a link message, with the page's preview),
+     * or with {@code link} the link message first (with the page's preview) and the text right under it.
+     */
+    public SocialPost publishLinkOnly(long carId, SocialNetwork network, String text, String link) {
         requireViberOnly(network);
         requireCar(carId);
         if (!cfg.viberConfigured()) {
             throw new BadRequestException("Viber is not configured: set VIBER_CHANNEL_TOKEN and IMGBB_API_KEY");
         }
         requireTextFits(network, text);
+        requireLink(link);
         String from = viber.superadminId();
-        String link = text.strip();
         String messageToken;
-        if (isLink(link)) {
-            try {
-                messageToken = viber.postUrl(from, link); // shown with the page's preview, unlike a text message
-            } catch (BadRequestException e) {
-                log.warn("Viber refused the link message for car {} ({}); sent as text", carId, e.getMessage());
-                messageToken = viber.postText(from, text);
-            }
+        if (link != null) {
+            postLink(carId, from, link);
+            messageToken = viber.postText(from, text);
+            log.info("Published car {} to Viber (link + text)", carId);
+        } else if (isLink(text.strip())) {
+            messageToken = postLink(carId, from, text.strip());
+            log.info("Published car {} to Viber (link only)", carId);
         } else {
             messageToken = viber.postText(from, text);
+            log.info("Published car {} to Viber (link only)", carId);
         }
-        log.info("Published car {} to Viber (link only)", carId);
         return posts.insert(carId, SocialNetwork.VIBER, messageToken, null, 0);
+    }
+
+    /** Viber's link message (shown with the page's preview, unlike a text message); as text when Viber refuses it. */
+    private String postLink(long carId, String from, String link) {
+        try {
+            return viber.postUrl(from, link);
+        } catch (BadRequestException e) {
+            log.warn("Viber refused the link message for car {} ({}); sent as text", carId, e.getMessage());
+            return viber.postText(from, link);
+        }
     }
 
     /** One web address and nothing else: Viber's "url" message takes up to 2000 characters. */

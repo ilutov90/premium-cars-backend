@@ -49,7 +49,7 @@ class ScheduledPostServiceTest {
 
     private static ScheduledPost due(List<Long> imageIds) {
         return new ScheduledPost(1, 7, "Kia", SocialNetwork.FACEBOOK, "text", imageIds, NOW,
-                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW, false);
+                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW, false, null);
     }
 
     private static final List<ScheduledPostService.Draft> ALL = List.of(
@@ -59,7 +59,7 @@ class ScheduledPostServiceTest {
 
     private static ScheduledPost recorded(long id, SocialNetwork network, String text, ScheduledPost.Status status) {
         return new ScheduledPost(id, 7, "Kia", network, text, List.of(3L), NOW, status, 0, null, null, "admin", NOW,
-                NOW, false);
+                NOW, false, null);
     }
 
     @Test
@@ -173,7 +173,7 @@ class ScheduledPostServiceTest {
 
     private static ScheduledPost scheduledAt(Instant createdAt, SocialNetwork network) {
         return new ScheduledPost(1, 7, "Kia", network, "text", List.of(1L), NOW, ScheduledPost.Status.PUBLISHING, 1,
-                null, null, "admin", createdAt, createdAt, false);
+                null, null, "admin", createdAt, createdAt, false, null);
     }
 
     @Test
@@ -228,7 +228,7 @@ class ScheduledPostServiceTest {
 
         service.publish(7, drafts, null, null, "admin");
 
-        verify(publisher).validateLinkOnly(7, SocialNetwork.VIBER, "link");
+        verify(publisher).validateLinkOnly(7, SocialNetwork.VIBER, "link", null);
         verify(publisher, never()).validate(anyLong(), any(), any(), any());
         verify(repo).insertAll(7, drafts, null, NOW, "admin");
     }
@@ -245,15 +245,49 @@ class ScheduledPostServiceTest {
     @Test
     void testPublish_LinkOnlyDuePost_PublishedWithoutPhotos() {
         var post = new ScheduledPost(1, 7, "Kia", SocialNetwork.VIBER, "link", List.of(), NOW,
-                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW, true);
+                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW, true, null);
         when(cars.findById(7L)).thenReturn(Optional.of(car(CarStatus.PUBLISHED)));
         when(socialPosts.findPostedAfter(anyLong(), any(), any())).thenReturn(Optional.empty());
-        when(publisher.publishLinkOnly(7, SocialNetwork.VIBER, "link")).thenReturn(new SocialPost(
+        when(publisher.publishLinkOnly(7, SocialNetwork.VIBER, "link", null)).thenReturn(new SocialPost(
                 9, 7, SocialNetwork.VIBER, "t", null, 0, NOW));
 
         service.publish(post);
 
         verify(repo).markPublished(1, 9);
         verify(publisher, never()).publish(anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void testPublish_TextAndLinkViber_ValidatedWithTheLink() {
+        var drafts = List.of(new ScheduledPostService.Draft(SocialNetwork.VIBER, "price", true, "https://x.bg/cars/a"));
+        when(repo.insertAll(7, drafts, null, NOW, "admin")).thenReturn(List.of());
+
+        service.publish(7, drafts, null, null, "admin");
+
+        verify(publisher).validateLinkOnly(7, SocialNetwork.VIBER, "price", "https://x.bg/cars/a");
+        verify(repo).insertAll(7, drafts, null, NOW, "admin");
+    }
+
+    @Test
+    void testPublish_LinkWithPhotos_Rejected() {
+        var drafts = List.of(new ScheduledPostService.Draft(SocialNetwork.VIBER, "text", false, "https://x.bg/cars/a"));
+
+        assertThatThrownBy(() -> service.publish(7, drafts, null, null, "admin"))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("without photos");
+        verify(repo, never()).insertAll(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void testPublish_TextAndLinkDuePost_PublishedWithTheLink() {
+        var post = new ScheduledPost(1, 7, "Kia", SocialNetwork.VIBER, "price", List.of(), NOW,
+                ScheduledPost.Status.PUBLISHING, 1, null, null, "admin", NOW, NOW, true, "https://x.bg/cars/a");
+        when(cars.findById(7L)).thenReturn(Optional.of(car(CarStatus.PUBLISHED)));
+        when(socialPosts.findPostedAfter(anyLong(), any(), any())).thenReturn(Optional.empty());
+        when(publisher.publishLinkOnly(7, SocialNetwork.VIBER, "price", "https://x.bg/cars/a")).thenReturn(
+                new SocialPost(9, 7, SocialNetwork.VIBER, "t", null, 0, NOW));
+
+        service.publish(post);
+
+        verify(repo).markPublished(1, 9);
     }
 }
