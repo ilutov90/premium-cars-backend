@@ -3,6 +3,8 @@ package com.premiumcars.inquiry;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +21,10 @@ import com.premiumcars.inquiry.InquiryDtos.AdminInquiry;
 import com.premiumcars.inquiry.InquiryDtos.InquiryCreated;
 import com.premiumcars.inquiry.InquiryDtos.InquiryReport;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
+import com.premiumcars.order.OrderDtos.AdminOrder;
+import com.premiumcars.order.OrderRepository;
+import com.premiumcars.order.OrderRepository.InquiryOrder;
+import com.premiumcars.order.OrderService;
 
 @Service
 public class InquiryService {
@@ -33,13 +39,17 @@ public class InquiryService {
 
     private final ApplicationEventPublisher events;
     private final Clock clock;
+    private final OrderService orderService;
+    private final OrderRepository orders;
 
     public InquiryService(InquiryRepository repo, CarRepository carRepo, ApplicationEventPublisher events,
-                          Clock clock) {
+                          Clock clock, OrderService orderService, OrderRepository orders) {
         this.repo = repo;
         this.carRepo = carRepo;
         this.events = events;
         this.clock = clock;
+        this.orderService = orderService;
+        this.orders = orders;
     }
 
     @Transactional
@@ -74,15 +84,37 @@ public class InquiryService {
     public PageResponse<AdminInquiry> list(Inquiry.Status status, int page, int size) {
         int p = Math.max(page, 0);
         int s = Math.min(Math.max(size, 1), 100);
-        return PageResponse.of(repo.list(status, s, p * s), p, s, repo.count(status), InquiryService::toDto);
+        List<Inquiry> rows = repo.list(status, s, p * s);
+        Map<Long, InquiryOrder> made = orders.findByInquiries(rows.stream().map(Inquiry::id).toList());
+        return PageResponse.of(rows, p, s, repo.count(status), i -> toDto(i, made.get(i.id())));
     }
 
     @Transactional
     public AdminInquiry changeStatus(long id, Inquiry.Status status) {
+        return changeStatus(id, status, null);
+    }
+
+    /** "Свързахме се" (CONTACTED) also makes the inquiry's potential order, unless it has one. */
+    @Transactional
+    public AdminInquiry changeStatus(long id, Inquiry.Status status, String admin) {
         if (!repo.updateStatus(id, status)) {
             throw new NotFoundException("Inquiry not found: " + id);
         }
-        return repo.findById(id).map(InquiryService::toDto).orElseThrow();
+        if (status == Inquiry.Status.CONTACTED) {
+            orderService.createFromInquiry(id, admin);
+        }
+        return find(id);
+    }
+
+    /** The inquiry's order: the one made from it before, else a new potential order. */
+    @Transactional
+    public AdminOrder order(long id, String admin) {
+        return orderService.createFromInquiry(id, admin);
+    }
+
+    private AdminInquiry find(long id) {
+        Inquiry i = repo.findById(id).orElseThrow(() -> new NotFoundException("Inquiry not found: " + id));
+        return toDto(i, orders.findByInquiries(List.of(id)).get(id));
     }
 
     /**
@@ -100,12 +132,20 @@ public class InquiryService {
         }
         return new InquiryReport(start, end, repo.countBetween(start, end), repo.countByStatus(start, end),
                 repo.countByHeardFrom(start, end), repo.countByUtmSource(start, end),
-                repo.countByUtmCampaign(start, end), repo.countByCar(start, end, 20), repo.countByWeek(start, end));
+                repo.countByUtmCampaign(start, end), repo.countByCar(start, end, 20), repo.countByWeek(start, end),
+                repo.funnelByUtmSource(start, end), repo.funnelByUtmCampaign(start, end),
+                repo.funnelByHeardFrom(start, end), repo.countLostReasons(start, end));
     }
 
-    private static AdminInquiry toDto(Inquiry i) {
+    /** With its order and the same phone's other inquiries and orders (a known customer). */
+    private AdminInquiry toDto(Inquiry i, InquiryOrder order) {
+        String key = OrderRepository.phoneKey(i.phone());
+        List<Long> otherInquiries = repo.findIdsByPhoneKey(key, i.id(), 10);
+        List<Long> otherOrders = orders.findIdsByPhone(i.phone(), order == null ? null : order.id(), 10);
         return new AdminInquiry(i.id(), i.carId(), i.carTitle(), i.carSlug(), i.name(), i.phone(), i.email(),
-                i.message(), i.status(), i.createdAt(), i.heardFrom(), i.attribution());
+                i.message(), i.status(), i.createdAt(), i.heardFrom(), i.attribution(),
+                order == null ? null : order.id(), order == null ? null : order.status().name(), otherInquiries,
+                otherOrders);
     }
 
     private static boolean isBlank(String s) {

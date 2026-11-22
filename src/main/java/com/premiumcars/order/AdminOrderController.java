@@ -29,7 +29,11 @@ import com.premiumcars.order.OrderDtos.AdminOrder;
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.order.OrderDocumentService.FileContent;
 import com.premiumcars.order.OrderDocumentService.Upload;
+import com.premiumcars.order.OrderDtos.CandidateRequest;
 import com.premiumcars.order.OrderDtos.CarLookup;
+import com.premiumcars.order.OrderDtos.ChooseRequest;
+import com.premiumcars.order.OrderDtos.ContactRequest;
+import com.premiumcars.order.OrderDtos.FollowUps;
 import com.premiumcars.order.OrderDtos.DocumentUpdate;
 import com.premiumcars.order.OrderDtos.DocumentView;
 import com.premiumcars.order.OrderDtos.OrderRequest;
@@ -50,13 +54,23 @@ public class AdminOrderController {
         this.documentService = documentService;
     }
 
-    /** Newest first; {@code q}: customer, company, car title, the car's number or link, VIN, container. */
+    /**
+     * Newest first; {@code q}: customer, company, car title, the car's number or link, VIN, container;
+     * {@code followUp=true}: only the orders to contact today or earlier (not delivered or cancelled), earliest first.
+     */
     @GetMapping
     public PageResponse<OrderSummary> list(@RequestParam(required = false) OrderStatus status,
                                            @RequestParam(required = false) String q,
+                                           @RequestParam(defaultValue = "false") boolean followUp,
                                            @RequestParam(defaultValue = "0") int page,
                                            @RequestParam(defaultValue = "20") int size) {
-        return service.list(status, q, page, size);
+        return service.list(status, q, followUp, page, size);
+    }
+
+    /** How many orders to contact today or earlier (the admin menu's badge). */
+    @GetMapping("/follow-ups")
+    public FollowUps followUps() {
+        return new FollowUps(service.followUpCount());
     }
 
     /** The car for an order, by its number ("Обява № {id}") or a link to its page on our site; 404 when none. */
@@ -77,8 +91,44 @@ public class AdminOrderController {
     }
 
     @PutMapping("/{id}")
-    public AdminOrder update(@PathVariable long id, @Valid @RequestBody OrderRequest request) {
-        return service.update(id, request);
+    public AdminOrder update(@PathVariable long id, @Valid @RequestBody OrderRequest request, Principal principal) {
+        return service.update(id, request, principal == null ? null : principal.getName());
+    }
+
+    /** Offers the customer a car (its number or site link); 400 when it is already offered. */
+    @PostMapping("/{id}/candidates")
+    public AdminOrder addCandidate(@PathVariable long id, @Valid @RequestBody CandidateRequest request,
+                                   Principal principal) {
+        return service.addCandidate(id, request.q(), principal == null ? null : principal.getName());
+    }
+
+    @DeleteMapping("/{id}/candidates/{candidateId}")
+    public AdminOrder removeCandidate(@PathVariable long id, @PathVariable long candidateId) {
+        return service.removeCandidate(id, candidateId);
+    }
+
+    /** The customer chose this offered car: it becomes the order's car, the order is agreed, the car SOLD. */
+    @PostMapping("/{id}/candidates/{candidateId}/choose")
+    public AdminOrder chooseCandidate(@PathVariable long id, @PathVariable long candidateId,
+                                      @RequestBody(required = false) ChooseRequest request) {
+        return service.chooseCandidate(id, candidateId, request == null ? null : request.status());
+    }
+
+    @PostMapping("/{id}/contacts")
+    public AdminOrder addContact(@PathVariable long id, @Valid @RequestBody ContactRequest request,
+                                 Principal principal) {
+        return service.addContact(id, request, principal == null ? null : principal.getName());
+    }
+
+    @PutMapping("/{id}/contacts/{contactId}")
+    public AdminOrder updateContact(@PathVariable long id, @PathVariable long contactId,
+                                    @Valid @RequestBody ContactRequest request) {
+        return service.updateContact(id, contactId, request);
+    }
+
+    @DeleteMapping("/{id}/contacts/{contactId}")
+    public AdminOrder removeContact(@PathVariable long id, @PathVariable long contactId) {
+        return service.removeContact(id, contactId);
     }
 
     @DeleteMapping("/{id}")

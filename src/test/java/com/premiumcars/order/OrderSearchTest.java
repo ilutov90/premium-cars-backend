@@ -48,11 +48,26 @@ class OrderSearchTest {
     @Test
     void testFields_BlankValuesAndNoStatus_NullsAndContractSigned() {
         var f = OrderService.fields(new OrderRequest(1L, null, " knadg81 ", new BigDecimal("100"), null, null,
-                "  ", null, " note "));
+                "  ", null, " note ", null, com.premiumcars.order.LostReason.PRICE));
         assertThat(f.status()).isEqualTo(OrderStatus.CONTRACT_SIGNED);
         assertThat(f.vin()).isEqualTo("KNADG81");
         assertThat(f.containerNumber()).isNull();
         assertThat(f.notes()).isEqualTo("note");
+        assertThat(f.lostReason()).isNull();
+    }
+
+    @Test
+    void testFields_CancelledWithReason_ReasonKept() {
+        var f = OrderService.fields(new OrderRequest(1L, null, null, null, null, OrderStatus.CANCELLED, null, null,
+                null, null, com.premiumcars.order.LostReason.BOUGHT_ELSEWHERE));
+        assertThat(f.lostReason()).isEqualTo(com.premiumcars.order.LostReason.BOUGHT_ELSEWHERE);
+    }
+
+    @Test
+    void testWhere_FollowUp_OnlyDueOpenOrders() {
+        var w = OrderRepository.where(null, null, java.time.Instant.parse("2026-11-23T21:59:59Z"));
+        assertThat(w.sql()).contains("o.next_contact_at <= :followUpUntil")
+                .contains("NOT IN ('DELIVERED', 'CANCELLED')");
     }
 
     @Test

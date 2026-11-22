@@ -30,8 +30,14 @@ public class OrderRepository {
      * @param coverSourceUrl the cover photo's source URL (what a linked photo is shown from)
      */
     public record OrderRow(CustomerOrder order, CarStatus carStatus, String coverPath, String coverSourceUrl,
-                           int documentCount) {
+                           int documentCount, int candidateCount) {
     }
+
+    /** Statuses that do not hold a car (fixed SQL list). */
+    private static final String NOT_HOLDING = "('CANCELLED', 'LEAD')";
+
+    /** The last 9 digits of a phone: "+359 888 123 456" and "0888123456" are one customer. */
+    static final String PHONE_KEY_SQL = "right(regexp_replace(%s, '\\D', '', 'g'), 9)";
 
     private static final String SELECT = """
             SELECT o.id, o.car_id, o.car_title, o.car_slug, o.car_make, o.car_model, o.car_year, o.car_mileage_km,
@@ -39,8 +45,10 @@ public class OrderRepository {
                    o.customer_name, o.customer_phone, o.customer_email, o.customer_address, o.customer_id_number,
                    o.company_name, o.company_eik, o.vin, o.agreed_price_eur, o.deposit_eur, o.status,
                    o.container_number, o.contract_date, o.notes, o.created_at, o.updated_at, o.created_by, o.car_photos,
+                   o.inquiry_id, o.next_contact_at, o.lost_reason,
                    c.status AS car_status, p.storage_path AS cover_path, p.source_url AS cover_source_url,
-                   (SELECT count(*) FROM order_document d WHERE d.order_id = o.id) AS document_count
+                   (SELECT count(*) FROM order_document d WHERE d.order_id = o.id) AS document_count,
+                   (SELECT count(*) FROM order_candidate_car k WHERE k.order_id = o.id) AS candidate_count
             FROM customer_order o
             LEFT JOIN car c ON c.id = o.car_id
             LEFT JOIN LATERAL (SELECT i.storage_path, i.source_url FROM car_image i WHERE i.car_id = o.car_id
@@ -76,30 +84,46 @@ public class OrderRepository {
                     new OrderFields(rs.getString("vin"), rs.getBigDecimal("agreed_price_eur"),
                             rs.getBigDecimal("deposit_eur"), OrderStatus.valueOf(rs.getString("status")),
                             rs.getString("container_number"),
-                            rs.getObject("contract_date", java.time.LocalDate.class), rs.getString("notes")),
+                            rs.getObject("contract_date", java.time.LocalDate.class), rs.getString("notes"),
+                            instant(rs.getObject("next_contact_at", OffsetDateTime.class)),
+                            rs.getString("lost_reason") == null ? null
+                                    : LostReason.valueOf(rs.getString("lost_reason"))),
                     rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                     rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
                     rs.getString("created_by"),
-                    photos.readStringList(rs.getString("car_photos")));
+                    photos.readStringList(rs.getString("car_photos")),
+                    rs.getObject("inquiry_id", Long.class));
             return new OrderRow(order, carStatus == null ? null : CarStatus.valueOf(carStatus),
-                    rs.getString("cover_path"), rs.getString("cover_source_url"), rs.getInt("document_count"));
+                    rs.getString("cover_path"), rs.getString("cover_source_url"), rs.getInt("document_count"),
+                    rs.getInt("candidate_count"));
         };
     }
 
+    private static java.time.Instant instant(OffsetDateTime t) {
+        return t == null ? null : t.toInstant();
+    }
+
     public long insert(Long carId, CarSnapshot car, Customer customer, OrderFields fields, String createdBy) {
+        return insert(carId, car, customer, fields, createdBy, null);
+    }
+
+    /** @param inquiryId the inquiry the order is made from (one order per inquiry: a unique index) */
+    public long insert(Long carId, CarSnapshot car, Customer customer, OrderFields fields, String createdBy,
+                       Long inquiryId) {
         Map<String, Object> p = params(carId, car, customer, fields);
         p.put("createdBy", createdBy);
+        p.put("inquiryId", inquiryId);
         return jdbc.sql("""
                         INSERT INTO customer_order (car_id, car_title, car_slug, car_make, car_model, car_year,
                             car_mileage_km, car_source, car_source_url, car_source_ref, car_price_eur,
                             customer_name, customer_phone, customer_email, customer_address, customer_id_number,
                             company_name, company_eik, vin, agreed_price_eur, deposit_eur, status, container_number,
-                            contract_date, notes, created_by)
+                            contract_date, notes, next_contact_at, lost_reason, created_by, inquiry_id)
                         VALUES (:carId, :carTitle, :carSlug, :carMake, :carModel, :carYear, :carMileageKm,
                             :carSource, :carSourceUrl, :carSourceRef, :carPriceEur, :customerName, :customerPhone,
                             :customerEmail, :customerAddress, :customerIdNumber, :companyName, :companyEik, :vin,
                             :agreedPriceEur, :depositEur, :status, :containerNumber, :contractDate, :notes,
-                            :createdBy)
+                            :nextContactAt, :lostReason, :createdBy, :inquiryId)
                         RETURNING id""")
                 .params(p)
                 .query(Long.class)
@@ -120,7 +144,8 @@ public class OrderRepository {
                             customer_id_number = :customerIdNumber, company_name = :companyName,
                             company_eik = :companyEik, vin = :vin, agreed_price_eur = :agreedPriceEur,
                             deposit_eur = :depositEur, status = :status, container_number = :containerNumber,
-                            contract_date = :contractDate, notes = :notes, updated_at = now()
+                            contract_date = :contractDate, notes = :notes, next_contact_at = :nextContactAt,
+                            lost_reason = :lostReason, updated_at = now()
                         WHERE id = :id""")
                 .params(p)
                 .update() == 1;
@@ -161,15 +186,85 @@ public class OrderRepository {
         return jdbc.sql(SELECT + "WHERE o.id = :id").param("id", id).query(mapper).optional();
     }
 
-    /** The car's order that is not cancelled, other than {@code exceptOrderId} (null = any). */
+    /** The order made from this inquiry, if any. */
+    public Optional<Long> findByInquiry(long inquiryId) {
+        return jdbc.sql("SELECT id FROM customer_order WHERE inquiry_id = :id")
+                .param("id", inquiryId)
+                .query(Long.class)
+                .optional();
+    }
+
+    /** The orders (id, status) made from these inquiries. */
+    public Map<Long, InquiryOrder> findByInquiries(java.util.Collection<Long> inquiryIds) {
+        if (inquiryIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, InquiryOrder> out = new HashMap<>();
+        jdbc.sql("SELECT inquiry_id, id, status FROM customer_order WHERE inquiry_id IN (:ids)")
+                .param("ids", inquiryIds)
+                .query((rs, n) -> out.put(rs.getLong("inquiry_id"),
+                        new InquiryOrder(rs.getLong("id"), OrderStatus.valueOf(rs.getString("status")))))
+                .list();
+        return out;
+    }
+
+    /** The order made from an inquiry, as the inquiries' list shows it. */
+    public record InquiryOrder(long id, OrderStatus status) {
+    }
+
+    /** Other orders of a customer with this phone (by its last 9 digits), newest first. */
+    public List<Long> findIdsByPhone(String phone, Long exceptOrderId, int limit) {
+        String key = phoneKey(phone);
+        if (key == null) {
+            return List.of();
+        }
+        return jdbc.sql("SELECT id FROM customer_order WHERE " + PHONE_KEY_SQL.formatted("customer_phone")
+                        + " = :key AND id <> :except ORDER BY id DESC LIMIT :limit")
+                .param("key", key)
+                .param("except", exceptOrderId == null ? -1L : exceptOrderId)
+                .param("limit", limit)
+                .query(Long.class)
+                .list();
+    }
+
+    /** The last 9 digits of a phone, or null when it has fewer than 6 digits (too short to tell people apart). */
+    public static String phoneKey(String phone) {
+        if (phone == null) {
+            return null;
+        }
+        String digits = phone.replaceAll("\\D", "");
+        if (digits.length() < 6) {
+            return null;
+        }
+        return digits.length() > 9 ? digits.substring(digits.length() - 9) : digits;
+    }
+
+    /** The orders to contact by {@code until}, not delivered or cancelled. */
+    public long countFollowUps(java.time.Instant until) {
+        return jdbc.sql("SELECT count(*) FROM customer_order WHERE next_contact_at <= :until "
+                        + "AND status NOT IN ('DELIVERED', 'CANCELLED')")
+                .param("until", OffsetDateTime.ofInstant(until, java.time.ZoneOffset.UTC))
+                .query(Long.class)
+                .single();
+    }
+
+    /** The orders to contact by {@code until}, the earliest first (the morning e-mail). */
+    public List<OrderRow> findFollowUps(java.time.Instant until, int limit) {
+        return jdbc.sql(SELECT + "WHERE o.next_contact_at <= :until AND o.status NOT IN ('DELIVERED', 'CANCELLED') "
+                        + "ORDER BY o.next_contact_at, o.id LIMIT :limit")
+                .param("until", OffsetDateTime.ofInstant(until, java.time.ZoneOffset.UTC))
+                .param("limit", limit)
+                .query(mapper)
+                .list();
+    }
+
+    /** The car's agreed order (not potential, not cancelled), other than {@code exceptOrderId} (null = any). */
     public Optional<Long> findActiveOrderOf(long carId, Long exceptOrderId) {
         Map<String, Object> p = new HashMap<>();
         p.put("carId", carId);
         p.put("except", exceptOrderId == null ? -1L : exceptOrderId);
-        return jdbc.sql("""
-                        SELECT id FROM customer_order
-                        WHERE car_id = :carId AND status <> 'CANCELLED' AND id <> :except
-                        ORDER BY id DESC LIMIT 1""")
+        return jdbc.sql("SELECT id FROM customer_order" + " WHERE car_id = :carId AND status NOT IN " + NOT_HOLDING
+                        + " AND id <> :except ORDER BY id DESC LIMIT 1")
                 .params(p)
                 .query(Long.class)
                 .optional();
@@ -185,35 +280,48 @@ public class OrderRepository {
                 .optional();
     }
 
-    /** The car has an order, in any status. */
+    /** The car is an order's car (any status but potential: a potential order holds no car). */
     public boolean hasOrder(long carId) {
-        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM customer_order WHERE car_id = :carId)")
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM customer_order WHERE car_id = :carId AND status <> 'LEAD')")
                 .param("carId", carId)
                 .query(Boolean.class)
                 .single();
     }
 
-    /** Every car with an order, in any status. */
+    /** Every car that is an order's car (any status but potential). */
     public Set<Long> findOrderedCarIds() {
-        return new HashSet<>(jdbc.sql("SELECT DISTINCT car_id FROM customer_order WHERE car_id IS NOT NULL")
+        return new HashSet<>(jdbc.sql("SELECT DISTINCT car_id FROM customer_order WHERE car_id IS NOT NULL "
+                        + "AND status <> 'LEAD'")
                 .query(Long.class)
                 .list());
     }
 
     /** One page of the orders matching the status and text, newest first. */
     public List<OrderRow> search(OrderStatus status, String q, int offset, int limit) {
-        Where w = where(status, q);
+        return search(status, q, null, offset, limit);
+    }
+
+    /** @param followUpUntil only the orders to contact by then (not delivered or cancelled), earliest first */
+    public List<OrderRow> search(OrderStatus status, String q, java.time.Instant followUpUntil, int offset,
+                                 int limit) {
+        Where w = where(status, q, followUpUntil);
         Map<String, Object> p = new HashMap<>(w.params());
         p.put("offset", offset);
         p.put("limit", limit);
-        return jdbc.sql(SELECT + w.sql() + " ORDER BY o.created_at DESC, o.id DESC LIMIT :limit OFFSET :offset")
+        String order = followUpUntil == null ? " ORDER BY o.created_at DESC, o.id DESC"
+                : " ORDER BY o.next_contact_at, o.id";
+        return jdbc.sql(SELECT + w.sql() + order + " LIMIT :limit OFFSET :offset")
                 .params(p)
                 .query(mapper)
                 .list();
     }
 
     public long count(OrderStatus status, String q) {
-        Where w = where(status, q);
+        return count(status, q, null);
+    }
+
+    public long count(OrderStatus status, String q, java.time.Instant followUpUntil) {
+        Where w = where(status, q, followUpUntil);
         return jdbc.sql("SELECT count(*) FROM customer_order o " + w.sql())
                 .params(w.params())
                 .query(Long.class)
@@ -229,8 +337,16 @@ public class OrderRepository {
      * Fixed fragments with named parameters only.
      */
     static Where where(OrderStatus status, String q) {
+        return where(status, q, null);
+    }
+
+    static Where where(OrderStatus status, String q, java.time.Instant followUpUntil) {
         List<String> and = new ArrayList<>();
         Map<String, Object> p = new HashMap<>();
+        if (followUpUntil != null) {
+            and.add("o.next_contact_at <= :followUpUntil AND o.status NOT IN ('DELIVERED', 'CANCELLED')");
+            p.put("followUpUntil", OffsetDateTime.ofInstant(followUpUntil, java.time.ZoneOffset.UTC));
+        }
         if (status != null) {
             and.add("o.status = :status");
             p.put("status", status.name());
@@ -296,6 +412,9 @@ public class OrderRepository {
         p.put("containerNumber", f.containerNumber());
         p.put("contractDate", f.contractDate());
         p.put("notes", f.notes());
+        p.put("nextContactAt", f.nextContactAt() == null ? null
+                : OffsetDateTime.ofInstant(f.nextContactAt(), java.time.ZoneOffset.UTC));
+        p.put("lostReason", f.lostReason() == null ? null : f.lostReason().name());
         return p;
     }
 }

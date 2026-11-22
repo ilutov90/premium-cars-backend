@@ -1,5 +1,9 @@
 package com.premiumcars.order;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Objects;
 
@@ -19,24 +23,36 @@ import com.premiumcars.catalog.service.CarMapper;
 import com.premiumcars.common.BadRequestException;
 import com.premiumcars.common.NotFoundException;
 import com.premiumcars.common.PageResponse;
+import com.premiumcars.inquiry.Inquiry;
+import com.premiumcars.inquiry.InquiryRepository;
 import com.premiumcars.media.ImageStorage;
 import com.premiumcars.order.OrderDtos.AdminOrder;
 import com.premiumcars.order.OrderDtos.CarLookup;
+import com.premiumcars.order.OrderDtos.CandidateView;
+import com.premiumcars.order.OrderDtos.ContactRequest;
+import com.premiumcars.order.OrderDtos.ContactView;
 import com.premiumcars.order.OrderDtos.DocumentView;
+import com.premiumcars.order.OrderDtos.InquiryInfo;
 import com.premiumcars.order.OrderDtos.OrderRequest;
 import com.premiumcars.order.OrderDtos.OrderSummary;
 import com.premiumcars.order.OrderRepository.OrderRow;
 
 /**
- * Customer orders ("Поръчки") for sold cars. A car has at most one order that is not cancelled. An order made for a
- * car (or given another one) keeps a snapshot of it and marks it SOLD; the car's linked photos are then copied into
- * our storage after the commit ({@link OrderPhotoKeeper}). Cancelling an order leaves the car's status to the admin.
+ * Customer orders ("Поръчки"). A potential order (LEAD, made by hand or from an inquiry marked "Свързахме се") holds
+ * no car: the cars offered to the customer are its candidates, which stay on the site. An agreed order (any status
+ * but LEAD and CANCELLED, {@link OrderStatus#holdsCar}) has its car: a car has at most one such order; the car gets a
+ * snapshot in the order and is marked SOLD, and its linked photos are copied into our storage after the commit
+ * ({@link OrderPhotoKeeper}). Cancelling an order leaves the car's status to the admin. An order agreed or cancelled
+ * closes the inquiry it came from.
  */
 @Service
 public class OrderService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
     static final int MAX_PAGE_SIZE = 100;
+    private static final ZoneId SOFIA = ZoneId.of("Europe/Sofia");
+    /** How many other orders / inquiries of the same phone an order or inquiry lists. */
+    static final int RELATED_LIMIT = 10;
 
     private final OrderRepository orders;
     private final OrderDocumentRepository documents;
@@ -46,11 +62,21 @@ public class OrderService {
     private final CarMapper carMapper;
     private final ApplicationEventPublisher events;
     private final ImageStorage photoStorage;
+    private final OrderCandidateRepository candidates;
+    private final OrderContactRepository contacts;
+    private final InquiryRepository inquiries;
+    private final Clock clock;
 
     public OrderService(OrderRepository orders, OrderDocumentRepository documents,
                         OrderDocumentStorage documentStorage, CarRepository cars, CarImageRepository images,
-                        CarMapper carMapper, ApplicationEventPublisher events, ImageStorage photoStorage) {
+                        CarMapper carMapper, ApplicationEventPublisher events, ImageStorage photoStorage,
+                        OrderCandidateRepository candidates, OrderContactRepository contacts,
+                        InquiryRepository inquiries, Clock clock) {
         this.photoStorage = photoStorage;
+        this.candidates = candidates;
+        this.contacts = contacts;
+        this.inquiries = inquiries;
+        this.clock = clock;
         this.orders = orders;
         this.documents = documents;
         this.documentStorage = documentStorage;
@@ -62,10 +88,29 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public PageResponse<OrderSummary> list(OrderStatus status, String q, int page, int size) {
+        return list(status, q, false, page, size);
+    }
+
+    /** @param followUp only the orders to contact today or earlier (not delivered or cancelled), earliest first */
+    @Transactional(readOnly = true)
+    public PageResponse<OrderSummary> list(OrderStatus status, String q, boolean followUp, int page, int size) {
         int p = Math.max(page, 0);
         int s = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-        List<OrderRow> rows = orders.search(status, q, p * s, s);
-        return PageResponse.of(rows, p, s, orders.count(status, q), this::toSummary);
+        Instant until = followUp ? endOfToday() : null;
+        List<OrderRow> rows = orders.search(status, q, until, p * s, s);
+        return PageResponse.of(rows, p, s, orders.count(status, q, until), this::toSummary);
+    }
+
+    /** How many orders to contact today or earlier (the admin menu's badge). */
+    @Transactional(readOnly = true)
+    public long followUpCount() {
+        return orders.countFollowUps(endOfToday());
+    }
+
+    /** The last instant of today in Sofia. */
+    Instant endOfToday() {
+        LocalDate today = LocalDate.now(clock.withZone(SOFIA));
+        return today.plusDays(1).atStartOfDay(SOFIA).toInstant().minusMillis(1);
     }
 
     @Transactional(readOnly = true)
@@ -75,10 +120,18 @@ public class OrderService {
 
     @Transactional
     public AdminOrder create(OrderRequest r, String admin) {
+        OrderFields fields = fields(r);
+        if (fields.status() == OrderStatus.LEAD) {
+            long id = orders.insert(null, null, customer(r), fields, admin);
+            if (r.carId() != null) {
+                addCandidate(id, car(r.carId()), admin);
+            }
+            log.info("Potential order {} created by {}", id, admin);
+            return get(id);
+        }
         if (r.carId() == null) {
             throw new BadRequestException("Choose the car of the order");
         }
-        OrderFields fields = fields(r);
         Car car = car(r.carId());
         checkOneActive(car.id(), null, fields.status());
         long id;
@@ -93,15 +146,56 @@ public class OrderService {
     }
 
     /**
+     * The order of an inquiry: the one made from it before, else a new potential order with the customer's name,
+     * phone and e-mail, the inquiry's car as the first offered car (when it is still in the catalog) and the
+     * customer's message as the first entry of the contacts.
+     */
+    @Transactional
+    public AdminOrder createFromInquiry(long inquiryId, String admin) {
+        Long existing = orders.findByInquiry(inquiryId).orElse(null);
+        if (existing != null) {
+            return get(existing);
+        }
+        Inquiry inquiry = inquiries.findById(inquiryId)
+                .orElseThrow(() -> new NotFoundException("Inquiry not found: " + inquiryId));
+        Customer customer = new Customer(inquiry.name(), inquiry.phone(), inquiry.email(), null, null, null, null)
+                .normalized();
+        OrderFields fields = new OrderFields(null, null, null, OrderStatus.LEAD, null, null, null, null, null);
+        long id = orders.insert(null, null, customer, fields, admin, inquiryId);
+        if (inquiry.carId() != null) {
+            cars.findById(inquiry.carId()).ifPresent(car -> addCandidate(id, car, admin));
+        }
+        String message = OrderText.clean(inquiry.message());
+        contacts.insert(id, ContactKind.INQUIRY, message == null ? "(без съобщение)" : message,
+                inquiry.createdAt() == null ? clock.instant() : inquiry.createdAt(), null);
+        log.info("Potential order {} made from inquiry {} by {}", id, inquiryId, admin);
+        return get(id);
+    }
+
+    /**
      * Replaces the order's values. Another car takes a new snapshot and is marked SOLD (so is the car of a cancelled
      * order made active again); the same car keeps its snapshot; no car leaves the order with its snapshot.
      */
     @Transactional
     public AdminOrder update(long id, OrderRequest r) {
+        return update(id, r, null);
+    }
+
+    /**
+     * @param admin who changes it (noted on an offered car added because the order became potential with its car)
+     */
+    @Transactional
+    public AdminOrder update(long id, OrderRequest r, String admin) {
         CustomerOrder existing = find(id).order();
         OrderFields fields = fields(r);
         Long carId = r.carId();
         CarSnapshot snapshot = existing.car();
+        if (fields.status() == OrderStatus.LEAD && carId != null) {
+            // a potential order holds no car: its car becomes an offered one (the car's status stays as it is)
+            cars.findById(carId).ifPresent(car -> addCandidate(id, car, admin));
+            carId = null;
+            snapshot = null;
+        }
         Car newCar = null;
         if (carId != null && !carId.equals(existing.carId())) {
             newCar = car(carId);
@@ -115,14 +209,106 @@ public class OrderService {
         } catch (DuplicateKeyException e) {
             throw activeOrderExists(Objects.requireNonNull(carId), null);
         }
-        if (newCar == null && carId != null && existing.fields().status() == OrderStatus.CANCELLED) {
-            // a cancelled order made active again takes its car again
+        if (newCar == null && carId != null && !existing.fields().status().holdsCar()) {
+            // a cancelled or potential order agreed now takes its car
             newCar = cars.findById(carId).orElse(null);
         }
         if (newCar != null) {
             assigned(id, newCar, fields.status());
         }
+        closeInquiry(existing.inquiryId(), fields.status());
         return get(id);
+    }
+
+    // ---------------------------------------------------------------- offered cars
+
+    /** Offers the customer the car with this number or site link. */
+    @Transactional
+    public AdminOrder addCandidate(long orderId, String q, String admin) {
+        find(orderId);
+        Car car = findCar(q);
+        if (!addCandidate(orderId, car, admin)) {
+            throw new BadRequestException("This car is already offered to the customer");
+        }
+        return get(orderId);
+    }
+
+    /** @return false when the order already has this car */
+    private boolean addCandidate(long orderId, Car car, String admin) {
+        List<CarImage> photos = images.findByCarId(car.id());
+        return candidates.insert(orderId, car.id(), car.specs().title(), car.slug(), car.totalPriceEur(),
+                photos.isEmpty() ? null : carMapper.url(photos.getFirst()), admin).isPresent();
+    }
+
+    @Transactional
+    public AdminOrder removeCandidate(long orderId, long candidateId) {
+        if (!candidates.delete(orderId, candidateId)) {
+            throw new NotFoundException("Offered car not found: " + candidateId);
+        }
+        return get(orderId);
+    }
+
+    /**
+     * The customer chose this offered car: it becomes the order's car with a new snapshot, the order is agreed
+     * ({@code status}, null = CONTRACT_SIGNED) and the car is marked SOLD. The other offered cars stay listed.
+     */
+    @Transactional
+    public AdminOrder chooseCandidate(long orderId, long candidateId, OrderStatus status) {
+        OrderStatus newStatus = status == null ? OrderStatus.CONTRACT_SIGNED : status;
+        if (!newStatus.holdsCar()) {
+            throw new BadRequestException("Choosing a car agrees the order: pick a status after the contract");
+        }
+        CustomerOrder order = find(orderId).order();
+        OrderCandidateRepository.Candidate candidate = candidates.find(orderId, candidateId)
+                .orElseThrow(() -> new NotFoundException("Offered car not found: " + candidateId));
+        if (candidate.carId() == null) {
+            throw new BadRequestException("This car is no longer in the catalog");
+        }
+        Car car = car(candidate.carId());
+        checkOneActive(car.id(), orderId, newStatus);
+        try {
+            orders.update(orderId, car.id(), CarSnapshot.of(car), order.customer(),
+                    order.fields().withStatus(newStatus));
+        } catch (DuplicateKeyException e) {
+            throw activeOrderExists(car.id(), null);
+        }
+        assigned(orderId, car, newStatus);
+        closeInquiry(order.inquiryId(), newStatus);
+        log.info("Order {}: the customer chose car {}", orderId, car.id());
+        return get(orderId);
+    }
+
+    // ---------------------------------------------------------------- contacts
+
+    @Transactional
+    public AdminOrder addContact(long orderId, ContactRequest r, String admin) {
+        find(orderId);
+        contacts.insert(orderId, r.kind(), r.body().strip(), r.happenedAt() == null ? clock.instant()
+                : r.happenedAt(), admin);
+        return get(orderId);
+    }
+
+    @Transactional
+    public AdminOrder updateContact(long orderId, long contactId, ContactRequest r) {
+        if (!contacts.update(orderId, contactId, r.kind(), r.body().strip(),
+                r.happenedAt() == null ? clock.instant() : r.happenedAt())) {
+            throw new NotFoundException("Contact entry not found: " + contactId);
+        }
+        return get(orderId);
+    }
+
+    @Transactional
+    public AdminOrder removeContact(long orderId, long contactId) {
+        if (!contacts.delete(orderId, contactId)) {
+            throw new NotFoundException("Contact entry not found: " + contactId);
+        }
+        return get(orderId);
+    }
+
+    private void closeInquiry(Long inquiryId, OrderStatus status) {
+        if (inquiryId != null && status.closesInquiry()) {
+            inquiries.updateStatus(inquiryId, Inquiry.Status.CLOSED);
+        }
     }
 
     /**
@@ -161,8 +347,7 @@ public class OrderService {
     /** The car an admin means by its number ("Обява № {id}", "#29538") or a link to its page on our site. */
     @Transactional(readOnly = true)
     public CarLookup lookupCar(String q) {
-        Car car = cars.findByNumberOrLink(q == null ? null : q.strip())
-                .orElseThrow(() -> new NotFoundException("No car for: " + q));
+        Car car = findCar(q);
         List<CarImage> photos = images.findByCarId(car.id());
         return new CarLookup(car.id(), car.specs().title(), car.slug(), car.status(),
                 photos.isEmpty() ? null : carMapper.url(photos.getFirst()), car.totalPriceEur(),
@@ -171,8 +356,14 @@ public class OrderService {
 
     // ---------------------------------------------------------------- helpers
 
+    /** The car by its number as the car page shows it ("Обява № 29538", "№ 29538", "29538") or a link to it. */
+    private Car findCar(String q) {
+        String text = q == null ? null : q.strip().replaceFirst("(?iu)^обява\\s*", "");
+        return cars.findByNumberOrLink(text).orElseThrow(() -> new NotFoundException("No car for: " + q));
+    }
+
     private void assigned(long orderId, Car car, OrderStatus status) {
-        if (status == OrderStatus.CANCELLED) {
+        if (!status.holdsCar()) {
             return;
         }
         if (car.status() != CarStatus.SOLD) {
@@ -182,7 +373,7 @@ public class OrderService {
     }
 
     private void checkOneActive(long carId, Long orderId, OrderStatus status) {
-        if (status == OrderStatus.CANCELLED) {
+        if (!status.holdsCar()) {
             return;
         }
         Long other = orders.findActiveOrderOf(carId, orderId).orElse(null);
@@ -211,9 +402,11 @@ public class OrderService {
 
     static OrderFields fields(OrderRequest r) {
         String vin = OrderText.clean(r.vin());
+        OrderStatus status = r.status() == null ? OrderStatus.CONTRACT_SIGNED : r.status();
         return new OrderFields(vin == null ? null : vin.toUpperCase(java.util.Locale.ROOT), r.agreedPriceEur(),
-                r.depositEur(), r.status() == null ? OrderStatus.CONTRACT_SIGNED : r.status(),
-                OrderText.clean(r.containerNumber()), r.contractDate(), OrderText.clean(r.notes()));
+                r.depositEur(), status, OrderText.clean(r.containerNumber()), r.contractDate(),
+                OrderText.clean(r.notes()), r.nextContactAt(),
+                status == OrderStatus.CANCELLED ? r.lostReason() : null);
     }
 
     private String coverUrl(OrderRow row) {
@@ -229,7 +422,8 @@ public class OrderService {
         OrderFields f = o.fields();
         return new OrderSummary(o.id(), o.carId(), o.car(), row.carStatus(), coverUrl(row), o.customer(), f.vin(),
                 f.agreedPriceEur(), f.depositEur(), f.status(), f.containerNumber(), f.contractDate(),
-                row.documentCount(), o.createdAt(), o.updatedAt());
+                row.documentCount(), o.createdAt(), o.updatedAt(), f.nextContactAt(), f.lostReason(),
+                row.candidateCount(), o.inquiryId());
     }
 
     private AdminOrder toAdmin(OrderRow row) {
@@ -238,7 +432,23 @@ public class OrderService {
         return new AdminOrder(o.id(), o.carId(), o.car(), row.carStatus(), coverUrl(row), o.customer(), f.vin(),
                 f.agreedPriceEur(), f.depositEur(), f.status(), f.containerNumber(), f.contractDate(), f.notes(),
                 o.createdAt(), o.updatedAt(), o.createdBy(),
-                documents.findByOrder(o.id()).stream().map(DocumentView::of).toList(), carPhotos(o));
+                documents.findByOrder(o.id()).stream().map(DocumentView::of).toList(), carPhotos(o),
+                f.nextContactAt(), f.lostReason(), inquiryInfo(o.inquiryId()),
+                candidates.findByOrder(o.id()).stream().map(CandidateView::of).toList(),
+                contacts.findByOrder(o.id()).stream().map(ContactView::of).toList(),
+                orders.findIdsByPhone(o.customer().phone(), o.id(), RELATED_LIMIT),
+                inquiries.findIdsByPhoneKey(OrderRepository.phoneKey(o.customer().phone()),
+                        o.inquiryId() == null ? -1L : o.inquiryId(), RELATED_LIMIT));
+    }
+
+    private InquiryInfo inquiryInfo(Long inquiryId) {
+        if (inquiryId == null) {
+            return null;
+        }
+        return inquiries.findById(inquiryId)
+                .map(i -> new InquiryInfo(i.id(), i.createdAt(), i.message(), i.carId(), i.carTitle(), i.carSlug(),
+                        i.status().name(), i.heardFrom(), i.attribution()))
+                .orElse(null);
     }
 
     private List<String> carPhotos(CustomerOrder o) {

@@ -1475,7 +1475,133 @@ class JdbcRepositoriesTest {
                 new com.premiumcars.order.Customer(" " + name + " ", "+359 888 123 456", "buyer@example.com",
                         "Sofia", "", "Firma OOD", null),
                 vin, new BigDecimal("21000.50"), new BigDecimal("2000"), status, "MSKU1234567",
-                LocalDate.of(2026, 11, 2), "first notes");
+                LocalDate.of(2026, 11, 2), "first notes", null, null);
+    }
+
+    private static com.premiumcars.order.OrderDtos.OrderRequest leadRequest(Long carId, String phone,
+            java.time.Instant nextContactAt) {
+        return new com.premiumcars.order.OrderDtos.OrderRequest(carId,
+                new com.premiumcars.order.Customer("Lead Buyer", phone, null, null, null, null, null), null, null,
+                null, com.premiumcars.order.OrderStatus.LEAD, null, null, null, nextContactAt, null);
+    }
+
+    @Test
+    void testChangeStatus_InquiryContacted_MakesOneLeadWithItsCarAndMessage() {
+        AdminCar car = orderTestCar("Kia K5 Lead From Inquiry");
+        var inquiry = inquiryService.create(new InquiryRequest("Maria", "0877 555 111", "maria@example.com",
+                "Is it still available?", car.id(), null, true, null, null));
+
+        var contacted = inquiryService.changeStatus(inquiry.id(), Inquiry.Status.CONTACTED, "admin");
+        assertThat(contacted.orderId()).isNotNull();
+        assertThat(contacted.orderStatus()).isEqualTo("LEAD");
+        var lead = orderService.get(contacted.orderId());
+        assertThat(lead.status()).isEqualTo(com.premiumcars.order.OrderStatus.LEAD);
+        assertThat(lead.carId()).isNull();
+        assertThat(lead.customer().name()).isEqualTo("Maria");
+        assertThat(lead.customer().phone()).isEqualTo("0877 555 111");
+        assertThat(lead.customer().email()).isEqualTo("maria@example.com");
+        assertThat(lead.inquiry().id()).isEqualTo(inquiry.id());
+        assertThat(lead.candidates()).singleElement().satisfies(c -> {
+            assertThat(c.carId()).isEqualTo(car.id());
+            assertThat(c.title()).isEqualTo("Kia K5 Lead From Inquiry");
+            assertThat(c.carStatus()).isEqualTo(CarStatus.PUBLISHED);
+        });
+        assertThat(lead.contacts()).singleElement().satisfies(c -> {
+            assertThat(c.kind()).isEqualTo(com.premiumcars.order.ContactKind.INQUIRY);
+            assertThat(c.body()).isEqualTo("Is it still available?");
+        });
+        assertThat(carService.getAdmin(car.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        assertThat(carService.hasOrder(car.id())).isFalse();
+        assertThat(carService.orderedCarIds()).doesNotContain(car.id());
+
+        assertThat(inquiryService.changeStatus(inquiry.id(), Inquiry.Status.CONTACTED, "admin").orderId())
+                .isEqualTo(lead.id());
+        assertThat(inquiryService.order(inquiry.id(), "admin").id()).isEqualTo(lead.id());
+
+        orderService.delete(lead.id());
+        carService.delete(car.id());
+    }
+
+    @Test
+    void testChooseCandidate_LeadWithTwoCars_ChosenSoldOtherStaysAndInquiryClosed() {
+        AdminCar first = orderTestCar("Kia K5 Candidate One");
+        AdminCar second = orderTestCar("Kia K5 Candidate Two");
+        var inquiry = inquiryService.create(new InquiryRequest("Petar", "0888 777 999", null, "Търся: Kia K5",
+                null, null, true, null, null));
+        var lead = inquiryService.order(inquiry.id(), "admin");
+        lead = orderService.addCandidate(lead.id(), "Обява № " + first.id(), "admin");
+        lead = orderService.addCandidate(lead.id(), "https://premiumcarsimport.bg/cars/" + second.slug(), "admin");
+        long leadId = lead.id();
+        assertThatThrownBy(() -> orderService.addCandidate(leadId, String.valueOf(first.id()), "admin"))
+                .isInstanceOf(BadRequestException.class);
+        assertThat(lead.candidates()).extracting(c -> c.carId()).containsExactly(first.id(), second.id());
+        assertThat(carService.getAdmin(first.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+
+        long chosen = lead.candidates().get(1).id();
+        var agreed = orderService.chooseCandidate(leadId, chosen, null);
+        assertThat(agreed.status()).isEqualTo(com.premiumcars.order.OrderStatus.CONTRACT_SIGNED);
+        assertThat(agreed.carId()).isEqualTo(second.id());
+        assertThat(agreed.car().title()).isEqualTo("Kia K5 Candidate Two");
+        assertThat(carService.getAdmin(second.id()).status()).isEqualTo(CarStatus.SOLD);
+        assertThat(carService.getAdmin(first.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        assertThat(agreed.candidates()).hasSize(2);
+        assertThat(inquiryService.list(Inquiry.Status.CLOSED, 0, 100).items())
+                .anySatisfy(i -> assertThat(i.id()).isEqualTo(inquiry.id()));
+        assertThatThrownBy(() -> orderService.chooseCandidate(leadId, chosen,
+                com.premiumcars.order.OrderStatus.LEAD)).isInstanceOf(BadRequestException.class);
+
+        orderService.delete(leadId);
+        carService.delete(first.id());
+        carService.delete(second.id());
+    }
+
+    @Test
+    void testUpdate_AgreedOrderBackToLead_CarBecomesOfferedCar() {
+        AdminCar car = orderTestCar("Kia K5 Back To Lead");
+        var order = orderService.create(orderRequest(car.id(), "Undecided Buyer", null, null), "admin");
+
+        var lead = orderService.update(order.id(), leadRequest(car.id(), "0899 000 111", null), "admin");
+
+        assertThat(lead.status()).isEqualTo(com.premiumcars.order.OrderStatus.LEAD);
+        assertThat(lead.carId()).isNull();
+        assertThat(lead.candidates()).extracting(c -> c.carId()).containsExactly(car.id());
+        assertThat(carService.hasOrder(car.id())).isFalse();
+        var other = orderService.create(orderRequest(car.id(), "Decided Buyer", null, null), "admin");
+        assertThat(other.carStatus()).isEqualTo(CarStatus.SOLD);
+
+        orderService.delete(other.id());
+        orderService.delete(lead.id());
+        carService.delete(car.id());
+    }
+
+    @Test
+    void testContactsAndFollowUps_LeadWithReminder_ListedAndCounted() {
+        var lead = orderService.create(leadRequest(null, "+359 896 123 321",
+                java.time.Instant.now().minusSeconds(3600)), "admin");
+        long before = orderService.followUpCount();
+        assertThat(before).isPositive();
+        assertThat(orderService.list(null, null, true, 0, 100).items())
+                .anySatisfy(o -> assertThat(o.id()).isEqualTo(lead.id()));
+
+        var withNote = orderService.addContact(lead.id(), new com.premiumcars.order.OrderDtos.ContactRequest(
+                com.premiumcars.order.ContactKind.CALL, " Will call back on Friday ", null), "admin");
+        var entry = withNote.contacts().getFirst();
+        assertThat(entry.body()).isEqualTo("Will call back on Friday");
+        assertThat(entry.createdBy()).isEqualTo("admin");
+        var edited = orderService.updateContact(lead.id(), entry.id(),
+                new com.premiumcars.order.OrderDtos.ContactRequest(com.premiumcars.order.ContactKind.VIBER,
+                        "Sent three offers", null));
+        assertThat(edited.contacts().getFirst().kind()).isEqualTo(com.premiumcars.order.ContactKind.VIBER);
+        assertThat(orderService.removeContact(lead.id(), entry.id()).contacts()).isEmpty();
+
+        var twin = orderService.create(leadRequest(null, "0896123321", null), "admin");
+        assertThat(orderService.get(twin.id()).otherOrderIds()).contains(lead.id());
+
+        orderService.update(lead.id(), leadRequest(null, "+359 896 123 321", null), "admin");
+        assertThat(orderService.followUpCount()).isEqualTo(before - 1);
+
+        orderService.delete(twin.id());
+        orderService.delete(lead.id());
     }
 
     @Test
@@ -1505,7 +1631,7 @@ class JdbcRepositoriesTest {
         assertThat(carService.getAdmin(car.id()).orderId()).isEqualTo(order.id());
 
         var changed = orderService.update(order.id(), new com.premiumcars.order.OrderDtos.OrderRequest(car.id(),
-                null, null, null, null, com.premiumcars.order.OrderStatus.SHIPPED, null, null, "  "));
+                null, null, null, null, com.premiumcars.order.OrderStatus.SHIPPED, null, null, "  ", null, null));
         assertThat(changed.status()).isEqualTo(com.premiumcars.order.OrderStatus.SHIPPED);
         assertThat(changed.customer().name()).isNull();
         assertThat(changed.notes()).isNull();
