@@ -17,6 +17,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -57,6 +58,7 @@ public class GuaziSearch implements SourceSearch {
     /** guazi wants a device id and a guid in every search; any value is accepted. */
     private final String deviceId = UUID.randomUUID().toString().replace("-", "");
 
+    @Autowired
     public GuaziSearch(ObjectMapper json, AppProperties props, AutoImportInstance instance,
                        com.premiumcars.importing.browser.BrowserFetch browser) {
         // a bot check instead of data: asked again from the browser on guazi's own page
