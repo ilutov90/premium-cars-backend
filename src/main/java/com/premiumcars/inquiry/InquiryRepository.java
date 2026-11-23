@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 
 import com.premiumcars.inquiry.InquiryDtos.CarCount;
 import com.premiumcars.inquiry.InquiryDtos.Count;
+import com.premiumcars.inquiry.InquiryDtos.Funnel;
 import com.premiumcars.inquiry.InquiryDtos.WeekCount;
 
 /** All SQL for the {@code inquiry} table. */
@@ -124,7 +125,60 @@ public class InquiryRepository {
                 .update() == 1;
     }
 
+    /** Other inquiries from this phone (by its last 9 digits, see {@code OrderRepository.phoneKey}), newest first. */
+    public List<Long> findIdsByPhoneKey(String phoneKey, long exceptId, int limit) {
+        if (phoneKey == null) {
+            return List.of();
+        }
+        return jdbc.sql("SELECT id FROM inquiry WHERE right(regexp_replace(phone, '\\D', '', 'g'), 9) = :key "
+                        + "AND id <> :except ORDER BY id DESC LIMIT :limit")
+                .param("key", phoneKey)
+                .param("except", exceptId)
+                .param("limit", limit)
+                .query(Long.class)
+                .list();
+    }
+
     // --- the report (fixed column names only: nothing from the request goes into the SQL text) ---
+
+    public List<Funnel> funnelByUtmSource(LocalDate from, LocalDate to) {
+        return funnelBy("lower(i.utm_source)", from, to);
+    }
+
+    public List<Funnel> funnelByUtmCampaign(LocalDate from, LocalDate to) {
+        return funnelBy("i.utm_campaign", from, to);
+    }
+
+    public List<Funnel> funnelByHeardFrom(LocalDate from, LocalDate to) {
+        return funnelBy("i.heard_from", from, to);
+    }
+
+    /** The period's inquiries per key and how far their orders got (the order made from each inquiry). */
+    private List<Funnel> funnelBy(String column, LocalDate from, LocalDate to) {
+        return jdbc.sql("SELECT " + column + " AS k, count(*) AS n, count(o.id) AS orders, "
+                        + "count(*) FILTER (WHERE o.status IN ('CONTRACT_SIGNED', 'PAID', 'SHIPPED', 'ARRIVED', "
+                        + "'DELIVERED')) AS agreed, "
+                        + "count(*) FILTER (WHERE o.status = 'DELIVERED') AS delivered, "
+                        + "count(*) FILTER (WHERE o.status = 'CANCELLED') AS lost "
+                        + "FROM inquiry i LEFT JOIN customer_order o ON o.inquiry_id = i.id " + PERIOD
+                        + "GROUP BY 1 ORDER BY n DESC, k NULLS LAST")
+                .param("from", from)
+                .param("to", to)
+                .query((rs, n) -> new Funnel(rs.getString("k"), rs.getLong("n"), rs.getLong("orders"),
+                        rs.getLong("agreed"), rs.getLong("delivered"), rs.getLong("lost")))
+                .list();
+    }
+
+    /** Why the period's inquiries did not buy (their cancelled orders' reasons; null = not given). */
+    public List<Count> countLostReasons(LocalDate from, LocalDate to) {
+        return jdbc.sql("SELECT o.lost_reason AS k, count(*) AS n FROM inquiry i "
+                        + "JOIN customer_order o ON o.inquiry_id = i.id " + PERIOD
+                        + "AND o.status = 'CANCELLED' GROUP BY 1 ORDER BY n DESC, k NULLS LAST")
+                .param("from", from)
+                .param("to", to)
+                .query((rs, n) -> new Count(rs.getString("k"), rs.getLong("n")))
+                .list();
+    }
 
     public long countBetween(LocalDate from, LocalDate to) {
         return jdbc.sql("SELECT count(*) FROM inquiry i " + PERIOD)

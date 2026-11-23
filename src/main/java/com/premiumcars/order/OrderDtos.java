@@ -21,9 +21,12 @@ public final class OrderDtos {
     /**
      * Create an order or replace its values (PUT sends the whole order).
      *
-     * @param carId  the catalog car ("Обява №"); required for a new order; on a change, another car takes a new
-     *               snapshot, null leaves the order without a car (its snapshot stays)
+     * @param carId  the catalog car ("Обява №"); required for a new order but a potential one; on a change, another
+     *               car takes a new snapshot, null leaves the order without a car (its snapshot stays). A potential
+     *               order (LEAD) holds no car: a car sent with it is added to its offered cars instead
      * @param status null = {@link OrderStatus#CONTRACT_SIGNED}
+     * @param nextContactAt when to contact the customer next; null = no reminder
+     * @param lostReason    why the customer did not buy (for a cancelled order)
      */
     public record OrderRequest(
             Long carId,
@@ -34,7 +37,9 @@ public final class OrderDtos {
             OrderStatus status,
             @Size(max = 30) String containerNumber,
             LocalDate contractDate,
-            @Size(max = 20000) String notes
+            @Size(max = 20000) String notes,
+            Instant nextContactAt,
+            LostReason lostReason
     ) {
     }
 
@@ -44,11 +49,14 @@ public final class OrderDtos {
      * @param car       the car as it was when the order got it
      * @param carStatus the car's status now; null when the car was deleted
      * @param coverUrl  the car's cover photo now; null when it has none or was deleted
+     * @param candidateCount the cars offered to the customer (a potential order)
+     * @param inquiryId the site inquiry the order was made from
      */
     public record OrderSummary(long id, Long carId, CarSnapshot car, CarStatus carStatus, String coverUrl,
                                Customer customer, String vin, BigDecimal agreedPriceEur, BigDecimal depositEur,
                                OrderStatus status, String containerNumber, LocalDate contractDate,
-                               int documentCount, Instant createdAt, Instant updatedAt) {
+                               int documentCount, Instant createdAt, Instant updatedAt, Instant nextContactAt,
+                               LostReason lostReason, int candidateCount, Long inquiryId) {
     }
 
     /**
@@ -56,12 +64,67 @@ public final class OrderDtos {
      *
      * @param carPhotos displayable URLs of the car's photos in gallery order: the car's photos now, or, once the car
      *                  was deleted, the stored photos the order kept
+     * @param inquiry         the site inquiry the order was made from, if any
+     * @param candidates      the cars offered to the customer, in the order they were added
+     * @param contacts        what was said with the customer, newest first
+     * @param otherOrderIds   other orders of a customer with the same phone, newest first
+     * @param otherInquiryIds inquiries from the same phone other than {@code inquiry}, newest first
      */
     public record AdminOrder(long id, Long carId, CarSnapshot car, CarStatus carStatus, String coverUrl,
                              Customer customer, String vin, BigDecimal agreedPriceEur, BigDecimal depositEur,
                              OrderStatus status, String containerNumber, LocalDate contractDate, String notes,
                              Instant createdAt, Instant updatedAt, String createdBy,
-                             List<DocumentView> documents, List<String> carPhotos) {
+                             List<DocumentView> documents, List<String> carPhotos, Instant nextContactAt,
+                             LostReason lostReason, InquiryInfo inquiry, List<CandidateView> candidates,
+                             List<ContactView> contacts, List<Long> otherOrderIds, List<Long> otherInquiryIds) {
+    }
+
+    /** The inquiry an order was made from, as the customer sent it. */
+    public record InquiryInfo(long id, Instant createdAt, String message, Long carId, String carTitle,
+                              String carSlug, String status, com.premiumcars.inquiry.HeardFrom heardFrom,
+                              com.premiumcars.inquiry.Attribution attribution) {
+    }
+
+    /**
+     * A car offered to the customer.
+     *
+     * @param carId     null once the car was deleted (title, link and price stay as they were)
+     * @param carStatus the car's status now (SOLD: sold, maybe to someone else); null when it is gone
+     * @param priceEur  the site's final price when it was added
+     */
+    public record CandidateView(long id, Long carId, String title, String slug, BigDecimal priceEur,
+                                String coverUrl, CarStatus carStatus, Instant addedAt, String addedBy) {
+
+        static CandidateView of(OrderCandidateRepository.Candidate c) {
+            return new CandidateView(c.id(), c.carId(), c.title(), c.slug(), c.priceEur(), c.coverUrl(),
+                    c.carStatus(), c.addedAt(), c.addedBy());
+        }
+    }
+
+    public record ContactView(long id, ContactKind kind, String body, Instant happenedAt, String createdBy,
+                              Instant updatedAt) {
+
+        static ContactView of(OrderContactRepository.Contact c) {
+            return new ContactView(c.id(), c.kind(), c.body(), c.happenedAt(), c.createdBy(), c.updatedAt());
+        }
+    }
+
+    /** Offer a car: its number ("Обява № 29538") or a link to its page on our site. */
+    public record CandidateRequest(@jakarta.validation.constraints.NotBlank @Size(max = 2000) String q) {
+    }
+
+    /** The customer chose this offered car: it becomes the order's car; status null = CONTRACT_SIGNED. */
+    public record ChooseRequest(OrderStatus status) {
+    }
+
+    /** @param happenedAt when it happened; null = now */
+    public record ContactRequest(@jakarta.validation.constraints.NotNull ContactKind kind,
+                                 @jakarta.validation.constraints.NotBlank @Size(max = 10000) String body,
+                                 Instant happenedAt) {
+    }
+
+    /** The orders to contact today or earlier (not delivered or cancelled). */
+    public record FollowUps(long due) {
     }
 
     /** What the admin may change of a document. */

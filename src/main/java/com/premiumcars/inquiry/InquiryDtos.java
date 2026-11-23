@@ -37,9 +37,16 @@ public final class InquiryDtos {
     public record InquiryCreated(Long id) {
     }
 
+    /**
+     * @param orderId          the order made from this inquiry ("Свързахме се" makes a potential one), if any
+     * @param orderStatus      that order's status (a {@code com.premiumcars.order.OrderStatus} name)
+     * @param otherInquiryIds  earlier or later inquiries from the same phone (a known customer), newest first
+     * @param otherOrderIds    orders of a customer with the same phone, other than {@code orderId}, newest first
+     */
     public record AdminInquiry(Long id, Long carId, String carTitle, String carSlug, String name, String phone,
                                String email, String message, Inquiry.Status status, Instant createdAt,
-                               HeardFrom heardFrom, Attribution attribution) {
+                               HeardFrom heardFrom, Attribution attribution, Long orderId, String orderStatus,
+                               List<Long> otherInquiryIds, List<Long> otherOrderIds) {
     }
 
     public record InquiryStatusRequest(@NotNull Inquiry.Status status) {
@@ -56,6 +63,14 @@ public final class InquiryDtos {
     }
 
     /**
+     * How far one channel's inquiries got: {@code orders} = an order was made from them (potential or more),
+     * {@code agreed} = a contract (signed, paid, shipped, arrived or delivered), {@code lost} = the order was
+     * cancelled.
+     */
+    public record Funnel(String key, long inquiries, long orders, long agreed, long delivered, long lost) {
+    }
+
+    /**
      * The weekly report of the admin panel: inquiries from {@code from} to {@code to} (both inclusive, Sofia time).
      *
      * @param byHeardFrom   per answer to "Откъде научихте за нас?"
@@ -63,9 +78,15 @@ public final class InquiryDtos {
      * @param byUtmCampaign per utm_campaign
      * @param byCar         per car (null car = "find me a car"), most first
      * @param byWeek        per week (Monday), oldest first
+     * @param funnelBySource   per utm_source: how many became orders, contracts, deliveries
+     * @param funnelByCampaign per utm_campaign, the same
+     * @param funnelByHeardFrom per answer to "Откъде научихте за нас?", the same
+     * @param lostReasons   why the period's inquiries did not buy (a {@code LostReason} name; null = not given)
      */
     public record InquiryReport(LocalDate from, LocalDate to, long total, List<Count> byStatus,
                                 List<Count> byHeardFrom, List<Count> byUtmSource, List<Count> byUtmCampaign,
-                                List<CarCount> byCar, List<WeekCount> byWeek) {
+                                List<CarCount> byCar, List<WeekCount> byWeek, List<Funnel> funnelBySource,
+                                List<Funnel> funnelByCampaign, List<Funnel> funnelByHeardFrom,
+                                List<Count> lostReasons) {
     }
 }

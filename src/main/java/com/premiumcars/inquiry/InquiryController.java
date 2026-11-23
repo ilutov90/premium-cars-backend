@@ -1,5 +1,6 @@
 package com.premiumcars.inquiry;
 
+import java.security.Principal;
 import java.time.LocalDate;
 
 import org.springframework.format.annotation.DateTimeFormat;
@@ -18,6 +19,7 @@ import com.premiumcars.inquiry.InquiryDtos.InquiryCreated;
 import com.premiumcars.inquiry.InquiryDtos.InquiryReport;
 import com.premiumcars.inquiry.InquiryDtos.InquiryRequest;
 import com.premiumcars.inquiry.InquiryDtos.InquiryStatusRequest;
+import com.premiumcars.order.OrderDtos.AdminOrder;
 
 import jakarta.validation.Valid;
 
@@ -43,9 +45,17 @@ public class InquiryController {
         return service.list(status, page, size);
     }
 
+    /** "Свързахме се" (CONTACTED) also makes the inquiry's potential order, once. */
     @PostMapping("/api/admin/inquiries/{id}/status")
-    public AdminInquiry changeStatus(@PathVariable long id, @Valid @RequestBody InquiryStatusRequest request) {
-        return service.changeStatus(id, request.status());
+    public AdminInquiry changeStatus(@PathVariable long id, @Valid @RequestBody InquiryStatusRequest request,
+                                     Principal principal) {
+        return service.changeStatus(id, request.status(), principal == null ? null : principal.getName());
+    }
+
+    /** The inquiry's order: the one made from it before, else a new potential order (in any inquiry status). */
+    @PostMapping("/api/admin/inquiries/{id}/order")
+    public AdminOrder order(@PathVariable long id, Principal principal) {
+        return service.order(id, principal == null ? null : principal.getName());
     }
 
     /** The admin panel's report ("Отчет"): inquiries per channel, campaign, car and week. Dates: yyyy-MM-dd. */
