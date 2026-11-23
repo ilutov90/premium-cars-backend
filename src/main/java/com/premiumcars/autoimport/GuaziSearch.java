@@ -15,7 +15,9 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -38,7 +40,9 @@ import com.premiumcars.importing.source.guazi.GuaziPageParser;
  * and their models (series) from {@code GET /os/product/filter/queryBrandList}.
  * <p>
  * guazi serves only the first {@value #WINDOW} results of a search. A make with more is read model by model, and a
- * model with more year by year; the make's own total tells whether everything was read.
+ * model with more year by year; the make's own total tells whether everything was read. When too few were read,
+ * the searches that gave fewer listings than counted (or a model counted 0) are read once more after a pause; a
+ * make still under 90 % of its count is reported failed, so nothing of it is removed.
  */
 @Component
 public class GuaziSearch implements SourceSearch {
@@ -49,9 +53,12 @@ public class GuaziSearch implements SourceSearch {
     private static final ZoneId CHINA = ZoneId.of("Asia/Shanghai");
 
     private final SearchHttp http;
+    private final Pages pages;
+    private final long retryPauseMs;
     /** guazi wants a device id and a guid in every search; any value is accepted. */
     private final String deviceId = UUID.randomUUID().toString().replace("-", "");
 
+    @Autowired
     public GuaziSearch(ObjectMapper json, AppProperties props, AutoImportInstance instance,
                        com.premiumcars.importing.browser.BrowserFetch browser) {
         // a bot check instead of data: asked again from the browser on guazi's own page
@@ -59,7 +66,21 @@ public class GuaziSearch implements SourceSearch {
                 "User-Agent", props.importer().userAgent(),
                 "Origin", SITE,
                 "Referer", SITE + "/used-cars/"), browser, SITE + "/used-cars/");
+        this.pages = (slice, page, size, recommendId) -> ok(http.post(
+                URI.create(SITE + "/os/facade/search/product/list?language=en"),
+                slice.body(page, size, deviceId, recommendId)));
+        this.retryPauseMs = RETRY_PAUSE_MS;
     }
+
+    /** For tests: the search's answers from elsewhere, the makes' models given with the {@link Brand}. */
+    GuaziSearch(Pages pages, long retryPauseMs) {
+        this.http = null;
+        this.pages = pages;
+        this.retryPauseMs = retryPauseMs;
+    }
+
+    /** The wait before the searches that gave too few listings are read again. */
+    static final long RETRY_PAUSE_MS = 30_000;
 
     @Override
     public CarSource source() {
@@ -84,7 +105,7 @@ public class GuaziSearch implements SourceSearch {
 
     @Override
     public Instant lastRefused() {
-        return http.lastRefused();
+        return http == null ? null : http.lastRefused();
     }
 
     @Override
@@ -97,45 +118,29 @@ public class GuaziSearch implements SourceSearch {
         };
         int expected = 0;
         boolean complete = true;
+        List<Read> reads = new ArrayList<>();
         try {
             Slice whole = new Slice(brand, filters, ids(brand.models()), brand.yearFrom(), null);
             expected = total(whole);
             if (expected <= WINDOW) {
-                read(whole, expected, once);
+                reads.add(readSlice(whole, expected, brand.name(), false, once));
             } else {
-                List<String> series = brand.models().isEmpty() ? ids(models(brand.code())) : ids(brand.models());
-                int lastYear = Year.now(CHINA).getValue() + 1;
-                for (String s : series) {
-                    Slice model = new Slice(brand, filters, List.of(s), brand.yearFrom(), null);
-                    int n = total(model);
-                    if (n <= WINDOW) {
-                        read(model, n, once);
-                        continue;
-                    }
-                    for (int year = brand.yearFrom(); year <= lastYear; year++) {
-                        Slice oneYear = new Slice(brand, filters, List.of(s), year, year);
-                        int m = total(oneYear);
-                        if (m <= WINDOW) {
-                            read(oneYear, m, once);
-                            continue;
-                        }
-                        // one model and one year with more than guazi shows: one grade at a time
-                        List<List<String>> grades = filters.grades().isEmpty()
-                                ? List.of(List.of("S"), List.of("A"), List.of("B"), List.of("C"), List.of("D"))
-                                : filters.grades().stream().map(List::of).toList();
-                        int byGrade = 0;
-                        for (List<String> g : grades) {
-                            Slice oneGrade = new Slice(brand, new SourceFilters(filters.inspected(),
-                                    filters.actualMileage(), g), List.of(s), year, year);
-                            int k = total(oneGrade);
-                            byGrade += k;
-                            read(oneGrade, k, once);
-                            if (k > WINDOW) {
-                                complete = false; // still more than guazi shows
-                            }
-                        }
-                        if (filters.grades().isEmpty() && byGrade < m) {
-                            complete = false; // listings without a grade: not all reachable
+                for (CatalogModel m : brand.models().isEmpty() ? models(brand.code()) : brand.models()) {
+                    complete &= readModel(brand, filters, m, once, reads);
+                }
+            }
+            if (seen.size() < expected * COMPLETE_SHARE) {
+                // guazi sometimes answers a search with fewer listings than it counts, or with none: read those again
+                List<Read> again = reads.stream().filter(Read::suspect).toList();
+                if (!again.isEmpty()) {
+                    pause();
+                    reads.removeAll(again);
+                    for (Read r : again) {
+                        if (r.modelLevel() && r.total() == 0) {
+                            complete &= readModel(brand, filters, r.model(), once, reads);
+                        } else {
+                            reads.add(readSlice(r.slice(), total(r.slice()), r.label(), r.modelLevel(), once)
+                                    .withModel(r.model()));
                         }
                     }
                 }
@@ -143,9 +148,90 @@ public class GuaziSearch implements SourceSearch {
         } catch (SearchException e) {
             return new BrandPass(brand.code(), brand.name(), expected, seen.size(), false, e.getMessage(), true);
         }
-        complete = complete && seen.size() >= expected * 0.98;
-        return new BrandPass(brand.code(), brand.name(), expected, seen.size(), complete,
-                complete ? null : "read " + seen.size() + " of " + expected, false);
+        complete = complete && seen.size() >= expected * COMPLETE_SHARE;
+        if (complete) {
+            return new BrandPass(brand.code(), brand.name(), expected, seen.size(), true, null, false);
+        }
+        String shortReads = reads.stream().filter(r -> r.got() < Math.min(r.total(), WINDOW))
+                .limit(5).map(r -> r.label() + " " + r.got() + "/" + r.total()).collect(Collectors.joining(", "));
+        String error = "read " + seen.size() + " of " + expected + (shortReads.isEmpty() ? "" : "; short: " + shortReads);
+        // far too few even after reading again: guazi did not answer properly, so nothing of the make counts as gone
+        boolean unreliable = seen.size() < expected * UNRELIABLE_SHARE;
+        return new BrandPass(brand.code(), brand.name(), expected, seen.size(), false, error, unreliable);
+    }
+
+    /** Reads one model: whole, or year by year (and grade by grade) when guazi would not show it all. */
+    private boolean readModel(Brand brand, SourceFilters filters, CatalogModel m, Consumer<FoundListing> once,
+                              List<Read> reads) {
+        Slice model = new Slice(brand, filters, List.of(m.code()), brand.yearFrom(), null);
+        int n = total(model);
+        if (n <= WINDOW) {
+            reads.add(readSlice(model, n, m.name(), true, once).withModel(m));
+            return true;
+        }
+        boolean complete = true;
+        int lastYear = Year.now(CHINA).getValue() + 1;
+        for (int year = brand.yearFrom(); year <= lastYear; year++) {
+            Slice oneYear = new Slice(brand, filters, List.of(m.code()), year, year);
+            int y = total(oneYear);
+            if (y <= WINDOW) {
+                reads.add(readSlice(oneYear, y, m.name() + " " + year, false, once).withModel(m));
+                continue;
+            }
+            // one model and one year with more than guazi shows: one grade at a time
+            List<List<String>> grades = filters.grades().isEmpty()
+                    ? List.of(List.of("S"), List.of("A"), List.of("B"), List.of("C"), List.of("D"))
+                    : filters.grades().stream().map(List::of).toList();
+            int byGrade = 0;
+            for (List<String> g : grades) {
+                Slice oneGrade = new Slice(brand, new SourceFilters(filters.inspected(),
+                        filters.actualMileage(), g), List.of(m.code()), year, year);
+                int k = total(oneGrade);
+                byGrade += k;
+                reads.add(readSlice(oneGrade, k, m.name() + " " + year + " " + g.get(0), false, once).withModel(m));
+                if (k > WINDOW) {
+                    complete = false; // still more than guazi shows
+                }
+            }
+            if (filters.grades().isEmpty() && byGrade < y) {
+                complete = false; // listings without a grade: not all reachable
+            }
+        }
+        return complete;
+    }
+
+    /** The share of a make's count that must be read for the make to count as read whole. */
+    static final double COMPLETE_SHARE = 0.98;
+    /** Below this share, even after reading again, nothing of the make is removed. */
+    static final double UNRELIABLE_SHARE = 0.9;
+
+    /**
+     * One search read: its count and how many listings its pages gave.
+     *
+     * @param modelLevel the search of a whole model: a count of 0 there may be guazi's empty answer
+     */
+    record Read(Slice slice, String label, boolean modelLevel, CatalogModel model, int total, int got) {
+
+        /** Fewer listings than counted (up to what guazi shows), or a model guazi counted none of. */
+        boolean suspect() {
+            return got < Math.min(total, WINDOW) || (modelLevel && total == 0);
+        }
+
+        Read withModel(CatalogModel m) {
+            return new Read(slice, label, modelLevel, m, total, got);
+        }
+    }
+
+    private void pause() {
+        if (retryPauseMs <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(retryPauseMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SearchException("interrupted");
+        }
     }
 
     /** Auctions show guazi's stand-in price ("$9,999,999"): not imported, but still at the source. */
@@ -203,9 +289,13 @@ public class GuaziSearch implements SourceSearch {
         return search(slice, 1, 1).path("totalCount").asInt();
     }
 
-    /** Reads a slice's pages (at most the first {@value #WINDOW} results). */
-    private void read(Slice slice, int total, Consumer<FoundListing> found) {
+    /**
+     * Reads a slice's pages (at most the first {@value #WINDOW} results). A page with fewer listings than asked does
+     * not end it (guazi leaves some out now and then): only an empty page or the slice's count does.
+     */
+    private Read readSlice(Slice slice, int total, String label, boolean modelLevel, Consumer<FoundListing> found) {
         int reachable = Math.min(total, WINDOW);
+        Set<String> got = new HashSet<>();
         String recommendId = null;
         for (int page = 1; (page - 1) * PAGE_SIZE < reachable; page++) {
             JsonNode data = search(slice, page, PAGE_SIZE, recommendId);
@@ -214,13 +304,15 @@ public class GuaziSearch implements SourceSearch {
             for (JsonNode item : list) {
                 FoundListing l = listing(item);
                 if (l != null) {
+                    got.add(l.id());
                     found.accept(l);
                 }
             }
-            if (list.size() < PAGE_SIZE) {
+            if (list.isEmpty()) {
                 break;
             }
         }
+        return new Read(slice, label, modelLevel, null, total, got.size());
     }
 
     private JsonNode search(Slice slice, int page, int size) {
@@ -228,8 +320,12 @@ public class GuaziSearch implements SourceSearch {
     }
 
     private JsonNode search(Slice slice, int page, int size, String recommendId) {
-        return ok(http.post(URI.create(SITE + "/os/facade/search/product/list?language=en"),
-                slice.body(page, size, deviceId, recommendId)));
+        return pages.search(slice, page, size, recommendId);
+    }
+
+    /** One page of a search's answer ({@code data}). */
+    interface Pages {
+        JsonNode search(Slice slice, int page, int size, String recommendId);
     }
 
     static List<String> ids(List<CatalogModel> models) {
