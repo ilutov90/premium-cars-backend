@@ -392,7 +392,7 @@ public class AutoImportRunner {
         // (every car the automatic import knows a listing of, also of makes not read whole this time: those are
         // left for the next run, not searched again here as if added by hand)
         Set<Long> covered = listings.carIds(source);
-        ManualCheck manual = checkOtherCars(search, source, covered, dryRun, runId, notes);
+        ManualCheck manual = checkOtherCars(search, source, s.filters(), covered, dryRun, runId, notes);
         if (manual.stopped() && status.equals("DONE")) {
             status = "STOPPED";
         }
@@ -403,8 +403,6 @@ public class AutoImportRunner {
         return new Result(status, found.size(), newCount, gone, 0, passes,
                 notes.isEmpty() ? null : String.join("; ", notes), manual.checked(), manual.gone());
     }
-
-    private static final SourceFilters NO_FILTERS = new SourceFilters(false, false, List.of());
 
     record ManualCheck(int checked, int gone, int returned, boolean stopped) {
     }
@@ -417,6 +415,17 @@ public class AutoImportRunner {
      */
     ManualCheck checkOtherCars(SourceSearch search, CarSource source, Set<Long> covered, boolean dryRun, Long runId,
                                List<String> notes) {
+        return checkOtherCars(search, source, null, covered, dryRun, runId, notes);
+    }
+
+    /**
+     * As above; of the source's own filters only autowini's location applies (a car located outside S.Korea counts
+     * as gone when {@code koreaOnly}), never the others.
+     */
+    ManualCheck checkOtherCars(SourceSearch search, CarSource source, SourceFilters own, Set<Long> covered,
+                               boolean dryRun, Long runId, List<String> notes) {
+        SourceFilters location = new SourceFilters(false, false, List.of(), null,
+                own != null && Boolean.TRUE.equals(own.koreaOnly()));
         Set<Long> ordered = carService.orderedCarIds();
         List<CheckedCar> others = cars.findForSourceCheck(source).stream()
                 .filter(c -> !covered.contains(c.id()))
@@ -443,7 +452,7 @@ public class AutoImportRunner {
             Boolean there = null;
             if (oneByOne && c.sourceRef() != null && !c.sourceRef().isBlank()) {
                 try {
-                    there = search.listed(c.sourceRef().trim());
+                    there = search.listed(c.sourceRef().trim(), location);
                 } catch (SourceSearch.SearchException e) {
                     unanswered++;
                     continue;
@@ -481,7 +490,7 @@ public class AutoImportRunner {
             String incomplete = null;
             for (CatalogBrand make : makes) {
                 BrandPass p = search.list(new Brand(make.code(), make.name(), true, Math.max(yearFrom, 1990),
-                        List.of()), NO_FILTERS, l -> {
+                        List.of()), location, l -> {
                             urls.add(l.url());
                             ids.add(l.id().toLowerCase(java.util.Locale.ROOT));
                         });

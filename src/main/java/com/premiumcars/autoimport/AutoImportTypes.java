@@ -12,19 +12,27 @@ public final class AutoImportTypes {
     }
 
     /**
-     * A source's own filters: autowini's "Inspected" and "Actual" (verified mileage); guazi's condition grades
-     * (S, A, B, C, D); autotrader.ca's {@link AutotraderFilters} (null for the other sites). Each site ignores what
-     * is not its own.
+     * A source's own filters: autowini's "Inspected", "Actual" (verified mileage) and {@code koreaOnly} (the
+     * listing's "Location" S.Korea: listings located in Japan or Singapore left out; null, as in filters saved
+     * before it, = true); guazi's condition grades (S, A, B, C, D); autotrader.ca's {@link AutotraderFilters} (null
+     * for the other sites). Each site ignores what is not its own.
      */
     public record SourceFilters(boolean inspected, boolean actualMileage, List<String> grades,
-                                @JsonInclude(JsonInclude.Include.NON_NULL) AutotraderFilters autotrader) {
+                                @JsonInclude(JsonInclude.Include.NON_NULL) AutotraderFilters autotrader,
+                                Boolean koreaOnly) {
 
         public SourceFilters {
             grades = grades == null ? List.of() : List.copyOf(grades);
+            koreaOnly = koreaOnly == null || koreaOnly;
+        }
+
+        public SourceFilters(boolean inspected, boolean actualMileage, List<String> grades,
+                             AutotraderFilters autotrader) {
+            this(inspected, actualMileage, grades, autotrader, null);
         }
 
         public SourceFilters(boolean inspected, boolean actualMileage, List<String> grades) {
-            this(inspected, actualMileage, grades, null);
+            this(inspected, actualMileage, grades, null, null);
         }
 
         /** autotrader.ca's filters, its defaults where none are saved. */
@@ -33,7 +41,7 @@ public final class AutoImportTypes {
         }
 
         public SourceFilters withAutotrader(AutotraderFilters filters) {
-            return new SourceFilters(inspected, actualMileage, grades, filters);
+            return new SourceFilters(inspected, actualMileage, grades, filters, koreaOnly);
         }
     }
 

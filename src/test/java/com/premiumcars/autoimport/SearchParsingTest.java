@@ -77,8 +77,9 @@ class SearchParsingTest {
     void autowiniQueries() {
         Brand kia = new Brand("C0810", "Kia", true, 2018, List.of());
         assertThat(AutowiniSearch.queries(kia, new SourceFilters(true, true, List.of()))).containsExactly(Map.of(
-                "make", "C0810", "modelYearFrom", "2018", "inspectionReportUploaded", "true", "actualMileage", "true"));
-        assertThat(AutowiniSearch.queries(kia, new SourceFilters(false, false, List.of("S"))))
+                "make", "C0810", "modelYearFrom", "2018", "inspectionReportUploaded", "true", "actualMileage", "true",
+                "location", "C1570"));
+        assertThat(AutowiniSearch.queries(kia, new SourceFilters(false, false, List.of("S"), null, false)))
                 .containsExactly(Map.of("make", "C0810", "modelYearFrom", "2018"));
 
         Brand twoModels = new Brand("C0810", "Kia", true, 2020,
@@ -92,6 +93,32 @@ class SearchParsingTest {
 
         assertThat(AutowiniSearch.uri("/items/cars", new java.util.LinkedHashMap<>(Map.of("make", "C0810"))).toString())
                 .isEqualTo("https://v2api.autowini.com/items/cars?make=C0810");
+    }
+
+    @Test
+    void testQueries_koreaOnlyNotSaved_locationKorea() {
+        Brand kia = new Brand("C0810", "Kia", true, 2018, List.of());
+
+        assertThat(AutowiniSearch.queries(kia, new SourceFilters(false, false, List.of(), null, null)))
+                .containsExactly(Map.of("make", "C0810", "modelYearFrom", "2018", "location", "C1570"));
+    }
+
+    @Test
+    void testListedQuery_koreaOnly_keywordWithLocation() {
+        assertThat(AutowiniSearch.listedQuery("IC5489163", new SourceFilters(false, false, List.of(), null, true)))
+                .containsExactly(Map.entry("keyword", "IC5489163"), Map.entry("location", "C1570"));
+        assertThat(AutowiniSearch.listedQuery("IC5489163", new SourceFilters(false, false, List.of(), null, false)))
+                .containsExactly(Map.entry("keyword", "IC5489163"));
+        assertThat(AutowiniSearch.listedQuery("IC5489163", null)).containsExactly(Map.entry("keyword", "IC5489163"));
+    }
+
+    @Test
+    void testSourceFilters_savedWithoutKoreaOnly_koreaOnlyTrue() throws Exception {
+        SourceFilters f = new ObjectMapper().readValue("{\"inspected\":true,\"actualMileage\":false,\"grades\":[]}",
+                SourceFilters.class);
+
+        assertThat(f.koreaOnly()).isTrue();
+        assertThat(f.inspected()).isTrue();
     }
 
     @Test
