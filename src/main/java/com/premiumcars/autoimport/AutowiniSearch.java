@@ -33,7 +33,7 @@ import com.premiumcars.importing.source.autowini.AutowiniPageParser;
 /**
  * autowini's search through the API its mobile site uses (v2api.autowini.com, no login):
  * {@code GET /items/cars?make=C0810&modelYearFrom=2018&inspectionReportUploaded=true&actualMileage=true
- * &pageOffset=1&pageSize=40} ({@code data.totalCount}, {@code data.items[]}), {@code /items/cars/count} and
+ * &location=C1570&pageOffset=1&pageSize=40} ({@code data.totalCount}, {@code data.items[]}), {@code /items/cars/count} and
  * {@code /items/cars/filters} (makes; with {@code make=...} its sub-models). Models are autowini's "sub-models"
  * (Carnival, K5, ...). Prices are FOB in USD, as the importer reads them anyway.
  */
@@ -42,6 +42,8 @@ public class AutowiniSearch implements SourceSearch {
 
     static final String API = "https://v2api.autowini.com";
     static final int PAGE_SIZE = 40; // autowini's maximum
+    /** autowini's "Location" S.Korea ({@code location=C1570}, as its own search page sends it). */
+    static final String KOREA = "C1570";
     private static final int MAX_PAGES = 3000;
 
     private final SearchHttp http;
@@ -239,7 +241,13 @@ public class AutowiniSearch implements SourceSearch {
      */
     @Override
     public Boolean listed(String listingId) {
-        JsonNode data = ok(http.get(uri("/items/cars", Map.of("keyword", listingId))));
+        return listed(listingId, null);
+    }
+
+    /** As {@link #listed(String)}; with "Location" S.Korea chosen, a listing located elsewhere counts as not listed. */
+    @Override
+    public Boolean listed(String listingId, SourceFilters filters) {
+        JsonNode data = ok(http.get(uri("/items/cars", listedQuery(listingId, filters))));
         JsonNode items = data.path("items");
         if (!items.isArray()) {
             throw new SearchException("autowini: no items in the answer for " + listingId);
@@ -354,6 +362,15 @@ public class AutowiniSearch implements SourceSearch {
     }
 
     /** One per chosen model (autowini's sub-model filter takes one) with its fuel types left out, or the make. */
+    static Map<String, String> listedQuery(String listingId, SourceFilters filters) {
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("keyword", listingId);
+        if (filters != null && Boolean.TRUE.equals(filters.koreaOnly())) {
+            q.put("location", KOREA);
+        }
+        return q;
+    }
+
     static List<Unit> units(Brand brand, SourceFilters filters) {
         Map<String, String> base = base(brand.code(), brand.yearFrom(), filters);
         if (brand.models().isEmpty()) {
@@ -381,6 +398,9 @@ public class AutowiniSearch implements SourceSearch {
         }
         if (filters.actualMileage()) {
             base.put("actualMileage", "true");
+        }
+        if (Boolean.TRUE.equals(filters.koreaOnly())) {
+            base.put("location", KOREA);
         }
         return base;
     }

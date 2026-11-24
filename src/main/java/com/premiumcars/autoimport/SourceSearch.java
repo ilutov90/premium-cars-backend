@@ -70,6 +70,11 @@ public interface SourceSearch {
         return null;
     }
 
+    /** As {@link #listed(String)}, inside the source's own filters where the site can tell (autowini's location). */
+    default Boolean listed(String listingId, AutoImportTypes.SourceFilters filters) {
+        return listed(listingId);
+    }
+
     /** The listing shows a price we can import with. */
     default boolean priced(FoundListing listing) {
         return listing.price() != null && listing.price().signum() > 0;
