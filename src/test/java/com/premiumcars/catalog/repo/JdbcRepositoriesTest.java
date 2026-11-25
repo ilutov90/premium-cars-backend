@@ -1556,6 +1556,53 @@ class JdbcRepositoriesTest {
     }
 
     @Test
+    void testChangeCar_AgreedOrderNewCar_NewSoldOldBackOnSiteAndNoted() {
+        AdminCar first = orderTestCar("Kia Stinger Changed From");
+        AdminCar second = orderTestCar("Kia Stinger Changed To");
+        var order = orderService.create(orderRequest(first.id(), "Changing Buyer", null, null), "admin");
+        assertThat(carService.getAdmin(first.id()).status()).isEqualTo(CarStatus.SOLD);
+
+        var changed = orderService.changeCar(order.id(), "Обява № " + second.id(), true, "admin");
+
+        assertThat(changed.status()).isEqualTo(com.premiumcars.order.OrderStatus.CONTRACT_SIGNED);
+        assertThat(changed.carId()).isEqualTo(second.id());
+        assertThat(changed.car().title()).isEqualTo("Kia Stinger Changed To");
+        assertThat(carService.getAdmin(second.id()).status()).isEqualTo(CarStatus.SOLD);
+        assertThat(carService.getAdmin(first.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        assertThat(changed.candidates()).extracting(c -> c.carId()).containsExactly(first.id());
+        assertThat(changed.contacts()).anySatisfy(c -> assertThat(c.body())
+                .isEqualTo("Колата е сменена: Kia Stinger Changed From (Обява № " + first.id()
+                        + ") → Kia Stinger Changed To (Обява № " + second.id() + "). Предишната е върната в сайта."));
+        long orderId = order.id();
+        assertThatThrownBy(() -> orderService.changeCar(orderId, String.valueOf(second.id()), true, "admin"))
+                .isInstanceOf(BadRequestException.class);
+
+        orderService.delete(orderId);
+        carService.delete(first.id());
+        carService.delete(second.id());
+    }
+
+    @Test
+    void testChangeCar_KeepOldSoldOrLead_OldStaysSoldAndLeadRefused() {
+        AdminCar first = orderTestCar("Kia Stinger Kept Sold");
+        AdminCar second = orderTestCar("Kia Stinger Second Choice");
+        var order = orderService.create(orderRequest(first.id(), "Keeping Buyer", null, null), "admin");
+
+        orderService.changeCar(order.id(), String.valueOf(second.id()), false, "admin");
+
+        assertThat(carService.getAdmin(first.id()).status()).isEqualTo(CarStatus.SOLD);
+        var lead = orderService.create(leadRequest(null, "0899 222 333", null), "admin");
+        long leadId = lead.id();
+        assertThatThrownBy(() -> orderService.changeCar(leadId, String.valueOf(first.id()), true, "admin"))
+                .isInstanceOf(BadRequestException.class);
+
+        orderService.delete(leadId);
+        orderService.delete(order.id());
+        carService.delete(first.id());
+        carService.delete(second.id());
+    }
+
+    @Test
     void testUpdate_AgreedOrderBackToLead_CarBecomesOfferedCar() {
         AdminCar car = orderTestCar("Kia K5 Back To Lead");
         var order = orderService.create(orderRequest(car.id(), "Undecided Buyer", null, null), "admin");

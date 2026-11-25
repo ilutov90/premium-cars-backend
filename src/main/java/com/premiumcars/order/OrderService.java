@@ -278,6 +278,55 @@ public class OrderService {
         return get(orderId);
     }
 
+    /**
+     * The customer changed their mind after the contract: the agreed order takes another car (its number or site
+     * link), which is marked SOLD and whose snapshot and photos the order keeps from now on. The previous car stays
+     * among the offered cars for the history and, with {@code republishOld}, goes back on the site when it is still
+     * in the catalog and marked SOLD. The status, the customer, the prices and the documents stay as they are; a
+     * "Комуникация" note records the change.
+     */
+    @Transactional
+    public AdminOrder changeCar(long orderId, String q, boolean republishOld, String admin) {
+        CustomerOrder order = find(orderId).order();
+        OrderStatus status = order.fields().status();
+        if (!status.holdsCar()) {
+            throw new BadRequestException("Only an agreed order changes its car: a potential order chooses one of"
+                    + " the offered cars");
+        }
+        Car newCar = findCar(q);
+        if (order.carId() != null && newCar.id() == order.carId()) {
+            throw new BadRequestException("This is already the order's car");
+        }
+        checkOneActive(newCar.id(), orderId, status);
+        Car oldCar = order.carId() == null ? null : cars.findById(order.carId()).orElse(null);
+        try {
+            orders.update(orderId, newCar.id(), CarSnapshot.of(newCar), order.customer(), order.fields());
+        } catch (DuplicateKeyException e) {
+            throw activeOrderExists(newCar.id(), null);
+        }
+        boolean republished = false;
+        if (oldCar != null) {
+            addCandidate(orderId, oldCar, admin);
+            if (republishOld && oldCar.status() == CarStatus.SOLD) {
+                cars.updateStatus(oldCar.id(), CarStatus.PUBLISHED);
+                republished = true;
+            }
+        }
+        assigned(orderId, newCar, status);
+        contacts.insert(orderId, ContactKind.NOTE, changeNote(order.car().title(), order.carId(),
+                newCar.specs().title(), newCar.id(), republished), clock.instant(), admin);
+        log.info("Order {}: car {} changed to {}{}", orderId, order.carId(), newCar.id(),
+                republished ? " (the previous one back on the site)" : "");
+        return get(orderId);
+    }
+
+    /** The "Комуникация" note of a changed car (the admins' language). */
+    static String changeNote(String oldTitle, Long oldId, String newTitle, long newId, boolean republished) {
+        String from = (oldTitle == null ? "кола" : oldTitle) + (oldId == null ? "" : " (Обява № " + oldId + ")");
+        return "Колата е сменена: " + from + " → " + (newTitle == null ? "кола" : newTitle) + " (Обява № " + newId
+                + ")" + (republished ? ". Предишната е върната в сайта." : ".");
+    }
+
     // ---------------------------------------------------------------- contacts
 
     @Transactional
