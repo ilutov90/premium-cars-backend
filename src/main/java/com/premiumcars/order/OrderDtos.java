@@ -113,6 +113,14 @@ public final class OrderDtos {
     public record CandidateRequest(@jakarta.validation.constraints.NotBlank @Size(max = 2000) String q) {
     }
 
+    /**
+     * An agreed order takes another car: {@code q} = its number or site link; {@code republishOld} puts the previous
+     * car back on the site.
+     */
+    public record ChangeCarRequest(@jakarta.validation.constraints.NotBlank @Size(max = 2000) String q,
+                                   boolean republishOld) {
+    }
+
     /** The customer chose this offered car: it becomes the order's car; status null = CONTRACT_SIGNED. */
     public record ChooseRequest(OrderStatus status) {
     }

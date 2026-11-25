@@ -48,6 +48,15 @@ class OrderLeadTest {
                 .contains("https://site.bg/admin/orders?followUp=1");
     }
 
+    @Test
+    void testChangeNote_OldCarGoneOrBack_NoteNamesBoth() {
+        assertThat(OrderService.changeNote("Kia Stinger", 125890L, "Kia K5", 130001, true))
+                .isEqualTo("Колата е сменена: Kia Stinger (Обява № 125890) → Kia K5 (Обява № 130001)."
+                        + " Предишната е върната в сайта.");
+        assertThat(OrderService.changeNote(null, null, "Kia K5", 130001, false))
+                .isEqualTo("Колата е сменена: кола → Kia K5 (Обява № 130001).");
+    }
+
     private static OrderRow row(long id, String name, String phone, String carTitle, Instant next, int candidates) {
         CarSnapshot car = new CarSnapshot(carTitle, null, null, null, null, null, null, null, null, null);
         Customer customer = new Customer(name, phone, null, null, null, null, null);

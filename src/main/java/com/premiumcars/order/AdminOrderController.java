@@ -31,6 +31,7 @@ import com.premiumcars.order.OrderDocumentService.FileContent;
 import com.premiumcars.order.OrderDocumentService.Upload;
 import com.premiumcars.order.OrderDtos.CandidateRequest;
 import com.premiumcars.order.OrderDtos.CarLookup;
+import com.premiumcars.order.OrderDtos.ChangeCarRequest;
 import com.premiumcars.order.OrderDtos.ChooseRequest;
 import com.premiumcars.order.OrderDtos.ContactRequest;
 import com.premiumcars.order.OrderDtos.FollowUps;
@@ -112,6 +113,14 @@ public class AdminOrderController {
     public AdminOrder chooseCandidate(@PathVariable long id, @PathVariable long candidateId,
                                       @RequestBody(required = false) ChooseRequest request) {
         return service.chooseCandidate(id, candidateId, request == null ? null : request.status());
+    }
+
+    /** An agreed order takes another car; the previous one stays among the offered cars. */
+    @PostMapping("/{id}/car")
+    public AdminOrder changeCar(@PathVariable long id, @Valid @RequestBody ChangeCarRequest request,
+                                Principal principal) {
+        return service.changeCar(id, request.q(), request.republishOld(),
+                principal == null ? null : principal.getName());
     }
 
     @PostMapping("/{id}/contacts")
