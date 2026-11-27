@@ -180,6 +180,8 @@ class AutoImportRunnerTest {
         assertThat(listings.repriceCarIds(CarSource.GUAZI)).doesNotContain(a.id(), b.id());
         listings.markReprice(CarSource.GUAZI, List.of("rpa1"));
         assertThat(listings.repriceCarIds(CarSource.GUAZI)).contains(a.id()).doesNotContain(b.id());
+        runner.resumeReprice();
+        assertThat(runner.repricePending(CarSource.GUAZI)).isTrue();
         listings.clearReprice(CarSource.GUAZI, a.id());
         assertThat(listings.repriceCarIds(CarSource.GUAZI)).doesNotContain(a.id());
     }

@@ -120,6 +120,22 @@ public class AutoImportRunner {
     public void abandonInterruptedRuns() {
         if (instance.enabled()) { // a run marked RUNNING may be the other server's
             runs.abandonRunning();
+            resumeReprice();
+        }
+    }
+
+    /**
+     * After a restart: the sources with cars still marked for a new price get their recalculation again, once, when
+     * their import queue is empty (as after a run).
+     */
+    void resumeReprice() {
+        for (CarSource source : CarSource.values()) {
+            int waiting = listings.repriceCarIds(source).size();
+            if (waiting > 0) {
+                repricePending.add(source);
+                log.info("Auto-import {}: {} cars with a changed price wait: recalculated once its queue is empty",
+                        source, waiting);
+            }
         }
     }
 
@@ -477,8 +493,13 @@ public class AutoImportRunner {
         return out;
     }
 
-    /** The sources whose run left cars to recalculate, for their import queue once it is empty. */
+    /** The sources whose run (or a restart) left cars to recalculate, for their import queue once it is empty. */
     private final Set<CarSource> repricePending = ConcurrentHashMap.newKeySet();
+
+    /** Whether the source's queue will recalculate the cars with a changed price once it is empty (tests). */
+    boolean repricePending(CarSource source) {
+        return repricePending.contains(source);
+    }
 
     /**
      * Called by the source's import queue once it is empty: after a run that left cars with a changed price, those
