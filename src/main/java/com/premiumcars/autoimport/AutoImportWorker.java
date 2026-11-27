@@ -124,6 +124,8 @@ public class AutoImportWorker {
                     && !paused(source) && !runner.running(source)) {
                 Optional<Listing> next = listings.nextQueued(List.of(source));
                 if (next.isEmpty()) {
+                    // the new cars are in: now the prices that changed in the run's search (once per run)
+                    runner.recalculateChangedAfterQueue(source);
                     break;
                 }
                 current.put(source, new Current(next.get().listingId(), Instant.now(), Thread.currentThread(),

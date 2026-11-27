@@ -18,16 +18,19 @@ class PriceMoveTest {
 
     @Test
     void testMovedPrices_AllMoveWithTheRate_NoneChanged() {
-        List<PriceMove> moves = List.of(move("a", "10000", "10120"), move("b", "20000", "20240"),
-                move("c", "15000", "15180"));
+        List<PriceMove> moves = java.util.stream.IntStream.range(0, 12)
+                .mapToObj(i -> move("l" + i, String.valueOf(10000 + i * 1000), String.valueOf((10000 + i * 1000) * 1.012)))
+                .toList();
 
         assertThat(AutoImportRunner.movedPrices(moves)).isEmpty();
     }
 
     @Test
     void testMovedPrices_OneDropsBesidesTheRate_OnlyThatOne() {
-        List<PriceMove> moves = List.of(move("a", "10000", "10120"), move("b", "20000", "20240"),
-                move("c", "15000", "14000"), move("d", "12000", "12144"));
+        List<PriceMove> moves = new java.util.ArrayList<>(java.util.stream.IntStream.range(0, 11)
+                .mapToObj(i -> move("l" + i, String.valueOf(10000 + i * 1000), String.valueOf((10000 + i * 1000) * 1.012)))
+                .toList());
+        moves.add(move("c", "15000", "14000"));
 
         assertThat(AutoImportRunner.movedPrices(moves)).containsExactly("c");
     }
@@ -39,6 +42,13 @@ class PriceMoveTest {
 
         assertThat(AutoImportRunner.movedPrices(moves)).containsExactly("b");
         assertThat(AutoImportRunner.movedPrices(List.of())).isEmpty();
+    }
+
+    @Test
+    void testMovedPrices_TwoListingsOneChanged_OnlyThatOne() {
+        List<PriceMove> moves = List.of(move("a", "15000", "15000"), move("b", "15000", "13900"));
+
+        assertThat(AutoImportRunner.movedPrices(moves)).containsExactly("b");
     }
 
     @Test

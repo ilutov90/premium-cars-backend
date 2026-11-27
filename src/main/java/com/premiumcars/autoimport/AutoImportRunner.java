@@ -418,7 +418,12 @@ public class AutoImportRunner {
             }
         } else {
             listings.markReprice(source, moved);
-            notes.addAll(recalculateChanged(source, moved.size()));
+            int waiting = listings.repriceCarIds(source).size();
+            if (waiting > 0) {
+                repricePending.add(source);
+                notes.add(moved.size() + " cars with a changed price tonight (" + waiting + " to recalculate): their"
+                        + " prices are recalculated once the new cars are imported (\"Цени\" report)");
+            }
         }
 
         if (dryRun) {
@@ -446,6 +451,8 @@ public class AutoImportRunner {
 
     /** A price that moved by more than this share, besides the run's typical move, changed. */
     static final double PRICE_MOVE = 0.005;
+    /** The run's typical move counts from this many linked listings on. */
+    static final int TYPICAL_MOVE_FROM = 10;
 
     /**
      * The listings whose price changed: moved by more than {@value #PRICE_MOVE} besides the typical move of all the
@@ -458,7 +465,9 @@ public class AutoImportRunner {
         }
         double[] ratios = moves.stream().mapToDouble(PriceMove::ratio).sorted().toArray();
         int n = ratios.length;
-        double median = n % 2 == 1 ? ratios[n / 2] : (ratios[n / 2 - 1] + ratios[n / 2]) / 2;
+        // a few listings tell no typical move: their own move counts
+        double median = n < TYPICAL_MOVE_FROM ? 1
+                : n % 2 == 1 ? ratios[n / 2] : (ratios[n / 2 - 1] + ratios[n / 2]) / 2;
         Set<String> out = new LinkedHashSet<>();
         for (PriceMove m : moves) {
             if (Math.abs(m.ratio() / median - 1) > PRICE_MOVE) {
@@ -468,26 +477,34 @@ public class AutoImportRunner {
         return out;
     }
 
+    /** The sources whose run left cars to recalculate, for their import queue once it is empty. */
+    private final Set<CarSource> repricePending = ConcurrentHashMap.newKeySet();
+
     /**
-     * The source's cars waiting for a new price (tonight's and those a run before could not do) are recalculated
-     * now, on this run's thread; the notes for the run's report.
+     * Called by the source's import queue once it is empty: after a run that left cars with a changed price, those
+     * cars (tonight's and those a run before could not do) are recalculated now, on the queue's thread; at most once
+     * per run, and it stops when the source's next run starts.
      */
-    private List<String> recalculateChanged(CarSource source, int movedTonight) {
+    public void recalculateChangedAfterQueue(CarSource source) {
+        if (!repricePending.remove(source)) {
+            return;
+        }
         List<Long> ids = listings.repriceCarIds(source);
         if (ids.isEmpty()) {
-            return List.of();
+            return;
         }
         try {
             PriceRecalcRepository.Run r = priceRecalc.recalculateChanged(source, ids, "auto-import",
-                    carId -> listings.clearReprice(source, carId));
+                    carId -> listings.clearReprice(source, carId), () -> !running(source));
             if (r == null) {
-                return List.of(ids.size() + " cars with a changed price wait: an admin's price recalculation runs");
+                log.info("Auto-import {}: {} cars with a changed price wait: an admin's price recalculation runs",
+                        source, ids.size());
+            } else {
+                log.info("Auto-import {}: price recalculation {} of the cars with a changed price: {} of {}, {} new"
+                        + " prices", source, r.id(), r.processed(), ids.size(), r.changed());
             }
-            return List.of(movedTonight + " cars with a changed price tonight; price recalculation " + r.id()
-                    + ": " + r.processed() + " of " + ids.size() + " cars, " + r.changed() + " new prices");
         } catch (RuntimeException e) {
             log.warn("Auto-import {}: recalculating the changed prices failed", source, e);
-            return List.of(ids.size() + " cars with a changed price wait: " + e.getMessage());
         }
     }
 
