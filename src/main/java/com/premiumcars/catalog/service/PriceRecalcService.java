@@ -184,12 +184,38 @@ public class PriceRecalcService {
         return runs.find(id).orElseThrow();
     }
 
+    /** {@code price_recalc_run.mode} of the automatic import's recalculations (never resumed after a restart). */
+    public static final String CHANGED_MODE = "CHANGED";
+    /** A {@value #CHANGED_MODE} recalculation stops after this many unread listings in a row. */
+    static final int CHANGED_MAX_UNREAD = 20;
+
+    /**
+     * After an automatic import's run, once that site's new cars are imported (on its import queue's thread: one
+     * stream of requests per site): the cars whose price changed in the site's search have their listing read again
+     * and their price recalculated, as a {@link Mode#SOURCE} recalculation with its own report ({@value #CHANGED_MODE}).
+     * Skipped (null) while an admin's recalculation runs; a run cut by a restart is abandoned, one that cannot read
+     * {@value #CHANGED_MAX_UNREAD} listings in a row stops, one stops when {@code goOn} says no (the site's next run
+     * starts), and the cars it did not do (or could not read) wait for the next run ({@code done} hears of each car
+     * done).
+     */
+    public Run recalculateChanged(CarSource source, List<Long> ids, String by, java.util.function.LongConsumer done,
+                                  java.util.function.BooleanSupplier goOn) {
+        if (busy || ids.isEmpty()) {
+            return null;
+        }
+        long id = runs.start(source.name(), CHANGED_MODE, by, ids.size(), ids.getLast());
+        log.info("Price recalculation {} for the {} cars of {} whose price changed in the search", id, ids.size(),
+                source);
+        run(id, ids, Mode.SOURCE, Counters.ZERO, done, CHANGED_MAX_UNREAD, goOn);
+        return runs.find(id).orElseThrow();
+    }
+
     private void submit(long id, List<Long> ids, Mode mode, Counters from) {
         busy = true;
         try {
             executor.submit(() -> {
                 try {
-                    run(id, ids, mode, from);
+                    run(id, ids, mode, from, carId -> { }, 0, () -> true);
                 } finally {
                     busy = false;
                 }
@@ -268,11 +294,23 @@ public class PriceRecalcService {
      * few cars done since it was saved have no report line, so doing them again changes nothing.
      */
     void run(long runId, List<Long> ids, Mode mode, Counters from) {
+        run(runId, ids, mode, from, carId -> { }, 0, () -> true);
+    }
+
+    /**
+     * As above; {@code onCar} hears of each car once its new price is saved (or it needed none), not of a car whose
+     * listing could not be read; {@code maxUnreadInRow} > 0 ends the run (FAILED) after that many such cars in a row
+     * (the site refuses the server: the rest wait for another run); it ends (DONE, with a note) as soon as
+     * {@code goOn} says no.
+     */
+    void run(long runId, List<Long> ids, Mode mode, Counters from, java.util.function.LongConsumer onCar,
+             int maxUnreadInRow, java.util.function.BooleanSupplier goOn) {
         Map<PriceProfile, PricingProfile> byId = profiles.findAll().stream()
                 .collect(Collectors.toMap(PricingProfile::id, Function.identity()));
         Counters done = from;
         Long last = null;
         int sinceProgress = 0;
+        int unreadInRow = 0;
         try {
             for (Long carId : ids) {
                 if (stopping) {
@@ -280,6 +318,13 @@ public class PriceRecalcService {
                     progress(runId, done, last);
                     log.info("Price recalculation {} stops for the shutdown after car {}: {} done", runId, last,
                             done.processed());
+                    return;
+                }
+                if (!goOn.getAsBoolean()) {
+                    progress(runId, done, last);
+                    runs.finish(runId, "DONE", "Stopped after " + done.processed() + " cars: the site's next import"
+                            + " run started; the other cars wait for the next run");
+                    log.info("Price recalculation {} stops: the site's import run started", runId);
                     return;
                 }
                 Car c = cars.findById(carId).orElse(null);
@@ -301,6 +346,19 @@ public class PriceRecalcService {
                 }
                 done = now;
                 last = carId;
+                boolean unread = withItem && o.item().kind().equals("FAILED");
+                if (!unread) {
+                    onCar.accept(carId);
+                }
+                unreadInRow = unread ? unreadInRow + 1 : 0;
+                if (maxUnreadInRow > 0 && unreadInRow >= maxUnreadInRow) {
+                    progress(runId, done, last);
+                    runs.finish(runId, "FAILED", unreadInRow + " listings in a row could not be read (the site"
+                            + " refuses the server?): the other cars wait for the next run");
+                    log.warn("Price recalculation {} stopped: {} listings in a row could not be read", runId,
+                            unreadInRow);
+                    return;
+                }
                 sinceProgress = withItem ? 0 : sinceProgress + 1;
                 if (sinceProgress >= PROGRESS_EVERY) {
                     progress(runId, done, carId);

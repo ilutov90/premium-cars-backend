@@ -21,9 +21,17 @@ public class PriceLimit {
         this.rates = rates;
     }
 
-    /** The currency of a source's search prices (and so of {@code auto_import_listing.price}). */
+    /**
+     * The currency of a source's search prices (and so of {@code auto_import_listing.price}): guazi USD, autotrader.ca
+     * CAD, autowini EUR (its search answers the server in euro: the same day's imports, priced in euro from the
+     * listing's USD price at autowini's rate, are 0.98 of it, Nov 2026).
+     */
     public static String currency(com.premiumcars.catalog.domain.CarSource source) {
-        return source == com.premiumcars.catalog.domain.CarSource.AUTOTRADER_CA ? "CAD" : "USD";
+        return switch (source) {
+            case AUTOTRADER_CA -> "CAD";
+            case AUTOWINI -> "EUR";
+            default -> "USD";
+        };
     }
 
     /** The limit now; null = none. */

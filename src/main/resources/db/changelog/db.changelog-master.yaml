@@ -101,3 +101,5 @@ databaseChangeLog:
       file: db/changelog/changes/050-scheduled-post-link-url.sql
   - include:
       file: db/changelog/changes/051-order-leads.sql
+  - include:
+      file: db/changelog/changes/052-auto-import-reprice.sql
