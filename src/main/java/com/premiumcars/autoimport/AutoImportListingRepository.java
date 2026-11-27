@@ -468,4 +468,31 @@ public class AutoImportListingRepository {
     private static String cut(String s, int max) {
         return s == null || s.length() <= max ? s : s.substring(0, max);
     }
+
+    // ---------------------------------------------------------------- changed prices
+
+    /** These listings' cars get their price recalculated (their search price changed). */
+    public void markReprice(CarSource source, Collection<String> listingIds) {
+        if (listingIds.isEmpty()) {
+            return;
+        }
+        jdbc.sql("""
+                UPDATE auto_import_listing SET reprice_since = COALESCE(reprice_since, now())
+                 WHERE source = :source AND listing_id IN (:ids) AND car_id IS NOT NULL""")
+                .param("source", source.name()).param("ids", List.copyOf(listingIds)).update();
+    }
+
+    /** The cars waiting for their price to be recalculated, by id. */
+    public List<Long> repriceCarIds(CarSource source) {
+        return jdbc.sql("""
+                SELECT DISTINCT l.car_id FROM auto_import_listing l JOIN car c ON c.id = l.car_id
+                 WHERE l.source = :source AND l.reprice_since IS NOT NULL ORDER BY l.car_id""")
+                .param("source", source.name()).query(Long.class).list();
+    }
+
+    /** The car's price was recalculated. */
+    public void clearReprice(CarSource source, long carId) {
+        jdbc.sql("UPDATE auto_import_listing SET reprice_since = NULL WHERE source = :source AND car_id = :carId")
+                .param("source", source.name()).param("carId", carId).update();
+    }
 }

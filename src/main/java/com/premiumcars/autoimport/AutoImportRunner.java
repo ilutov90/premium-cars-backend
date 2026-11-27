@@ -8,6 +8,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,7 +41,9 @@ import com.premiumcars.catalog.domain.CarStatus;
 import com.premiumcars.catalog.domain.MakeNames;
 import com.premiumcars.catalog.repo.CarRepository;
 import com.premiumcars.catalog.repo.CarRepository.CheckedCar;
+import com.premiumcars.catalog.repo.PriceRecalcRepository;
 import com.premiumcars.catalog.service.CarService;
+import com.premiumcars.catalog.service.PriceRecalcService;
 import com.premiumcars.pricing.PriceBreakdown;
 import com.premiumcars.social.PostedChannels;
 
@@ -94,11 +97,14 @@ public class AutoImportRunner {
     private final PriceLimit priceLimit;
     private final AutoImportInstance instance;
 
+    private final PriceRecalcService priceRecalc;
+
     public AutoImportRunner(List<SourceSearch> searches, AutoImportSettingsRepository settings,
                             AutoImportListingRepository listings, AutoImportRunRepository runs, CarRepository cars,
                             CarService carService, AutoImportMailer mailer, PostedChannels posted,
-                            PriceLimit priceLimit, AutoImportInstance instance) {
+                            PriceLimit priceLimit, AutoImportInstance instance, PriceRecalcService priceRecalc) {
         this.instance = instance;
+        this.priceRecalc = priceRecalc;
         searches.forEach(s -> this.searches.put(s.source(), s));
         this.settings = settings;
         this.listings = listings;
@@ -282,11 +288,18 @@ public class AutoImportRunner {
         int overPrice = 0;
         int unpriced = 0;
         int renamed = 0;
+        List<PriceMove> moves = new ArrayList<>();
         for (FoundListing l : found.values()) {
             Optional<Listing> known = listings.find(source, l.id());
             Long carId = known.map(Listing::carId).orElse(null);
             Optional<Car> car = carId != null ? cars.findById(carId)
                     : cars.findBySourceUrl(l.url()).or(() -> cars.findBySourceRef(source, l.id()));
+            if (car.isPresent() && known.isPresent()) {
+                PriceMove m = PriceMove.of(l.id(), known.get().price(), l.price());
+                if (m != null) {
+                    moves.add(m);
+                }
+            }
             boolean over = maxKm != null && l.mileageKm() != null && l.mileageKm() > maxKm;
             boolean priced = search.priced(l);
             boolean tooDear = priced && priceLimit.over(l.price(), search.currency(), maxEur);
@@ -397,6 +410,17 @@ public class AutoImportRunner {
             status = "STOPPED";
         }
 
+        // the linked cars whose price moved in the search: their listing read again and their price recalculated
+        Set<String> moved = movedPrices(moves);
+        if (dryRun) {
+            if (!moved.isEmpty()) {
+                notes.add(moved.size() + " cars with a changed price (their prices would be recalculated)");
+            }
+        } else {
+            listings.markReprice(source, moved);
+            notes.addAll(recalculateChanged(source, moved.size()));
+        }
+
         if (dryRun) {
             notes.add(0, "dry run: nothing was changed; " + carsToDelete + " of the would-be removed are in our catalog");
         }
@@ -405,6 +429,66 @@ public class AutoImportRunner {
     }
 
     record ManualCheck(int checked, int gone, int returned, boolean stopped) {
+    }
+
+    /** A linked car's search price: the one the last run saw and tonight's (both positive). */
+    record PriceMove(String listingId, BigDecimal before, BigDecimal now) {
+
+        static PriceMove of(String listingId, BigDecimal before, BigDecimal now) {
+            return before == null || now == null || before.signum() <= 0 || now.signum() <= 0 ? null
+                    : new PriceMove(listingId, before, now);
+        }
+
+        double ratio() {
+            return now.doubleValue() / before.doubleValue();
+        }
+    }
+
+    /** A price that moved by more than this share, besides the run's typical move, changed. */
+    static final double PRICE_MOVE = 0.005;
+
+    /**
+     * The listings whose price changed: moved by more than {@value #PRICE_MOVE} besides the typical move of all the
+     * run's linked listings (their median ratio). autowini's search prices follow an exchange rate and all move a
+     * little from day to day; such a move alone changes no car.
+     */
+    static Set<String> movedPrices(List<PriceMove> moves) {
+        if (moves.isEmpty()) {
+            return Set.of();
+        }
+        double[] ratios = moves.stream().mapToDouble(PriceMove::ratio).sorted().toArray();
+        int n = ratios.length;
+        double median = n % 2 == 1 ? ratios[n / 2] : (ratios[n / 2 - 1] + ratios[n / 2]) / 2;
+        Set<String> out = new LinkedHashSet<>();
+        for (PriceMove m : moves) {
+            if (Math.abs(m.ratio() / median - 1) > PRICE_MOVE) {
+                out.add(m.listingId());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The source's cars waiting for a new price (tonight's and those a run before could not do) are recalculated
+     * now, on this run's thread; the notes for the run's report.
+     */
+    private List<String> recalculateChanged(CarSource source, int movedTonight) {
+        List<Long> ids = listings.repriceCarIds(source);
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        try {
+            PriceRecalcRepository.Run r = priceRecalc.recalculateChanged(source, ids, "auto-import",
+                    carId -> listings.clearReprice(source, carId));
+            if (r == null) {
+                return List.of(ids.size() + " cars with a changed price wait: an admin's price recalculation runs");
+            }
+            return List.of(movedTonight + " cars with a changed price tonight; price recalculation " + r.id()
+                    + ": " + r.processed() + " of " + ids.size() + " cars, " + r.changed() + " new prices");
+        } catch (RuntimeException e) {
+            log.warn("Auto-import {}: recalculating the changed prices failed", source, e);
+            return List.of(ids.size() + " cars with a changed price wait: " + e.getMessage());
+        }
     }
 
     /**

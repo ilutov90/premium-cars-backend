@@ -35,7 +35,7 @@ import com.premiumcars.importing.source.autowini.AutowiniPageParser;
  * {@code GET /items/cars?make=C0810&modelYearFrom=2018&inspectionReportUploaded=true&actualMileage=true
  * &location=C1570&pageOffset=1&pageSize=40} ({@code data.totalCount}, {@code data.items[]}), {@code /items/cars/count} and
  * {@code /items/cars/filters} (makes; with {@code make=...} its sub-models). Models are autowini's "sub-models"
- * (Carnival, K5, ...). Prices are FOB in USD, as the importer reads them anyway.
+ * (Carnival, K5, ...). Prices are FOB, in euro as the search answers the server ({@link PriceLimit#currency}).
  */
 @Component
 public class AutowiniSearch implements SourceSearch {

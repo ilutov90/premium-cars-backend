@@ -161,6 +161,30 @@ class AutoImportRunnerTest {
             new SourceFilters(false, false, List.of("S", "A", "B")), Instant.now());
 
     @Test
+    void testPass_LinkedCarPriceChanged_DryRunCountsItAndRepriceWaitsUntilCleared() {
+        var a = carService.createDraft(new ImportedCar("rpa1", null, CarSpecs.builder().title("BYD Seal RP1").build(),
+                new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI, listing("rpa1").url());
+        var b = carService.createDraft(new ImportedCar("rpb2", null, CarSpecs.builder().title("BYD Seal RP2").build(),
+                new BigDecimal("15000"), "USD", List.of(), List.of()), CarSource.GUAZI, listing("rpb2").url());
+        carService.changeStatus(a.id(), CarStatus.PUBLISHED);
+        carService.changeStatus(b.id(), CarStatus.PUBLISHED);
+        FakeSearch search = new FakeSearch();
+        search.results.put("1212", List.of(listing("rpa1"), listing("rpb2")));
+        runner.pass(search, GUAZI, false);
+        search.results.put("1212", List.of(new FoundListing("rpa1", listing("rpa1").url(), "BYD Seal rpa1",
+                new BigDecimal("13900"), null), listing("rpb2")));
+
+        Result dry = runner.pass(search, GUAZI, true);
+
+        assertThat(dry.message()).contains("1 cars with a changed price");
+        assertThat(listings.repriceCarIds(CarSource.GUAZI)).doesNotContain(a.id(), b.id());
+        listings.markReprice(CarSource.GUAZI, List.of("rpa1"));
+        assertThat(listings.repriceCarIds(CarSource.GUAZI)).contains(a.id()).doesNotContain(b.id());
+        listings.clearReprice(CarSource.GUAZI, a.id());
+        assertThat(listings.repriceCarIds(CarSource.GUAZI)).doesNotContain(a.id());
+    }
+
+    @Test
     void runsKeepTheCatalogInStepWithTheSource() {
         // the seeded makes; BYD is 1212, Kia 1292
         assertThat(settings.brands(CarSource.GUAZI)).extracting(Brand::code).contains("1212", "1292", "104012");
