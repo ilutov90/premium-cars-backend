@@ -507,4 +507,16 @@ public class CarRepository {
     private static String name(Enum<?> value) {
         return value == null ? null : value.name();
     }
+
+    /** The site's drafts that can go on the site: with a final price and at least one photo, by id. */
+    public List<Long> findPublishableDraftIds(CarSource source) {
+        return jdbc.sql("""
+                SELECT c.id FROM car c
+                 WHERE c.source = :source AND c.status = 'DRAFT' AND c.total_price_eur IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM car_image i WHERE i.car_id = c.id)
+                 ORDER BY c.id""")
+                .param("source", source.name())
+                .query(Long.class)
+                .list();
+    }
 }

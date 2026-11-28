@@ -122,6 +122,9 @@ class JdbcRepositoriesTest {
     CarImageRepository carImages;
 
     @Autowired
+    com.premiumcars.autoimport.AutoImportService autoImportService;
+
+    @Autowired
     SocialPostRepository socialPosts;
 
     @Autowired
@@ -1457,6 +1460,30 @@ class JdbcRepositoriesTest {
                 .isEqualTo(com.premiumcars.autoimport.RemovedGroupBy.MAKE);
         assertThat(com.premiumcars.autoimport.RemovedGroupBy.parse("model_year"))
                 .isEqualTo(com.premiumcars.autoimport.RemovedGroupBy.MODEL_YEAR);
+    }
+
+    @Test
+    void testPublishDrafts_HiddenAutotraderCars_OnlyThoseWithPriceAndPhotosPublished() {
+        AdminCar ready = carService.createDraft(new ImportedCar("ca-ready-1", null,
+                CarSpecs.builder().title("Honda CR-V Ready").make("Honda").model("CR-V").year(2021).build(),
+                new BigDecimal("28000"), "CAD", List.of(), List.of()), CarSource.AUTOTRADER_CA,
+                "https://www.autotrader.ca/offers/x-ca-ready-1");
+        carImages.append(ready.id(), null, "https://cdn.example.com/ca-ready-1.jpg");
+        AdminCar noPhoto = carService.createDraft(new ImportedCar("ca-nophoto-2", null,
+                CarSpecs.builder().title("Honda CR-V No Photo").make("Honda").model("CR-V").year(2021).build(),
+                new BigDecimal("28000"), "CAD", List.of(), List.of()), CarSource.AUTOTRADER_CA,
+                "https://www.autotrader.ca/offers/x-ca-nophoto-2");
+
+        int before = autoImportService.drafts(CarSource.AUTOTRADER_CA).count();
+        var published = autoImportService.publishDrafts(CarSource.AUTOTRADER_CA);
+
+        assertThat(before).isGreaterThanOrEqualTo(1);
+        assertThat(published.count()).isEqualTo(before);
+        assertThat(carService.getAdmin(ready.id()).status()).isEqualTo(CarStatus.PUBLISHED);
+        assertThat(carService.getAdmin(noPhoto.id()).status()).isEqualTo(CarStatus.DRAFT);
+        assertThat(autoImportService.drafts(CarSource.AUTOTRADER_CA).count()).isZero();
+        carService.delete(ready.id());
+        carService.delete(noPhoto.id());
     }
 
     private AdminCar orderTestCar(String title) {

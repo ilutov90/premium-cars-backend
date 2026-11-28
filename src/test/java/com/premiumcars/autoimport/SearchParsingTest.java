@@ -104,6 +104,15 @@ class SearchParsingTest {
     }
 
     @Test
+    void testSourceFilters_savedWithHideNew_hideNewKeptThroughAutotrader() throws Exception {
+        SourceFilters f = new ObjectMapper().readValue("{\"inspected\":false,\"actualMileage\":false,\"grades\":[],"
+                + "\"hideNew\":true}", SourceFilters.class);
+
+        assertThat(f.hideNew()).isTrue();
+        assertThat(f.withAutotrader(null).hideNew()).isTrue();
+    }
+
+    @Test
     void testListedQuery_koreaOnly_keywordWithLocation() {
         assertThat(AutowiniSearch.listedQuery("IC5489163", new SourceFilters(false, false, List.of(), null, true)))
                 .containsExactly(Map.entry("keyword", "IC5489163"), Map.entry("location", "C1570"));
@@ -119,6 +128,7 @@ class SearchParsingTest {
 
         assertThat(f.koreaOnly()).isTrue();
         assertThat(f.inspected()).isTrue();
+        assertThat(f.hideNew()).isFalse();
     }
 
     @Test
