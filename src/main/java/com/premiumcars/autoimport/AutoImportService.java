@@ -39,6 +39,8 @@ public class AutoImportService {
 
     private static final Set<String> GRADES = Set.of("S", "A", "B", "C", "D");
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AutoImportService.class);
+
     private final AutoImportSettingsRepository settings;
     private final AutoImportListingRepository listings;
     private final AutoImportRunRepository runs;
@@ -200,6 +202,25 @@ public class AutoImportService {
     }
 
     /** How many cars of the source are on the site or drafts. */
+    /** How many of the source's drafts {@link #publishDrafts} would put on the site. */
+    public Drafts drafts(CarSource source) {
+        return new Drafts(cars.findPublishableDraftIds(source).size());
+    }
+
+    /** Puts the source's drafts with a final price and photos on the site (the others stay drafts). */
+    public Drafts publishDrafts(CarSource source) {
+        List<Long> ids = cars.findPublishableDraftIds(source);
+        for (Long id : ids) {
+            carService.changeStatus(id, com.premiumcars.catalog.domain.CarStatus.PUBLISHED);
+        }
+        log.info("Auto-import {}: {} drafts published by an admin", source, ids.size());
+        return new Drafts(ids.size());
+    }
+
+    /** @param count the drafts with a final price and photos (to publish, or just published) */
+    public record Drafts(int count) {
+    }
+
     public AutoImportListingRepository.CatalogCheck check(CarSource source) {
         settingsOf(source);
         return listings.check(source);

@@ -217,6 +217,9 @@ public class AutoImportWorker {
             if (car.status() == CarStatus.DRAFT) {
                 if (car.images().isEmpty()) {
                     note = "No photos: left as a draft";
+                } else if (settings.source(l.source()).map(s -> Boolean.TRUE.equals(s.filters().hideNew()))
+                        .orElse(false)) {
+                    note = "New cars hidden for this site: left as a draft";
                 } else {
                     carService.changeStatus(car.id(), CarStatus.PUBLISHED);
                 }

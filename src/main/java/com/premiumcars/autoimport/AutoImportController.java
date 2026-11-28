@@ -124,6 +124,18 @@ public class AutoImportController {
         return service.fuels(source, brandCode, model, yearFrom);
     }
 
+    /** How many of the source's drafts have a final price and photos (what "publish" puts on the site). */
+    @GetMapping("/{source}/drafts")
+    public AutoImportService.Drafts drafts(@PathVariable CarSource source) {
+        return service.drafts(source);
+    }
+
+    /** Puts those drafts on the site; the others stay drafts. */
+    @org.springframework.web.bind.annotation.PostMapping("/{source}/drafts/publish")
+    public AutoImportService.Drafts publishDrafts(@PathVariable CarSource source) {
+        return service.publishDrafts(source);
+    }
+
     /** How many cars of the source are on the site or drafts. */
     @GetMapping("/{source}/check")
     public AutoImportListingRepository.CatalogCheck check(@PathVariable CarSource source) {
